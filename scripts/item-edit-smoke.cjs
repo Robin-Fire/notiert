@@ -35,13 +35,13 @@ app.whenReady().then(async () => {
   await wait(350)
   await evaluate(`[...document.querySelectorAll('.note-row-open')].find(button=>button.textContent.includes('Screenshot context')).click()`)
   await wait(200)
-  await evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='Edit item').click()`)
-  await wait(150)
+  assert.equal(await evaluate(`Boolean(document.querySelector('.task-detail-dialog'))`),true)
+  assert.equal(await evaluate(`Boolean(document.querySelector('.detail-panel'))`),false)
   await evaluate(`(()=>{
     const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl8n+QAAAAASUVORK5CYII=';
     const bytes=Uint8Array.from(atob(png),value=>value.charCodeAt(0));
     const transfer=new DataTransfer();transfer.items.add(new File([bytes],'snip.png',{type:'image/png'}));
-    document.querySelector('.note-editor').dispatchEvent(new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true}));
+    document.querySelector('.task-detail-editor').dispatchEvent(new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true}));
   })()`)
   await wait(200)
   assert.equal(await evaluate(`document.querySelectorAll('.attachment-thumbnail').length`),1)
@@ -65,7 +65,8 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(`document.querySelectorAll('.task-detail-dialog .attachment-thumbnail img').length`),1)
     assert.equal(await evaluate(`(()=>{const el=document.querySelector('.task-detail-dialog');return el.scrollHeight<=el.clientHeight||getComputedStyle(el).overflowY==='auto'})()`),true)
   }
-  await evaluate(`document.querySelector('.edit-button').click()`)
+  assert.equal(await evaluate(`Boolean(document.querySelector('.task-detail-dialog'))`),false)
+  await evaluate(`[...document.querySelectorAll('.note-row-open')].find(button=>button.textContent.includes('Screenshot context')).click()`)
   await checkImages()
   assert.equal(await evaluate(`document.querySelector('.task-schedule-fields select').value`),'backlog')
   await screenshot('item-edit-all-light.png')

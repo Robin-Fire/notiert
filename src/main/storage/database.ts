@@ -23,11 +23,11 @@ function decodeImage(dataUrl: string) {
 }
 
 type NoteRow = { id: string; body: string; meeting_id: string | null; created_at: number; updated_at: number; deleted_at: number | null; revision: number; meeting_title: string | null; kind: 'inbox' | 'note' | 'task'; processed_at: number | null; completed_at: number | null; tag_names: string | null; image_refs: string | null; task_status: 'open' | 'done' | null; planned_date: string | null; task_position: number; backlog_position: number; before_event_id: string | null; project_id: string | null; subcategory_id: string | null; task_ready: number; is_later: number }
-type PlannerEventRow = { id: string; title: string; start_at: number; end_at: number; all_day: number }
+type PlannerEventRow = { id: string; title: string; start_at: number; end_at: number; all_day: number; series_id: string | null }
 const NOTE_PROJECTION = "n.*,m.title AS meeting_title,(SELECT group_concat(t.name,char(31)) FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id) AS tag_names,(SELECT group_concat(ref,char(31)) FROM (SELECT i.id||':'||i.mime_type AS ref FROM item_images i WHERE i.note_id=n.id ORDER BY i.position)) AS image_refs"
 const NOTE_FROM = 'FROM notes n LEFT JOIN legacy_meeting_sessions m ON m.id=n.meeting_id'
 const noteFrom = (row: NoteRow): Note & { meetingTitle: string | null } => ({ id: row.id, body: row.body, meetingId: row.meeting_id, createdAt: row.created_at, updatedAt: row.updated_at, deletedAt: row.deleted_at, revision: row.revision, meetingTitle: row.meeting_title, kind: row.kind, processedAt: row.processed_at, completedAt: row.completed_at, later: Boolean(row.is_later), categoryId: row.project_id, subcategoryId: row.subcategory_id, tags: row.tag_names ? row.tag_names.split('\x1f') : [], images: row.image_refs ? row.image_refs.split('\x1f').map((value) => { const [id, mimeType] = value.split(':'); return { id: id!, mimeType: mimeType as ImageRef['mimeType'] } }) : [] })
-const eventFrom = (row: PlannerEventRow): PlannerEvent => ({ id: row.id, title: row.title, startAt: row.start_at, endAt: row.end_at, allDay: Boolean(row.all_day) })
+const eventFrom = (row: PlannerEventRow): PlannerEvent => ({ id: row.id, title: row.title, startAt: row.start_at, endAt: row.end_at, allDay: Boolean(row.all_day), seriesId: row.series_id })
 const taskFrom = (row: NoteRow & { planned_start_at?: number | null; planned_end_at?: number | null }): PlannerTask => ({ ...noteFrom(row), plannedDate: row.planned_date, plannedStartAt: row.planned_start_at ?? null, plannedEndAt: row.planned_end_at ?? null, position: row.task_position, priorityPosition: row.backlog_position, beforeEventId: row.before_event_id, ready: Boolean(row.task_ready), later: Boolean(row.is_later) })
 function normalizeTags(tags: string[]) {
   return [...new Map(tags.map((tag) => tag.trim().replace(/\s+/g, ' ').slice(0, 40)).filter(Boolean).map((tag): [string, string] => [tag.toLowerCase(), tag])).values()].slice(0, 20)
@@ -62,8 +62,8 @@ export class Store {
   private migrate() {
     const hasMigrationTable = Boolean(this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").get())
     const currentVersion = hasMigrationTable ? (this.db.prepare('SELECT max(version) AS version FROM schema_migrations').get() as { version: number | null }).version ?? 0 : 0
-    if (currentVersion > 12) throw new AppError('DB_NEWER_VERSION', 'This database has an unsupported captured schema.')
-    if (hasMigrationTable && currentVersion < 12) {
+    if (currentVersion > 13) throw new AppError('DB_NEWER_VERSION', 'This database has an unsupported captured schema.')
+    if (hasMigrationTable && currentVersion < 13) {
       const backupDirectory = path.join(path.dirname(this.path), 'backups')
       fs.mkdirSync(backupDirectory, { recursive: true })
       const checkpoint = this.db.pragma('wal_checkpoint(TRUNCATE)') as { busy: number }[]
@@ -269,8 +269,12 @@ export class Store {
         this.db.prepare('INSERT INTO schema_migrations VALUES(12,?)').run(Date.now())
       })()
     }
+    if (!applied.has(13)) this.db.transaction(() => {
+      this.db.exec('ALTER TABLE planner_events ADD COLUMN series_id TEXT; CREATE INDEX planner_events_series ON planner_events(series_id);')
+      this.db.prepare('INSERT INTO schema_migrations VALUES(13,?)').run(Date.now())
+    })()
     const version = this.db.prepare('SELECT max(version) AS version FROM schema_migrations').get() as { version: number | null }
-    if (version.version !== 12) throw new AppError('DB_INVALID_SCHEMA', 'This database has an unsupported captured schema.')
+    if (version.version !== 13) throw new AppError('DB_INVALID_SCHEMA', 'This database has an unsupported captured schema.')
   }
 
   getCaptureDraft() {
@@ -893,7 +897,9 @@ export class Store {
       const occurrences = meetingOccurrences(input.startAt, input.endAt, input.recurrence)
       return this.db.transaction(() => {
         const saved = occurrences.map((times, index) => this.savePlannerEvent({ ...input, ...times, id: index === 0 ? input.id : undefined, recurrence: undefined }))
-        return saved[0]!
+        const seriesId = randomUUID()
+        for (const event of saved) this.db.prepare('UPDATE planner_events SET series_id=? WHERE id=?').run(seriesId, event.id)
+        return { ...saved[0]!, seriesId }
       })()
     }
     const now = Date.now()
@@ -920,9 +926,17 @@ export class Store {
     return this.savePlannerEvent(input)
   }
 
-  deletePlannerEvent(id: string): DeletedPlannerEvent {
+  deletePlannerEvent(id: string, scope: 'instance' | 'series' = 'instance'): DeletedPlannerEvent {
     const event = this.db.prepare('SELECT * FROM planner_events WHERE id=?').get(id) as PlannerEventRow | undefined
     if (!event) throw new AppError('NOT_FOUND', 'This meeting no longer exists.')
+    if (scope === 'series' && event.series_id) {
+      return this.db.transaction(() => {
+        const members = this.db.prepare('SELECT id FROM planner_events WHERE series_id=? ORDER BY start_at,id').all(event.series_id) as { id: string }[]
+        const snapshots = members.map(member => this.deletePlannerEvent(member.id))
+        const selected = snapshots.find(snapshot => snapshot.event.id === id)!
+        return { ...selected, additional: snapshots.filter(snapshot => snapshot.event.id !== id) }
+      })()
+    }
     const affected = this.db.prepare("SELECT id,planned_date,task_position FROM notes WHERE before_event_id=? AND kind='task' AND deleted_at IS NULL ORDER BY task_position,created_at,id").all(id) as { id: string; planned_date: string | null; task_position: number }[]
     const transaction = this.db.transaction(() => {
       this.db.prepare('UPDATE notes SET before_event_id=NULL,revision=revision+1,updated_at=? WHERE before_event_id=?').run(Date.now(), id)
@@ -934,11 +948,19 @@ export class Store {
   }
 
   undoDeletePlannerEvent(snapshot: DeletedPlannerEvent) {
+    if (snapshot.additional?.length) {
+      this.db.transaction(() => {
+        this.undoDeletePlannerEvent({ event: snapshot.event, anchors: snapshot.anchors })
+        for (const member of snapshot.additional!) this.undoDeletePlannerEvent(member)
+      })()
+      return
+    }
     const { event, anchors } = snapshot
     if (this.db.prepare('SELECT id FROM planner_events WHERE id=?').get(event.id)) throw new AppError('ALREADY_EXISTS', 'This meeting has already been restored.')
     const now = Date.now()
     const restore = this.db.transaction(() => {
       this.db.prepare('INSERT INTO planner_events(id,title,start_at,end_at,all_day,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').run(event.id, event.title, event.startAt, event.endAt, event.allDay ? 1 : 0, now, now)
+      this.db.prepare('UPDATE planner_events SET series_id=? WHERE id=?').run(event.seriesId ?? null, event.id)
       const days = new Set<string>()
       for (const anchor of anchors) {
         if (!anchor.plannedDate || !eventOverlapsLocalDay(event.startAt, event.endAt, anchor.plannedDate)) continue
@@ -1074,7 +1096,7 @@ export class Store {
       const required = ['notes', 'drafts', 'app_state', 'schema_migrations', 'note_search', ...(version.version && version.version >= 3 ? ['legacy_meeting_sessions', 'planner_events', 'item_tags', 'note_tags'] : ['meetings']), ...(version.version && version.version >= 4 ? ['item_images', 'capture_draft_images'] : []), ...(version.version && version.version >= 5 ? ['categories'] : []), ...(version.version && version.version >= 12 ? ['subcategories','taxonomy_migration_review','taxonomy_migration_mapping'] : [])]
       const tables = new Set((database.prepare("SELECT name FROM sqlite_master WHERE type IN ('table','view')").all() as { name: string }[]).map((row) => row.name))
       if (required.some((name) => !tables.has(name))) throw new AppError('DB_INVALID_SCHEMA', 'The selected file is not a complete captured backup.')
-      if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(version.version ?? 0)) throw new AppError(version.version && version.version > 12 ? 'DB_NEWER_VERSION' : 'DB_INVALID_SCHEMA', 'This backup has an unsupported captured schema.')
+      if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].includes(version.version ?? 0)) throw new AppError(version.version && version.version > 13 ? 'DB_NEWER_VERSION' : 'DB_INVALID_SCHEMA', 'This backup has an unsupported captured schema.')
       if ((database.pragma('foreign_key_check') as unknown[]).length) throw new AppError('DB_CORRUPT', 'The selected backup contains invalid note links.')
     } finally { if (path) database.close() }
   }

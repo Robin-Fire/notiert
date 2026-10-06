@@ -11,7 +11,7 @@ export function EventDialog({ event, initialDate, initialInterval, extraContent,
   initialDate: string
   initialInterval?: { start: Date; end: Date; allDay: boolean }
   extraContent?: ReactNode
-  onDelete?: () => Promise<void>
+  onDelete?: (scope: 'instance' | 'series') => Promise<void>
   onClose: () => void
   onSave: (input: PlannerEventInput) => Promise<string | null>
 }) {
@@ -23,6 +23,7 @@ export function EventDialog({ event, initialDate, initialInterval, extraContent,
     const exclusive = event === 'new' ? initialInterval?.end : new Date(event.endAt)
     return exclusive && (event === 'new' ? initialInterval?.allDay : event.allDay) ? localInput(exclusive.getTime() - 1).slice(0, 10) : start.slice(0, 10)
   })
+  const [deleteScope, setDeleteScope] = useState<'instance' | 'series'>('instance')
   const [error, setError] = useState('')
   const [frequency, setFrequency] = useState<MeetingRecurrence['frequency'] | 'none'>('none')
   const [until, setUntil] = useState(() => addLocalDays(start.slice(0, 10), 90))
@@ -83,6 +84,7 @@ export function EventDialog({ event, initialDate, initialInterval, extraContent,
     <div className="event-form-times"><label>Repeat<select className="text-field" value={frequency} disabled={saving} onChange={(change) => setFrequency(change.target.value as typeof frequency)}><option value="none">Does not repeat</option><option value="daily">Every day</option><option value="weekly">Every week</option><option value="monthly">Every month</option></select></label>{frequency !== 'none' && <label>Until<input disabled={saving} className="text-field" type="date" value={until} min={start.slice(0, 10)} onChange={(change) => setUntil(change.target.value)} required /></label>}</div>
     {frequency !== 'none' && <p>Each occurrence can be edited or removed individually.{frequency === 'monthly' && ' Months without this day of the month are skipped.'}</p>}
     {error && <div id="event-error" className="inline-error" role="alert">{error}</div>}
-    <div className="dialog-actions">{onDelete && <button type="button" disabled={saving} className="button secondary danger-action" onClick={async () => { savingLock.current = true; setSaving(true); try { await onDelete() } catch (reason) { setError(reason instanceof Error ? reason.message : 'The meeting could not be removed.') } finally { savingLock.current = false; setSaving(false) } }}>Delete</button>}<button type="button" disabled={saving} className="button secondary" onClick={onClose}>Cancel</button><button disabled={saving} className="button primary"><Check size={14} /> {saving ? 'Saving…' : 'Save meeting'}</button></div>
+    {onDelete && event !== 'new' && event.seriesId && <label>Delete<select className="text-field" disabled={saving} value={deleteScope} onChange={(change) => setDeleteScope(change.target.value as 'instance' | 'series')}><option value="instance">Only this meeting</option><option value="series">All meetings in this series</option></select></label>}
+    <div className="dialog-actions">{onDelete && <button type="button" disabled={saving} className="button secondary danger-action" onClick={async () => { if (savingLock.current) return; savingLock.current = true; setSaving(true); setError(''); try { await onDelete(deleteScope) } catch (reason) { setError(reason instanceof Error ? reason.message : 'The meeting could not be removed.') } finally { savingLock.current = false; setSaving(false) } }}>{deleteScope === 'series' ? 'Delete all meetings' : 'Delete'}</button>}<button type="button" disabled={saving} className="button secondary" onClick={onClose}>Cancel</button><button disabled={saving} className="button primary"><Check size={14} /> {saving ? 'Saving…' : 'Save meeting'}</button></div>
   </form></div>
 }

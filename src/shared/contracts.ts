@@ -9,7 +9,7 @@ export const NoteSchema = Z.object({
   deletedAt: Z.number().nullable(), revision: Z.number(), kind: Z.enum(['inbox', 'note', 'task']).default('note'),
   processedAt: Z.number().nullable().default(null), completedAt: Z.number().nullable().default(null), later: Z.boolean().default(false), categoryId: Z.string().nullable().default(null), subcategoryId: Z.string().nullable().default(null), tags: Z.array(Z.string()).default([]), images: Z.array(ImageRefSchema).default([]),
 })
-export const PlannerEventSchema = Z.object({ id: Z.string(), title: Z.string(), startAt: Z.number(), endAt: Z.number(), allDay: Z.boolean() })
+export const PlannerEventSchema = Z.object({ id: Z.string(), title: Z.string(), startAt: Z.number(), endAt: Z.number(), allDay: Z.boolean(), seriesId: Z.string().uuid().nullable().optional() })
 export const PlannerTaskSchema = NoteSchema.extend({ meetingTitle: Z.string().nullable(), plannedDate: Z.string().nullable(), plannedStartAt: Z.number().nullable().default(null), plannedEndAt: Z.number().nullable().default(null), position: Z.number(), priorityPosition: Z.number().int().nonnegative(), beforeEventId: Z.string().nullable(), ready: Z.boolean() })
 const CalendarInstantSchema = Z.number().int().min(-8640000000000000).max(8640000000000000)
 export const TaskPlacementSchema = Z.discriminatedUnion('kind', [
@@ -41,10 +41,11 @@ export const PlannerBacklogQuerySchema = Z.object({
 })
 export const PlannerBacklogReorderSchema = Z.object({ id: Z.string().uuid(), categoryId: Z.string().uuid().nullable(), beforeId: Z.string().uuid().nullable() })
 export const PlannerEventInputSchema = Z.object({ id: Z.string().uuid().optional(), title: Z.string().trim().min(1).max(120), startAt: Z.number().int(), endAt: Z.number().int(), allDay: Z.boolean(), recurrence: Z.object({ frequency: Z.enum(['daily', 'weekly', 'monthly']), until: Z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).optional() }).refine((event) => event.endAt > event.startAt, 'End time must be after start time.')
-export const DeletedPlannerEventSchema = Z.object({
+const DeletedOccurrenceSchema = Z.object({
   event: PlannerEventSchema.extend({ id: Z.string().uuid() }),
   anchors: Z.array(Z.object({ id: Z.string().uuid(), plannedDate: Z.string().nullable(), position: Z.number().int().nonnegative() })).max(10000),
 })
+export const DeletedPlannerEventSchema = DeletedOccurrenceSchema.extend({ additional: Z.array(DeletedOccurrenceSchema).max(365).optional() })
 export const SettingsSchema = Z.object({
   shortcut: Z.string(), shortcutEnabled: Z.boolean(), shortcutRegistered: Z.boolean(), launchAtLogin: Z.boolean(), theme: Z.enum(['system', 'light', 'dark']),
   monitor: Z.string(), captureProtection: Z.boolean(), protectionTestApp: Z.string(), protectionTestDate: Z.string(),
@@ -178,7 +179,7 @@ export type capturedApi = {
     updateEventTiming(input: PlannerEventTiming): Promise<ApiResult<PlannerEvent>>
     createEvent(input: z.infer<typeof PlannerEventInputSchema>): Promise<ApiResult<PlannerEvent>>
     updateEvent(input: z.infer<typeof PlannerEventInputSchema> & { id: string }): Promise<ApiResult<PlannerEvent>>
-    deleteEvent(id: string): Promise<ApiResult<DeletedPlannerEvent>>
+    deleteEvent(id: string, scope?: 'instance' | 'series'): Promise<ApiResult<DeletedPlannerEvent>>
     undoDeleteEvent(snapshot: DeletedPlannerEvent): Promise<ApiResult<void>>
     onChanged(callback: (sequence: number) => void): () => void
   }

@@ -27,7 +27,7 @@ const api: Omit<capturedApi, 'capture'> = {
     scheduleTask: (input) => ipcRenderer.invoke('planner:task:schedule', input), createTask: (input) => ipcRenderer.invoke('planner:task:create', input), updateEventTiming: (input) => ipcRenderer.invoke('planner:event:timing', input),
     backlog: (input) => ipcRenderer.invoke('planner:backlog', input ?? {}), setReady: (input) => ipcRenderer.invoke('planner:ready', input), setTaskCompleted: (input) => ipcRenderer.invoke('planner:complete', input), reorderBacklog: (input) => ipcRenderer.invoke('planner:backlog-reorder', input),
     createEvent: (input) => ipcRenderer.invoke('planner:event:create', input), updateEvent: (input) => ipcRenderer.invoke('planner:event:update', input),
-    deleteEvent: (id) => ipcRenderer.invoke('planner:event:delete', id), undoDeleteEvent: (snapshot) => ipcRenderer.invoke('planner:event:undo-delete', snapshot),
+    deleteEvent: (id, scope) => ipcRenderer.invoke('planner:event:delete', id, scope), undoDeleteEvent: (snapshot) => ipcRenderer.invoke('planner:event:undo-delete', snapshot),
     onChanged: (callback) => { const listener = (_event: Electron.IpcRendererEvent, seq: number) => callback(seq); ipcRenderer.on('planner:changed', listener); return () => ipcRenderer.removeListener('planner:changed', listener) },
   },
   settings: {

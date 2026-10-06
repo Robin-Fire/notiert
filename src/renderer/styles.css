@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:is([data-theme="dark"] *));
+
 .calendar-host { flex: 1; min-height: 0; min-width: 0; display: flex; }
 .calendar-host .captured-calendar { flex: 1; flex-direction: row; overflow: hidden; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
 .captured-calendar *, .captured-calendar *::before, .captured-calendar *::after { border-color: var(--border); }
@@ -72,6 +74,15 @@
   --radius-md: 6px;
   --radius-lg: 8px;
   --radius-xl: 12px;
+  --color-invert-foreground: var(--invert-foreground);
+  --color-invert: var(--invert);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning: var(--warning);
+  --color-info-foreground: var(--info-foreground);
+  --color-info: var(--info);
+  --color-success-foreground: var(--success-foreground);
+  --color-success: var(--success);
+  --color-destructive-foreground: var(--destructive-foreground);
 }
 
 :root {
@@ -102,6 +113,15 @@
   --green-soft: #eaf7ef;
   --shadow-card: 0 1px 2px rgb(24 24 27 / 5%), 0 8px 28px rgb(24 24 27 / 3%);
   --font-mono: "Geist Mono", ui-monospace, monospace;
+  --destructive-foreground: var(--color-red-800);
+  --success: var(--color-emerald-500);
+  --success-foreground: var(--color-emerald-900);
+  --info: var(--color-violet-500);
+  --info-foreground: var(--color-violet-900);
+  --warning: var(--color-yellow-500);
+  --warning-foreground: var(--color-yellow-900);
+  --invert: var(--color-zinc-900);
+  --invert-foreground: var(--color-zinc-50);
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -227,7 +247,7 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .backlog-drag-handle:disabled { cursor: default; opacity: .45; }
 .backlog-task.is-dragging { z-index: 2; outline: 1px solid var(--border-strong); outline-offset: -1px; border-radius: 6px; background: var(--surface); box-shadow: var(--shadow-card); }
 .backlog-task-main { display: grid; min-width: 0; flex: 1; gap: 4px; }
-.backlog-task-title { width: max-content; max-width: 100%; overflow: hidden; padding: 0; border: 0; background: transparent; color: var(--text); font-size: var(--type-body); font-weight: 550; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.backlog-task-title { width: max-content; max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--text); font-size: var(--type-body); font-weight: 550; line-height: 1.5; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
 .backlog-task-title:hover { text-decoration: underline; }
 .backlog-task-tags { display: flex; flex-wrap: wrap; gap: 5px; color: var(--text-muted); font: var(--type-caption) var(--font-mono); }
 .backlog-task select { max-width: 130px; height: 27px; padding: 0 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text-secondary); font-size: var(--type-secondary); }
@@ -950,3 +970,24 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .category-picker-options button { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); text-align: left; overflow-wrap: anywhere; }
 .category-picker-options button:hover, .category-picker-options button[aria-pressed="true"] { background: var(--surface-raised); color: var(--text); }
 @media (max-width: 780px) { .sidebar .taxonomy-navigation { display: none; } }
+
+:root[data-theme="dark"] { --destructive-foreground: var(--color-red-600); --success: var(--color-emerald-500); --success-foreground: var(--color-emerald-600); --info: var(--color-violet-500); --info-foreground: var(--color-violet-600); --warning: var(--color-yellow-500); --warning-foreground: var(--color-yellow-600); --invert: var(--color-zinc-700); --invert-foreground: var(--color-zinc-50); }
+
+.ready-board-scroll { min-height: 0; flex: 1; overflow: auto; padding: 22px 27px 32px; }
+.ready-board { display: flex; width: max-content; min-width: 100%; align-items: flex-start; gap: 16px; }
+.ready-column { width: 300px; flex: 0 0 300px; min-width: 0; }
+.ready-column-frame { min-height: 180px; background: var(--surface-raised); }
+.ready-column-header { display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 8px 10px 13px; color: var(--text-secondary); }
+.ready-column-header [data-slot="frame-panel-title"] { min-width: 0; overflow-wrap: anywhere; font-size: var(--type-body); }
+.ready-column-header [data-slot="badge"] { margin-left: auto; flex-shrink: 0; font-family: var(--font-mono); }
+.ready-column-content { min-height: 80px; padding: 2px; }
+.ready-card { border-radius: 6px; }
+.ready-card-panel { padding: 12px 10px; background: var(--surface); box-shadow: 0 1px 2px rgb(0 0 0 / 3%); }
+.ready-card-heading { display: flex; align-items: flex-start; gap: 6px; }
+.ready-card-handle { display: grid; flex: 0 0 20px; width: 20px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--text-muted); touch-action: none; }
+.ready-card-handle:hover { color: var(--text); background: var(--surface-raised); }
+.ready-card-text { min-width: 0; flex: 1; padding: 0; border: 0; background: transparent; color: var(--text); font-size: var(--type-body); font-weight: 550; line-height: 1.5; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ready-card-text:hover { text-decoration: underline; }
+.ready-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 10px 0 0 26px; }
+.ready-saving { padding: 8px 27px 0; color: var(--text-muted); font-size: var(--type-caption); }
+@media (max-width: 760px) { .ready-board-scroll { padding: 16px 12px 24px; } .ready-column { width: 280px; flex-basis: 280px; } }

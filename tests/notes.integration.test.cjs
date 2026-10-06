@@ -175,7 +175,9 @@ test('opening notes quickly keeps the selected detail and ignores results after 
     fireEvent.click(screen.getByRole('button', { name: 'Open note Second note' }))
     await act(async () => requests[1].resolve({ ok: true, value: second }))
     await act(async () => requests[0].resolve({ ok: true, value: first }))
-    assert.equal(document.querySelector('.detail-note-text').textContent, second.body)
+    assert.equal(screen.getByRole('textbox', { name: 'Edit item' }).value, second.body)
+    assert.equal(document.querySelector('.detail-panel'), null)
+    fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }))
     fireEvent.click(screen.getByRole('button', { name: 'Open note First note' }))
     app.changeView('inbox')
     await act(async () => requests[2].resolve({ ok: false, code: 'NOT_FOUND', message: 'Old detail error' }))
@@ -338,8 +340,7 @@ test('shared modal protects dirty edits on Close and Escape before navigation', 
   const originalConfirm = window.confirm
   try {
     fireEvent.click(await screen.findByRole('button', { name: /Open note Existing note/ }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit item' }))
-    const editor = screen.getByRole('textbox', { name: 'Edit item' })
+    const editor = await screen.findByRole('textbox', { name: 'Edit item' })
     fireEvent.change(editor, { target: { value: 'Unsaved wording' } })
     window.confirm = () => false
     fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }))
@@ -530,8 +531,7 @@ test('note editing saves tags and multi-select filters combine selected types an
     assert.equal(cleared.getByRole('button', { name: 'Work' }).getAttribute('aria-pressed'), 'false')
     fireEvent.click(screen.getByRole('button', { name: 'Tag filter for items: All tags' }))
     fireEvent.click(await screen.findByRole('button', { name: /Open note Existing note/ }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit item' }))
-    const tagInput = screen.getByRole('combobox', { name: 'Add a tag' })
+    const tagInput = await screen.findByRole('combobox', { name: 'Add a tag' })
     fireEvent.change(tagInput, { target: { value: 'Work' } })
     fireEvent.keyDown(tagInput, { key: 'Enter' })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -552,6 +552,29 @@ test('deleting a meeting offers Undo and restores the saved snapshot', async () 
     fireEvent.click(screen.getByRole('button', { name: 'Calendar' }))
     fireEvent.click(await screen.findByRole('button', { name: /^Review,/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Delete', exact: true }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
+    await waitFor(() => assert.deepEqual(restored, snapshot))
+  } finally { app.unmount() }
+})
+
+
+test('recurring meeting deletion defaults to one occurrence and allows deleting the series', async () => {
+  const app = setup()
+  const start = new Date(); start.setHours(10, 0, 0, 0)
+  const event = { id: '33333333-3333-4333-8333-333333333333', title: 'Review', startAt: start.getTime(), endAt: start.getTime() + 30 * 60_000, allDay: false, seriesId: '44444444-4444-4444-8444-444444444444' }
+  const snapshot = { event, anchors: [] }
+  let restored
+  let deletion
+  app.api.planner.tasks = async () => ({ ok: true, value: { tasks: [], events: [event], tags: [] } })
+  app.api.planner.deleteEvent = async (id, scope) => { deletion = { id, scope }; return { ok: true, value: snapshot } }
+  app.api.planner.undoDeleteEvent = async (value) => { restored = value; return { ok: true, value: undefined } }
+  try {
+    fireEvent.click(screen.getByRole('button', { name: 'Calendar' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Review,/ }))
+    assert.equal(screen.getByRole('combobox', { name: 'Delete' }).value, 'instance')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Delete' }), { target: { value: 'series' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete all meetings' }))
+    await waitFor(() => assert.deepEqual(deletion, { id: event.id, scope: 'series' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
     await waitFor(() => assert.deepEqual(restored, snapshot))
   } finally { app.unmount() }
@@ -597,7 +620,7 @@ test('screenshots paste into note edits, discard safely, and save with text', as
   const paste = () => fireEvent.paste(screen.getByRole('textbox', { name: 'Edit item' }), { clipboardData: { items: [{ kind: 'file', type: 'image/png', getAsFile: () => file }] } })
   try {
     fireEvent.click(await screen.findByRole('button', { name: /Open note Existing note/ }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit item' }))
+    await screen.findByRole('textbox', { name: 'Edit item' })
     paste()
     await screen.findByRole('button', { name: 'Remove image 1' })
     assert.equal(screen.getByRole('button', { name: /Images/ }).getAttribute('aria-expanded'), 'true')
@@ -605,7 +628,8 @@ test('screenshots paste into note edits, discard safely, and save with text', as
     fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }))
     assert.equal(saved, undefined)
     assert.equal(screen.queryByRole('button', { name: /Images/ }), null)
-    fireEvent.click(screen.getByRole('button', { name: 'Edit item' }))
+    fireEvent.click(screen.getByRole('button', { name: /Open note Existing note/ }))
+    await screen.findByRole('textbox', { name: 'Edit item' })
     paste()
     await screen.findByRole('button', { name: 'Remove image 1' })
     fireEvent.change(screen.getByRole('textbox', { name: 'Edit item' }), { target: { value: 'Screenshot context' } })

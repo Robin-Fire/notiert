@@ -12,7 +12,9 @@ module.exports = function legacyTaxonomy(store, assignments = []) {
     ALTER TABLE item_tags ADD COLUMN category_id TEXT REFERENCES categories(id) ON DELETE SET NULL;
     CREATE INDEX item_tags_category ON item_tags(category_id,name);
     CREATE INDEX item_tags_order ON item_tags(category_id,position,id);
-    DELETE FROM schema_migrations WHERE version=12;
+    DROP INDEX planner_events_series;
+    ALTER TABLE planner_events DROP COLUMN series_id;
+    DELETE FROM schema_migrations WHERE version>=12;
   `)
   for (const [tagId, categoryId] of assignments) store.db.prepare('UPDATE item_tags SET category_id=? WHERE id=?').run(categoryId, tagId)
 }

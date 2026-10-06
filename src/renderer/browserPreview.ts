@@ -51,7 +51,8 @@ const readyTasks = () => plannerTasks().filter((task) => task.ready && !task.pla
 const saveEvent = (input: PlannerEventInput) => {
   try {
     const occurrences = meetingOccurrences(input.startAt, input.endAt, input.recurrence)
-    const saved = occurrences.map((times, index) => ({ id: index === 0 && input.id ? input.id : crypto.randomUUID(), title: input.title, ...times, allDay: input.allDay }))
+    const seriesId = input.recurrence ? crypto.randomUUID() : events.find(event => event.id === input.id)?.seriesId ?? null
+    const saved = occurrences.map((times, index) => ({ id: index === 0 && input.id ? input.id : crypto.randomUUID(), title: input.title, ...times, allDay: input.allDay, seriesId }))
     events = [...events.filter((event) => event.id !== input.id), ...saved]
     for (const task of plannerTasks()) {
       if (task.beforeEventId === input.id && task.plannedDate && !eventOverlapsLocalDay(saved[0]!.startAt, saved[0]!.endAt, task.plannedDate)) task.beforeEventId = null
@@ -221,19 +222,23 @@ const api = {
     },
     createEvent: saveEvent,
     updateEvent: saveEvent,
-    deleteEvent: (id: string) => {
+    deleteEvent: (id: string, scope: 'instance' | 'series' = 'instance') => {
       const event = events.find((entry) => entry.id === id)
       if (!event) return Promise.resolve({ ok: false as const, code: 'NOT_FOUND', message: 'This meeting no longer exists.' })
-      const anchors = plannerTasks().filter((task) => task.beforeEventId === id).map((task) => ({ id: task.id, plannedDate: task.plannedDate, position: task.position }))
-      plannerTasks().filter((task) => task.beforeEventId === id).forEach((task) => { task.beforeEventId = null })
-      events = events.filter((entry) => entry.id !== id)
-      changed(); return ok({ event, anchors })
+      const members = scope === 'series' && event.seriesId ? events.filter(entry => entry.seriesId === event.seriesId) : [event]
+      const snapshots = members.map(member => ({ event: member, anchors: plannerTasks().filter(task => task.beforeEventId === member.id).map(task => ({ id: task.id, plannedDate: task.plannedDate, position: task.position })) }))
+      const ids = new Set(members.map(member => member.id))
+      plannerTasks().filter(task => task.beforeEventId && ids.has(task.beforeEventId)).forEach(task => { task.beforeEventId = null })
+      events = events.filter(entry => !ids.has(entry.id))
+      changed(); return ok({ ...snapshots.find(snapshot => snapshot.event.id === id)!, additional: snapshots.filter(snapshot => snapshot.event.id !== id) })
     },
-    undoDeleteEvent: ({ event, anchors }: DeletedPlannerEvent) => {
-      events.push(event)
-      for (const anchor of anchors) {
-        const task = plannerTasks().find((entry) => entry.id === anchor.id && entry.plannedDate === anchor.plannedDate && entry.beforeEventId === null)
-        if (task) { task.beforeEventId = event.id; task.position = anchor.position }
+    undoDeleteEvent: (snapshot: DeletedPlannerEvent) => {
+      for (const { event, anchors } of [snapshot, ...(snapshot.additional ?? [])]) {
+        events.push(event)
+        for (const anchor of anchors) {
+          const task = plannerTasks().find(entry => entry.id === anchor.id && entry.plannedDate === anchor.plannedDate && entry.beforeEventId === null)
+          if (task) { task.beforeEventId = event.id; task.position = anchor.position }
+        }
       }
       changed(); return ok(undefined)
     }, onChanged: listen,

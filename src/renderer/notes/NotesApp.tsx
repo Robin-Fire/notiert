@@ -18,9 +18,10 @@ import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, v
 import { CSS } from '@dnd-kit/utilities'
 
 const CalendarView = lazy(() => import('../calenban/CalendarView').then((module) => ({ default: module.CalendarView })))
+const ReadyView = lazy(() => import('../ready/ReadyView').then((module) => ({ default: module.ReadyView })))
 
 type NoteDetail = Note & { meetingTitle: string | null }
-type ViewName = 'all' | 'inbox' | 'calenban' | 'backlog' | 'later' | 'trash' | 'settings' | 'tag' | 'category' | 'review'
+type ViewName = 'all' | 'inbox' | 'calenban' | 'ready' | 'backlog' | 'later' | 'trash' | 'settings' | 'tag' | 'category' | 'review'
 type ItemKind = Note['kind']
 const itemKinds: { value: ItemKind; label: string }[] = [{ value: 'inbox', label: 'Inbox' }, { value: 'note', label: 'Notes' }, { value: 'task', label: 'To-dos' }]
 const dateOptions = [{ value: 'all', label: 'All time' }, { value: 'today', label: 'Today' }, { value: 'last7', label: 'Last 7 days' }, { value: 'custom', label: 'Custom' }]
@@ -212,7 +213,11 @@ export function NotesApp() {
     try {
       const record = resultValue(await window.captured.notes.get(id))
       if (request !== detailRequest.current || activeDetailId.current !== id) return
-      setDetail(record)
+      if (view === 'all' && record) {
+        setEditItem(record)
+        setDetailId(null)
+        setDetail(null)
+      } else setDetail(record)
     } catch (reason) { if (request === detailRequest.current && activeDetailId.current === id) setError(reason instanceof Error ? reason.message : 'This note could not be opened.') }
   }
   function clearFilters() { setQuery(''); setDateRange('all'); setKindFilters([]); setTagFilters([]);setExcludedTags([]);setSubcategoryFilter('') }
@@ -357,6 +362,7 @@ export function NotesApp() {
         <button className={view === 'inbox' ? 'active' : ''} onClick={() => nav('inbox')}><Archive size={16} /><span>Inbox</span><span className="side-count">{inboxCount || ''}</span></button>
         <button className={view === 'calenban' ? 'active' : ''} onClick={() => nav('calenban')}><CalendarDays size={16} /><span>Calendar</span></button>
         <button className={view === 'backlog' ? 'active' : ''} onClick={() => nav('backlog')}><FolderKanban size={16} /><span>Backlog</span></button>
+        <button className={view === 'ready' ? 'active' : ''} onClick={() => nav('ready')}><CheckCircle2 size={16} /><span>Ready</span></button>
         <button className={view === 'later' ? 'active' : ''} onClick={() => nav('later')}><Clock3 size={16} /><span>Later</span></button>
         <button className={view === 'all' ? 'active' : ''} onClick={() => nav('all')}><FileText size={16} /><span>All items</span><span className="side-count">{view === 'all' ? total : ''}</span></button>
       </nav>
@@ -379,6 +385,7 @@ export function NotesApp() {
       : view === 'inbox' ? <InboxView />
       : view === 'calenban' ? <Suspense fallback={<div className="calenban-page" role="status">Loading calendar…</div>}><CalendarView settings={settings} /></Suspense>
       : view === 'backlog' ? <BacklogView categories={categories} subcategories={subcategories} tags={tagRecords} taxonomyReady={taxonomyLoaded} />
+      : view === 'ready' ? <Suspense fallback={<div className="backlog-page" role="status">Loading Ready…</div>}><ReadyView categories={categories} subcategories={subcategories} taxonomyReady={taxonomyLoaded} /></Suspense>
       : view === 'later' ? <BacklogView laterOnly categories={categories} subcategories={subcategories} tags={tagRecords} taxonomyReady={taxonomyLoaded} />
       : <>
         <header className="main-header">
@@ -408,12 +415,12 @@ export function NotesApp() {
           <div className="filter-row"><span className="filter-heading">DATE</span><div className="filter-pills" aria-label="Date filters">{dateOptions.map(({ value, label }) => <button key={value} className={`filter-pill ${dateRange === value ? 'is-selected' : ''}`} aria-pressed={dateRange === value} onClick={() => requestEditorLeave(() => setDateRange(value))}>{label}</button>)}</div><button className="filter-clear" onClick={() => requestEditorLeave(clearFilters)} disabled={!subcategoryFilter && !excludedTags.length && !query && !kindFilters.length && !tagFilters.length && dateRange === 'all'}>Clear all</button></div>
         </div>}
         {selected.length > 0 && <div className="selection-toolbar"><span>{selected.length} selected</span><button className="text-action" onClick={() => void copyIds(selected)}><Copy size={14} /> Copy</button><button className="text-action" onClick={() => void exportData('selected', selected)}><Download size={14} /> Export</button>{view === 'trash' ? <><button className="text-action" onClick={async () => { try { resultValue(await window.captured.notes.restore(selected)); setSelected([]) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not restore notes.') } }}><Undo2 size={14} /> Restore</button><button className="text-action danger-action" onClick={async () => { try { resultValue(await window.captured.notes.deletePermanently(selected)); setSelected([]) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not delete notes.') } }}><Trash2 size={14} /> Delete permanently</button></> : <button className="text-action danger-action" onClick={() => void trashSelected()}><Trash2 size={14} /> Move to Trash</button>}</div>}
-        <div className={`content-grid ${detailId ? 'has-detail' : ''}`}>
-          <div className={`list-column ${detailId && window.innerWidth < 960 ? 'mobile-hidden' : ''}`} ref={noteListRef}>
+        <div className={`content-grid ${detailId && view !== 'all' ? 'has-detail' : ''}`}>
+          <div className={`list-column ${detailId && view !== 'all' && window.innerWidth < 960 ? 'mobile-hidden' : ''}`} ref={noteListRef}>
             {error && <div className="inline-error" role="alert"><Info size={15} /><span>{error}</span><button onClick={() => { setError(''); void loadNotes() }}>Retry</button></div>}
             {loading && !notes.length ? <div className="loading-state"><span className="spinner" /> Loading notes…</div> : renderRows()}
           </div>
-          {detailId && <section className="detail-panel" aria-label="Note details">
+          {detailId && view !== 'all' && <section className="detail-panel" aria-label="Note details">
             <div className="detail-top"><button className="back-button" onClick={() => requestEditorLeave(() => { setDetailId(null); setDetail(null) })}><ArrowLeft size={15} /> <span>Back</span></button><div className="detail-actions"><button className="icon-button" title="Copy note" aria-label="Copy note" onClick={() => void copyIds([detailId])}><Copy size={15} /></button>{view === 'trash' ? <><button className="icon-button" title="Restore note" aria-label="Restore note" onClick={() => void restoreOne(detailId)}><Undo2 size={15} /></button><button className="icon-button danger-icon" title="Delete permanently" aria-label="Delete permanently" onClick={() => void deleteOne(detailId)}><Trash2 size={15} /></button></> : <button className="icon-button danger-icon" title="Move to Trash" aria-label="Move to Trash" onClick={() => void trashSelectedFromDetail(detailId, window.captured, setToast, setError, setDetailId, setDetail)}><Trash2 size={15} /></button>}</div></div>
             {!detail ? <div className="detail-loading"><span className="spinner" /></div> : <>
               <div className="detail-meta"><span>{formatDateTime(detail.createdAt)}</span>{detail.updatedAt !== detail.createdAt && <span>Edited {formatDateTime(detail.updatedAt)}</span>}{detail.completedAt != null && <span className="detail-completed-at">Done {formatDateTime(detail.completedAt)}</span>}{detail.kind === 'task' && view !== 'trash' && <button type="button" className="detail-completion-action" onClick={() => void toggleDetailCompletion()}><CheckCircle2 size={13} /> {detail.completedAt != null ? 'Reopen to Backlog' : 'Mark as done'}</button>}</div>

@@ -9,6 +9,13 @@ The Windows installer is published through GitHub Releases. The repository is co
 
 Installed copies check GitHub Releases for a newer version. They download it automatically and show an update action in the app when it is ready to install.
 
+## 0.1.11
+
+- Added a Ready Kanban page with nonempty category columns in category order and persistent task reordering.
+- Showed full multiline task text in Backlog and Ready cards.
+- Opened the shared item editor directly from All items.
+- Added deletion of individual recurring meetings or their entire series, with Undo support.
+
 ## 0.1.10
 
 - Updated captured branding and improved text sizes across the sidebar, tasks, and calendar.

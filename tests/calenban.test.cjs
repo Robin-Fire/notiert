@@ -563,3 +563,22 @@ test('backlog pages share counts until the next database change', () => {
     assert.equal(store.backlogSummary().unassigned.total, 1)
   })
 })
+
+ test('series deletion removes only linked occurrences and undo restores their membership', () => {
+  withStore(store => {
+    const input = { title: 'Review', startAt: new Date(2026, 9, 5, 9).getTime(), endAt: new Date(2026, 9, 5, 10).getTime(), allDay: false }
+    const first = store.savePlannerEvent({ ...input, recurrence: { frequency: 'weekly', until: '2026-10-19' } })
+    const unrelated = store.savePlannerEvent(input)
+    const members = store.db.prepare('SELECT id FROM planner_events WHERE series_id=? ORDER BY start_at').all(first.seriesId)
+    assert.equal(members.length, 3)
+    const one = store.deletePlannerEvent(members[1].id)
+    assert.equal(store.db.prepare('SELECT count(*) AS n FROM planner_events WHERE series_id=?').get(first.seriesId).n, 2)
+    store.undoDeletePlannerEvent(one)
+    const all = store.deletePlannerEvent(members[1].id, 'series')
+    assert.equal(all.additional.length, 2)
+    assert.deepEqual(store.db.prepare('SELECT id FROM planner_events').all(), [{ id: unrelated.id }])
+    store.undoDeletePlannerEvent(all)
+    assert.equal(store.db.prepare('SELECT count(*) AS n FROM planner_events WHERE series_id=?').get(first.seriesId).n, 3)
+    assert.throws(() => store.undoDeletePlannerEvent(all), /already been restored/)
+  })
+})
