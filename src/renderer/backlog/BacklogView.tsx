@@ -56,7 +56,7 @@ export function BacklogView({ laterOnly = false, categories, subcategories, tags
 
   return <section className="backlog-page">
     <header className="backlog-header"><div><span className="eyebrow">{laterOnly ? 'OUT OF SIGHT, STILL SAVED' : 'TO-DOS BY CATEGORY'}</span><h1>{laterOnly ? 'Later' : 'Backlog'} <span className="title-count">{total}</span></h1><p>{laterOnly ? 'Tasks you have set aside. Return one to the top of its category when it is ready.' : 'Drag to set priority within each category. The order carries over to category and tag views.'}</p></div></header>
-    <div className="backlog-toolbar"><label className="search-box"><Search size={15} /><input aria-label={`Search ${laterOnly ? 'later' : 'backlog'}`} placeholder="Search tasks or tags…" value={query} onChange={(event) => setQuery(event.target.value)} />{query && <button aria-label="Clear backlog search" onClick={() => setQuery('')}><X size={13} /></button>}</label><span>{total} {total === 1 ? 'to-do' : 'to-dos'}</span></div>
+    <div className="backlog-toolbar"><label className="search-box"><Search size={15} /><input aria-label={`Search ${laterOnly ? 'later' : 'backlog'}`} placeholder="Search tasks or tags…" value={query} onChange={(event) => setQuery(event.target.value)} />{query && <button aria-label="Clear backlog search" onClick={() => setQuery('')}><X size={13} /></button>}</label>{!laterOnly && <button type="button" className="button secondary small" disabled={!taxonomyReady} onClick={() => { setQuery(''); setCreateCategoryId(null) }}><Plus size={14} /> Add a to-do</button>}<span>{total} {total === 1 ? 'to-do' : 'to-dos'}</span></div>
     {error && <div className="inline-error" role="alert">{error}<button type="button" onClick={() => void refreshSummary()}>Retry</button></div>}
     <div className="backlog-groups">
       {!taxonomyReady || !summary ? <div className="loading-state"><span className="spinner" /> Loading backlog…</div> : groups.map((group) => <BacklogCategoryGroup key={group.id} summary={summary[group.id] ?? emptySummary} group={group} categories={categories} query={debouncedQuery} onCount={setGroupCount} onOpenTask={setDetailTask} onError={setError} laterOnly={laterOnly} onAddTask={(categoryId) => { setQuery(''); setCreateCategoryId(categoryId) }} highlightTaskId={highlightTaskId} onHighlightHandled={() => setHighlightTaskId(null)} />)}
@@ -149,7 +149,7 @@ function BacklogCategoryGroup({ summary, group, categories, query, onCount, onOp
   }
 
   const canShowTasks = selectedTags.length > 0 || includeUntagged
-  if (loaded && !error && Object.values(subcategoryCounts).every(count => count === 0)) return null
+  if (!summary.total) return null
 
   return <section className="backlog-group" aria-label={`${group.name} backlog`}>
     <div className="backlog-group-heading"><button type="button" className="backlog-group-toggle" aria-expanded={!collapsed} onClick={() => setCollapsed((current) => !current)}><FolderKanban size={16} /><b>{group.name}</b><span>{total}</span><ChevronDown size={15} className={collapsed ? 'is-closed' : ''} /></button>{!laterOnly && <button type="button" className="backlog-category-add" aria-label={`Add task to ${group.name}`} title={`Add task to ${group.name}`} onClick={() => { setSelected({}); setIncludeUntagged(true); setCollapsed(false); onAddTask(group.categoryId) }}><Plus size={15} /></button>}</div>
