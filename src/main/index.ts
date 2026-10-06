@@ -1,6 +1,6 @@
 import { z as Z } from 'zod'
 import { ImageRefSchema } from '../shared/contracts'
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, Menu, nativeImage, screen, shell, Tray, type Display } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, Menu, powerMonitor, screen, shell, Tray, type Display } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -12,12 +12,15 @@ import { SettingsStore } from './settings'
 import { CalendarHoursSchema, SettingsPatchSchema, PlannerTaskCreateSchema, PlannerTaskScheduleSchema, PlannerEventTimingSchema } from '../shared/contracts'
 import { CaptureSubmitSchema, CategoryNameSchema, CategoryUpdateSchema, CategoriesReorderSchema, TagsReorderSchema, ClassifyItemSchema, DeletedPlannerEventSchema, IdsSchema, InboxPageSchema, ItemCategorySchema, NoteFilterSchema, NoteUpdateSchema, PlannerBacklogQuerySchema, PlannerBacklogReorderSchema, PlannerCompleteSchema, PlannerEventInputSchema, PlannerMoveSchema, PlannerQuerySchema, PlannerReadySchema, TagNameSchema, TagUpdateSchema } from '../shared/contracts'
 import { AppError, messageOf } from '../shared/errors'
+import { toLocalISODate } from '../shared/plannerDates'
 
 // Reuse the original profile on upgrades; custom test profiles stay isolated.
-const defaultProfile = path.join(app.getPath('appData'), 'notiert')
-const legacyProfile = path.join(app.getPath('appData'), 'notable')
-if (app.getPath('userData') === defaultProfile && !fs.existsSync(path.join(defaultProfile, 'notiert.sqlite')) && fs.existsSync(path.join(legacyProfile, 'notable.sqlite'))) {
-  app.setPath('userData', legacyProfile)
+const defaultProfile = path.join(app.getPath('appData'), 'captured')
+const databaseNames = ['captured.sqlite', 'notiert.sqlite', 'notable.sqlite']
+if (app.getPath('userData') === defaultProfile && !databaseNames.some(name => fs.existsSync(path.join(defaultProfile, name)))) {
+  const legacyProfile = ['notiert', 'notable'].map(name => path.join(app.getPath('appData'), name))
+    .find(profile => databaseNames.some(name => fs.existsSync(path.join(profile, name))))
+  if (legacyProfile) app.setPath('userData', legacyProfile)
 }
 
 const hasSingleInstance = app.requestSingleInstanceLock()
@@ -38,6 +41,8 @@ let pendingCapture = false
 let captureReady = false
 let draftGeneration = 0
 let captureHideTimer: NodeJS.Timeout | undefined
+let captureCategory: { categoryId: string | null; subcategoryId: string | null } = { categoryId: null, subcategoryId: null }
+let rolloverTimer: NodeJS.Timeout | undefined
 type UpdateStatus = { status: 'idle' | 'checking' | 'available' | 'downloaded' | 'error'; version?: string; message?: string }
 let updateStatus: UpdateStatus = { status: 'idle' }
 const CAPTURE_WIDTH = 658
@@ -136,7 +141,7 @@ function createNotesWindow(view: 'all' | 'inbox' | 'calenban' | 'trash' | 'setti
   notesWindow = new BrowserWindow({
     width: 1040, height: 720, minWidth: 760, minHeight: 520, show: false,
     backgroundColor: settings.get().theme === 'dark' ? '#0A0A0A' : '#FAFAFA',
-    title: 'notiert', autoHideMenuBar: true,
+    title: 'captured', autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
   protect(notesWindow)
@@ -153,15 +158,49 @@ function createNotesWindow(view: 'all' | 'inbox' | 'calenban' | 'trash' | 'setti
   return notesWindow
 }
 
+function captureState() {
+  let draft = store?.getCaptureDraft()
+  const taxonomy = store?.taxonomy()
+  if (captureCategory.categoryId && !taxonomy?.categories.some(item => item.id === captureCategory.categoryId)) captureCategory = { categoryId: null, subcategoryId: null }
+  if (captureCategory.subcategoryId && !taxonomy?.subcategories.some(item => item.id === captureCategory.subcategoryId && item.categoryId === captureCategory.categoryId)) captureCategory.subcategoryId = null
+  const hasDraft = !!(draft?.body || draft?.images.length)
+  if (draft && !hasDraft && (draft.categoryId !== captureCategory.categoryId || draft.subcategoryId !== captureCategory.subcategoryId)) {
+    store!.updateDraft(draft.body, draft.generation, draft.revision + 1, captureCategory.categoryId, captureCategory.subcategoryId, draft.tags)
+    draft = store!.getCaptureDraft()
+  }
+  const context = hasDraft ? { categoryId: draft!.categoryId, subcategoryId: draft!.subcategoryId } : captureCategory
+  return { ...draft, body: draft?.body ?? '', images: draft?.images ?? [], generation: draft?.generation ?? draftGeneration, revision: draft?.revision ?? 0, ...context, tags: draft?.tags ?? [], available: Boolean(store), shortcut: settings.get().shortcut, theme: settings.get().theme }
+}
+
+function rememberCaptureCategory(generation: number, revision: number) {
+  const draft = store?.getCaptureDraft()
+  if (draft?.generation === generation && draft.revision === revision) captureCategory = { categoryId: draft.categoryId, subcategoryId: draft.subcategoryId }
+}
+
+function reconcileTasks() {
+  try {
+    if (store?.reconcileReadyTasks(toLocalISODate(new Date()))) broadcastChange()
+  } catch (error) { console.error('task-rollover-failed', messageOf(error)) }
+}
+
+function scheduleRollover() {
+  clearTimeout(rolloverTimer)
+  reconcileTasks()
+  const now = new Date()
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+  rolloverTimer = setTimeout(scheduleRollover, midnight.getTime() - now.getTime() + 100)
+}
+
 function showCapture() {
   const win = createCaptureWindow()
   if (!captureReady) { pendingCapture = true; return }
+  const alreadyVisible = win.isVisible()
   clearTimeout(captureHideTimer)
   placeCapture()
   if (win.isMinimized()) win.restore()
   win.show()
   win.focus()
-  win.webContents.send('capture:state', { available: true, shortcut: settings.get().shortcut, theme: settings.get().theme })
+  win.webContents.send('capture:state', alreadyVisible ? { available: Boolean(store), shortcut: settings.get().shortcut, theme: settings.get().theme } : captureState())
 }
 
 function showNotes(view: 'all' | 'inbox' | 'calenban' | 'trash' | 'settings' = 'all') {
@@ -188,7 +227,7 @@ async function handleQuitResponse(saved: boolean, body: string) {
   if (saved) { quitPromptActive = false; quitApproved = true; app.quit(); return }
   const options: Electron.MessageBoxOptions = {
     type: 'warning', buttons: ['Retry', 'Copy text', 'Quit without saving', 'Cancel'], defaultId: 3, cancelId: 3,
-    title: 'Draft could not be saved', message: 'notiert could not save this draft.', detail: 'Copy the text before leaving, retry the save, or choose Quit without saving and lose this draft.',
+    title: 'Draft could not be saved', message: 'captured could not save this draft.', detail: 'Copy the text before leaving, retry the save, or choose Quit without saving and lose this draft.',
   }
   const owner = captureWindow && !captureWindow.isDestroyed() && captureWindow.isVisible() ? captureWindow : notesWindow && !notesWindow.isDestroyed() && notesWindow.isVisible() ? notesWindow : null
   const response = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)
@@ -208,15 +247,16 @@ function syncTray() {
     { label: 'Open Plan', click: () => showNotes('calenban') },
     { label: 'Settings', click: () => showNotes('settings') },
     { type: 'separator' },
-    { label: 'Quit notiert', click: requestQuit },
+    { label: 'Quit captured', click: requestQuit },
   ]))
-  tray.setToolTip('notiert')
+  tray.setToolTip('captured')
 }
 
 function makeTray() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect x="3" y="3" width="26" height="26" rx="7" fill="#18181b"/><path d="M10 22V10h3l6 7v-7h3v12h-3l-6-7v7z" fill="#fff"/></svg>`
-  const image = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`).resize({ width: 16, height: 16 })
-  tray = new Tray(image)
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'captured.ico')
+    : path.join(__dirname, '../../resources/captured.ico')
+  tray = new Tray(iconPath)
   tray.on('click', showCapture)
   tray.on('double-click', () => { if (!captureWindow?.isVisible()) showCapture() })
   syncTray()
@@ -232,6 +272,11 @@ function broadcastChange(scope: 'all' | 'notes' | 'planner' = 'all') {
   if (scope === 'all' || scope === 'notes') notesWindow?.webContents.send('notes:changed', store.changeSequence)
   if (scope === 'all' || scope === 'planner') notesWindow?.webContents.send('planner:changed', store.changeSequence)
   syncTray()
+}
+
+function broadcastTaxonomyChange(scope: 'all' | 'notes' | 'planner' = 'all') {
+  broadcastChange(scope)
+  notesWindow?.webContents.send('notes:taxonomy-changed')
 }
 
 function broadcastSettingsChange() {
@@ -273,8 +318,7 @@ function registerIpc() {
   roleHandler('updates:check', 'notes', async () => { if (!app.isPackaged) return; await autoUpdater.checkForUpdates() })
   roleHandler('updates:install', 'notes', () => { if (updateStatus.status === 'downloaded') autoUpdater.quitAndInstall(); })
   roleHandler('capture:get-state', 'capture', () => {
-    const draft = store?.getCaptureDraft()
-    return { body: draft?.body ?? '', images: draft?.images ?? [], generation: draft?.generation ?? draftGeneration, revision: draft?.revision ?? 0, categoryId: draft?.categoryId ?? null, subcategoryId: draft?.subcategoryId ?? null, tags:draft?.tags??[], shortcut: settings.get().shortcut, theme: settings.get().theme, available: Boolean(store) }
+    return captureState()
   })
   roleHandler('capture:categories', 'capture', () => requireStore().taxonomy().categories)
   roleHandler('capture:subcategories', 'capture', () => requireStore().taxonomy().subcategories)
@@ -282,6 +326,7 @@ function registerIpc() {
     const input = raw as { body: string; generation: number; revision: number; categoryId?: string | null; subcategoryId?: string | null; tags?:string[] }
     if (typeof input.body !== 'string' || [...input.body].length > 50_000 || input.body.length > 200_000 || !Number.isInteger(input.generation) || !Number.isInteger(input.revision) || (input.categoryId !== undefined && input.categoryId !== null && !/^[0-9a-f-]{36}$/i.test(input.categoryId))) throw new AppError('INVALID_INPUT', 'This draft is too large or invalid.')
     const next = requireStore().updateDraft(input.body, input.generation, input.revision, input.categoryId ?? null, Z.string().uuid().nullable().optional().parse(input.subcategoryId), Z.array(TagNameSchema).max(20).optional().parse(input.tags))
+    rememberCaptureCategory(input.generation, input.revision)
     return { revision: next }
   })
   roleHandler('capture:flush-before-quit', 'capture', (_event, raw) => {
@@ -292,7 +337,8 @@ function registerIpc() {
   roleHandler('capture:submit', 'capture', (_event, raw) => {
     const input = CaptureSubmitSchema.parse(raw)
     const id = requireStore().submitCapture(input.requestId, input.generation, input.body, input.categoryId ?? null, Z.string().uuid().nullable().optional().parse(input.subcategoryId), Z.array(TagNameSchema).max(20).optional().parse(input.tags))
-    broadcastChange()
+    captureCategory = { categoryId: input.categoryId ?? null, subcategoryId: input.subcategoryId ?? null }
+    broadcastTaxonomyChange()
     setImmediate(() => void makeAutomaticBackup())
     return { id }
   })
@@ -313,22 +359,22 @@ function registerIpc() {
   roleHandler('notes:list', 'notes', (_event, raw) => requireStore().listNotes(NoteFilterSchema.parse(raw)))
   roleHandler('notes:tags', 'notes', () => requireStore().listTags())
   roleHandler('notes:taxonomy', 'notes', () => requireStore().taxonomy())
-  roleHandler('notes:subcategory:create','notes',(_event,raw)=> { const input=Z.object({name:TagNameSchema,categoryId:Z.string().uuid()}).parse(raw); const result=requireStore().createSubcategory(input.name,input.categoryId); broadcastChange(); return result })
-  roleHandler('notes:subcategory:update','notes',(_event,raw)=> { const input=Z.object({id:Z.string().uuid(),name:TagNameSchema,color:Z.string().regex(/^#[0-9a-f]{6}$/i)}).parse(raw); requireStore().updateSubcategory(input.id,input.name,input.color); broadcastChange() })
-  roleHandler('notes:subcategory:delete','notes',(_event,raw)=> { requireStore().deleteSubcategory(IdsSchema.element.parse(raw)); broadcastChange() })
-  roleHandler('notes:subcategories:reorder','notes',(_event,raw)=> { const input=Z.object({categoryId:Z.string().uuid(),ids:IdsSchema}).parse(raw); requireStore().reorderSubcategories(input.categoryId,input.ids); broadcastChange() })
+  roleHandler('notes:subcategory:create','notes',(_event,raw)=> { const input=Z.object({name:TagNameSchema,categoryId:Z.string().uuid()}).parse(raw); const result=requireStore().createSubcategory(input.name,input.categoryId); broadcastTaxonomyChange(); return result })
+  roleHandler('notes:subcategory:update','notes',(_event,raw)=> { const input=Z.object({id:Z.string().uuid(),name:TagNameSchema,color:Z.string().regex(/^#[0-9a-f]{6}$/i)}).parse(raw); requireStore().updateSubcategory(input.id,input.name,input.color); broadcastTaxonomyChange() })
+  roleHandler('notes:subcategory:delete','notes',(_event,raw)=> { requireStore().deleteSubcategory(IdsSchema.element.parse(raw)); broadcastTaxonomyChange() })
+  roleHandler('notes:subcategories:reorder','notes',(_event,raw)=> { const input=Z.object({categoryId:Z.string().uuid(),ids:IdsSchema}).parse(raw); requireStore().reorderSubcategories(input.categoryId,input.ids); broadcastTaxonomyChange() })
   roleHandler('notes:migration-status','notes',()=>requireStore().migrationStatus())
   roleHandler('notes:migration-acknowledge','notes',()=>requireStore().acknowledgeMigration())
   roleHandler('notes:migration-review','notes',()=>requireStore().migrationReview())
-  roleHandler('notes:migration-review:resolve','notes',(_event,raw)=> { const input=Z.object({id:Z.string().uuid(),expectedRevision:Z.number().int().nonnegative(),subcategoryId:Z.string().uuid().nullable(),categoryId:Z.string().uuid().nullable().optional()}).parse(raw); requireStore().resolveMigrationReview(input.id,input.expectedRevision,input.subcategoryId,input.categoryId); broadcastChange() })
-  roleHandler('notes:category:create', 'notes', (_event, raw) => { const result = requireStore().createCategory(CategoryNameSchema.parse(raw)); broadcastChange('notes'); return result })
-  roleHandler('notes:category:update', 'notes', (_event, raw) => { const input = CategoryUpdateSchema.parse(raw); const result = requireStore().updateCategory(input.id, input.name); broadcastChange('notes'); return result })
-  roleHandler('notes:category:delete', 'notes', (_event, raw) => { requireStore().deleteCategory(IdsSchema.element.parse(raw)); broadcastChange('notes') })
-  roleHandler('notes:categories:reorder', 'notes', (_event, raw) => { const input = CategoriesReorderSchema.parse(raw); requireStore().reorderCategories(input.ids); broadcastChange('notes') })
-  roleHandler('notes:tags:reorder', 'notes', (_event, raw) => { const input = TagsReorderSchema.parse(raw); requireStore().reorderTags(input.categoryId, input.ids); broadcastChange('notes') })
-  roleHandler('notes:tag:create', 'notes', (_event, raw) => { const input = raw as { name?: unknown; categoryId?: unknown }; const name = TagNameSchema.parse(input?.name); const categoryId = null; const result = requireStore().createTag(name, categoryId); broadcastChange('notes'); return result })
-  roleHandler('notes:tag:update', 'notes', (_event, raw) => { const input = TagUpdateSchema.parse(raw); requireStore().updateTag(input.id, input.categoryId, input.color, input.name); broadcastChange('notes') })
-  roleHandler('notes:tag:delete', 'notes', (_event, raw) => { requireStore().deleteTag(IdsSchema.element.parse(raw)); broadcastChange('notes') })
+  roleHandler('notes:migration-review:resolve','notes',(_event,raw)=> { const input=Z.object({id:Z.string().uuid(),expectedRevision:Z.number().int().nonnegative(),subcategoryId:Z.string().uuid().nullable(),categoryId:Z.string().uuid().nullable().optional()}).parse(raw); requireStore().resolveMigrationReview(input.id,input.expectedRevision,input.subcategoryId,input.categoryId); broadcastTaxonomyChange() })
+  roleHandler('notes:category:create', 'notes', (_event, raw) => { const result = requireStore().createCategory(CategoryNameSchema.parse(raw)); broadcastTaxonomyChange('notes'); return result })
+  roleHandler('notes:category:update', 'notes', (_event, raw) => { const input = CategoryUpdateSchema.parse(raw); const result = requireStore().updateCategory(input.id, input.name); broadcastTaxonomyChange('notes'); return result })
+  roleHandler('notes:category:delete', 'notes', (_event, raw) => { requireStore().deleteCategory(IdsSchema.element.parse(raw)); broadcastTaxonomyChange() })
+  roleHandler('notes:categories:reorder', 'notes', (_event, raw) => { const input = CategoriesReorderSchema.parse(raw); requireStore().reorderCategories(input.ids); broadcastTaxonomyChange('notes') })
+  roleHandler('notes:tags:reorder', 'notes', (_event, raw) => { const input = TagsReorderSchema.parse(raw); requireStore().reorderTags(input.categoryId, input.ids); broadcastTaxonomyChange('notes') })
+  roleHandler('notes:tag:create', 'notes', (_event, raw) => { const input = raw as { name?: unknown; categoryId?: unknown }; const name = TagNameSchema.parse(input?.name); const categoryId = null; const result = requireStore().createTag(name, categoryId); broadcastTaxonomyChange('notes'); return result })
+  roleHandler('notes:tag:update', 'notes', (_event, raw) => { const input = TagUpdateSchema.parse(raw); requireStore().updateTag(input.id, input.categoryId, input.color, input.name); broadcastTaxonomyChange() })
+  roleHandler('notes:tag:delete', 'notes', (_event, raw) => { requireStore().deleteTag(IdsSchema.element.parse(raw)); broadcastTaxonomyChange() })
   roleHandler('notes:get', 'notes', (_event, id) => requireStore().getNote(String(id)))
   roleHandler('notes:image', 'notes', (_event, id) => requireStore().getItemImage(String(id)))
   roleHandler('notes:update', 'notes', (_event, raw) => { const input = NoteUpdateSchema.parse(raw); const result = requireStore().updateNote(input.id, input.expectedRevision, input.body); broadcastChange('notes'); return result })
@@ -337,38 +383,39 @@ function registerIpc() {
     if (typeof input?.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(input.id) || !Number.isInteger(input.expectedRevision) || typeof input.body !== 'string' || [...input.body].length > 50_000 || !Array.isArray(input.tags) || input.tags.length > 20 || input.tags.some((tag) => typeof tag !== 'string' || tag.length > 80) || (input.categoryId !== undefined && input.categoryId !== null && (typeof input.categoryId !== 'string' || !/^[0-9a-f-]{36}$/i.test(input.categoryId)))) throw new AppError('INVALID_INPUT', 'This item is too large or invalid.')
     const images = input.images === undefined ? undefined : Z.array(ImageRefSchema.extend({ dataUrl: Z.string().max(7_000_000).optional() })).max(5).parse(input.images)
     const result = requireStore().updateItem(input.id, input.expectedRevision as number, input.body, input.tags as string[], input.categoryId as string | null | undefined, images, Z.string().uuid().nullable().optional().parse(input.subcategoryId))
-    broadcastChange(); return result
+    broadcastTaxonomyChange(); return result
   })
-  roleHandler('notes:set-category', 'notes', (_event, raw) => { const input = ItemCategorySchema.parse(raw); requireStore().setItemCategory(input.id, input.categoryId, input.subcategoryId); broadcastChange() })
-  roleHandler('notes:set-tags', 'notes', (_event, raw) => { const input = raw as { id?: unknown; tags?: unknown }; if (typeof input?.id !== 'string' || !Array.isArray(input.tags) || input.tags.length > 20 || input.tags.some((tag) => typeof tag !== 'string' || tag.length > 80)) throw new AppError('INVALID_INPUT', 'Choose up to 20 valid tags.'); requireStore().setItemTags(input.id, input.tags as string[]); broadcastChange() })
-  roleHandler('notes:trash', 'notes', (_event, raw) => { const ids = IdsSchema.parse(raw); requireStore().trash(ids); broadcastChange() })
-  roleHandler('notes:restore', 'notes', (_event, raw) => { const ids = IdsSchema.parse(raw); requireStore().restore(ids); broadcastChange() })
+  roleHandler('notes:set-category', 'notes', (_event, raw) => { const input = ItemCategorySchema.parse(raw); requireStore().setItemCategory(input.id, input.categoryId, input.subcategoryId); broadcastTaxonomyChange() })
+  roleHandler('notes:set-tags', 'notes', (_event, raw) => { const input = raw as { id?: unknown; tags?: unknown }; if (typeof input?.id !== 'string' || !Array.isArray(input.tags) || input.tags.length > 20 || input.tags.some((tag) => typeof tag !== 'string' || tag.length > 80)) throw new AppError('INVALID_INPUT', 'Choose up to 20 valid tags.'); requireStore().setItemTags(input.id, input.tags as string[]); broadcastTaxonomyChange() })
+  roleHandler('notes:trash', 'notes', (_event, raw) => { const ids = IdsSchema.parse(raw); requireStore().trash(ids); broadcastTaxonomyChange() })
+  roleHandler('notes:restore', 'notes', (_event, raw) => { const ids = IdsSchema.parse(raw); requireStore().restore(ids); broadcastTaxonomyChange() })
   roleHandler('notes:delete-permanently', 'notes', async (_event, raw) => {
     const db = requireStore()
     const ids = [...new Set(IdsSchema.parse(raw))].filter((id) => { const note = db.getNote(id); return note !== null && note.deletedAt !== null })
     if (!ids.length) return
     const response = await dialog.showMessageBox(notesWindow!, { type: 'warning', buttons: ['Cancel', 'Delete permanently'], defaultId: 0, cancelId: 0, title: 'Delete permanently?', message: `Permanently delete ${ids.length} ${ids.length === 1 ? 'note' : 'notes'}?`, detail: 'This cannot be undone. Independent backups may still contain them.' })
-    if (response.response === 1) { db.permanentlyDelete(ids); broadcastChange() }
+    if (response.response === 1) { db.permanentlyDelete(ids); broadcastTaxonomyChange() }
   })
   roleHandler('notes:empty-trash', 'notes', async () => {
     const count = requireStore().listNotes({ query: '', scope: 'trash', sort: 'newest', includeCompleted: false, limit: 1 }).total
     if (!count) return
     const response = await dialog.showMessageBox(notesWindow!, { type: 'warning', buttons: ['Cancel', 'Empty trash'], defaultId: 0, cancelId: 0, title: 'Empty trash?', message: `Permanently delete all ${count} ${count === 1 ? 'note' : 'notes'} in Trash?`, detail: 'This cannot be undone. Independent backups may still contain them.' })
-    if (response.response === 1) { requireStore().emptyTrash(); broadcastChange() }
+    if (response.response === 1) { requireStore().emptyTrash(); broadcastTaxonomyChange() }
   })
   roleHandler('notes:copy', 'notes', (_event, raw) => { const ids = IdsSchema.parse(raw); const value = requireStore().getDraftText(ids); clipboard.writeText(value); return value })
   roleHandler('planner:inbox', 'notes', (_event, raw) => { const input = InboxPageSchema.parse(raw ?? {}); return requireStore().listInbox(input.cursor, input.limit) })
   roleHandler('planner:inbox-count', 'notes', () => requireStore().inboxCount())
   roleHandler('planner:unfile', 'notes', (_event, raw) => { const id = IdsSchema.parse([raw])[0]!; requireStore().unfilePlannerTask(id); broadcastChange() })
-  roleHandler('planner:classify', 'notes', (_event, raw) => { const input = ClassifyItemSchema.parse(raw); requireStore().classifyItem(input.id, input.kind, input.tags, input.categoryId, input.subcategoryId); broadcastChange() })
+  roleHandler('planner:classify', 'notes', (_event, raw) => { const input = ClassifyItemSchema.parse(raw); requireStore().classifyItem(input.id, input.kind, input.tags, input.categoryId, input.subcategoryId); broadcastTaxonomyChange() })
   roleHandler('planner:tasks', 'notes', (_event, raw) => { const input = PlannerQuerySchema.parse(raw); return requireStore().listPlanner(input.from, input.to) })
   roleHandler('planner:backlog', 'notes', (_event, raw) => { const input = PlannerBacklogQuerySchema.parse(raw ?? {}); return requireStore().listBacklog(input) })
+  roleHandler('planner:backlog-summary', 'notes', (_event, raw) => requireStore().backlogSummary(Z.boolean().parse(raw)))
   roleHandler('planner:ready', 'notes', (_event, raw) => { const input = PlannerReadySchema.parse(raw); requireStore().setTaskReady(input.id); broadcastChange() })
   roleHandler('planner:complete', 'notes', (_event, raw) => { const input = PlannerCompleteSchema.parse(raw); requireStore().setTaskCompleted(input.id, input.completed); broadcastChange() })
   roleHandler('planner:backlog-reorder', 'notes', (_event, raw) => { const input = PlannerBacklogReorderSchema.parse(raw); requireStore().reorderBacklog(input.id, input.categoryId, input.beforeId); broadcastChange() })
   roleHandler('planner:move', 'notes', (_event, raw) => { const input = PlannerMoveSchema.parse(raw); requireStore().movePlannerTask(input.id, input.plannedDate, input.beforeEventId, input.beforeId); broadcastChange('planner') })
   roleHandler('planner:task:schedule', 'notes', (_event, raw) => { const task = requireStore().schedulePlannerTask(PlannerTaskScheduleSchema.parse(raw)); broadcastChange(); return task })
-  roleHandler('planner:task:create', 'notes', (_event, raw) => { const task = requireStore().createPlannerTask(PlannerTaskCreateSchema.parse(raw)); broadcastChange(); return task })
+  roleHandler('planner:task:create', 'notes', (_event, raw) => { const task = requireStore().createPlannerTask(PlannerTaskCreateSchema.parse(raw)); broadcastTaxonomyChange(); return task })
   roleHandler('planner:event:timing', 'notes', (_event, raw) => { const event = requireStore().updatePlannerEventTiming(PlannerEventTimingSchema.parse(raw)); broadcastChange('planner'); return event })
   roleHandler('planner:event:create', 'notes', (_event, raw) => { const input = PlannerEventInputSchema.parse(raw); const event = requireStore().savePlannerEvent(input); broadcastChange('planner'); return event })
   roleHandler('planner:event:update', 'notes', (_event, raw) => { const input = PlannerEventInputSchema.parse(raw); if (!input.id) throw new AppError('INVALID_INPUT', 'Choose a meeting to update.'); const event = requireStore().updatePlannerEvent({ ...input, id: input.id }); broadcastChange('planner'); return event })
@@ -415,10 +462,10 @@ function registerIpc() {
   roleHandler('data:backup', 'notes', async () => backupToUserPath())
   roleHandler('data:restore', 'notes', async () => restoreBackup())
   roleHandler('data:diagnostics', 'notes', async () => {
-    const result = await dialog.showSaveDialog(notesWindow!, { title: 'Export diagnostics', defaultPath: path.join(app.getPath('documents'), `notiert-diagnostics-${new Date().toISOString().slice(0, 10)}.txt`), filters: [{ name: 'Text', extensions: ['txt'] }] })
+    const result = await dialog.showSaveDialog(notesWindow!, { title: 'Export diagnostics', defaultPath: path.join(app.getPath('documents'), `captured-diagnostics-${new Date().toISOString().slice(0, 10)}.txt`), filters: [{ name: 'Text', extensions: ['txt'] }] })
     if (result.canceled || !result.filePath) return
     const integrity = store ? 'ok' : 'unavailable'
-    const contents = [`notiert diagnostics`, `Date: ${new Date().toISOString()}`, `Version: ${app.getVersion()}`, `Electron: ${process.versions.electron}`, `Windows: ${os.release()}`, `Shortcut registered: ${globalShortcut.isRegistered(settings.get().shortcut)}`, `Database: ${integrity}`].join('\n')
+    const contents = [`captured diagnostics`, `Date: ${new Date().toISOString()}`, `Version: ${app.getVersion()}`, `Electron: ${process.versions.electron}`, `Windows: ${os.release()}`, `Shortcut registered: ${globalShortcut.isRegistered(settings.get().shortcut)}`, `Database: ${integrity}`].join('\n')
     fs.writeFileSync(result.filePath, contents, 'utf8')
   })
   ipcMain.on('capture:resize', (event, rawHeight: unknown) => {
@@ -438,6 +485,7 @@ function registerIpc() {
     try {
       const context=raw===undefined?null:Z.object({categoryId:Z.string().uuid().nullable(),subcategoryId:Z.string().uuid().nullable().optional(),tags:Z.array(TagNameSchema).max(20).optional()}).parse(raw)
       const draft=context&&!captureWindow?.isVisible()?requireStore().prepareCaptureContext(context.categoryId,context.subcategoryId??null,context.tags):null
+      if (draft) captureCategory = { categoryId: draft.categoryId, subcategoryId: draft.subcategoryId }
       showCapture()
       if(draft)captureWindow?.webContents.send('capture:state',draft)
     }catch{showCapture()}
@@ -473,7 +521,7 @@ async function exportData(raw: unknown) {
   const taskMetadata = db.taskExportMetadata(rows.map((row) => row.id))
   const legacyMeetingLabels = new Map(db.legacyMeetingLabels().map((meeting) => [meeting.id, meeting.title]))
   const ext = input.format as 'txt' | 'md'
-  const filename = `notiert-export-${new Date().toISOString().slice(0, 10)}.${ext}`
+  const filename = `captured-export-${new Date().toISOString().slice(0, 10)}.${ext}`
   const choice = await dialog.showSaveDialog(notesWindow!, { title: 'Export notes', defaultPath: path.join(app.getPath('documents'), filename), filters: [{ name: ext === 'md' ? 'Markdown' : 'Text', extensions: [ext] }] })
   if (choice.canceled || !choice.filePath) return
   const list = rows.map((row) => {
@@ -500,7 +548,7 @@ async function exportData(raw: unknown) {
 }
 
 async function backupToUserPath() {
-  const result = await dialog.showSaveDialog(notesWindow!, { title: 'Create SQLite backup', defaultPath: path.join(app.getPath('documents'), `notiert-backup-${new Date().toISOString().slice(0, 10)}.sqlite`), filters: [{ name: 'SQLite backup', extensions: ['sqlite', 'db'] }] })
+  const result = await dialog.showSaveDialog(notesWindow!, { title: 'Create SQLite backup', defaultPath: path.join(app.getPath('documents'), `captured-backup-${new Date().toISOString().slice(0, 10)}.sqlite`), filters: [{ name: 'SQLite backup', extensions: ['sqlite', 'db'] }] })
   if (result.canceled || !result.filePath) return
   if (path.resolve(result.filePath) === path.resolve(requireStore().path)) throw new AppError('INVALID_BACKUP_PATH', 'Choose a separate file for the backup.')
   try {
@@ -526,7 +574,7 @@ async function restoreBackup() {
   if (confirmation.response !== 1) return
   await createAutomaticBackup('pre-restore')
   db.replaceWith(candidate)
-  broadcastChange()
+  broadcastTaxonomyChange()
 }
 
 const backupDirectory = () => path.join(app.getPath('userData'), 'backups')
@@ -575,8 +623,8 @@ if (hasSingleInstance) {
     fs.mkdirSync(app.getPath('userData'), { recursive: true })
     settings.load()
     try {
-      const legacyDatabase = path.join(app.getPath('userData'), 'notable.sqlite')
-      store = new Store(fs.existsSync(legacyDatabase) ? legacyDatabase : path.join(app.getPath('userData'), 'notiert.sqlite'))
+      const database = databaseNames.map(name => path.join(app.getPath('userData'), name)).find(filename => fs.existsSync(filename))
+      store = new Store(database ?? path.join(app.getPath('userData'), 'captured.sqlite'))
     }
     catch (error) { console.error('database-open-failed', messageOf(error)) }
     makeTray()
@@ -585,6 +633,8 @@ if (hasSingleInstance) {
     const registered = settings.get().shortcutEnabled ? registerShortcut() : false
     settings.setRegistration(registered)
     if (store) {
+      scheduleRollover()
+      powerMonitor.on('resume', scheduleRollover)
     }
     createCaptureWindow()
     screen.on('display-added', placeCapture)
@@ -597,7 +647,7 @@ if (hasSingleInstance) {
     if (pendingCapture) { pendingCapture = false; showCapture() }
     syncTray()
   }).catch((error) => {
-    dialog.showErrorBox('notiert could not start', 'The app could not initialize its local storage. Try restarting notiert.')
+    dialog.showErrorBox('captured could not start', 'The app could not initialize its local storage. Try restarting captured.')
     console.error('startup-failed', messageOf(error))
   })
 
@@ -608,6 +658,7 @@ if (hasSingleInstance) {
       return
     }
     isQuitting = true
+    clearTimeout(rolloverTimer)
     globalShortcut.unregisterAll()
     try { store?.close() } catch (error) { console.error('database-close-failed', messageOf(error)) }
   })

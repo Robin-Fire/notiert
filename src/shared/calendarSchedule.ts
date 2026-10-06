@@ -7,7 +7,7 @@ export function validLocalDate(value: string): boolean {
 }
 export function placementFields(placement: TaskPlacement) {
   if (placement.kind === 'timed') return { plannedDate: toLocalISODate(new Date(placement.startAt)), plannedStartAt: placement.startAt, plannedEndAt: placement.endAt, beforeEventId: null, ready: true }
-  return { plannedDate: placement.kind === 'date' ? placement.date : null, plannedStartAt: null, plannedEndAt: null, beforeEventId: null, ready: placement.kind === 'ready' || placement.kind === 'date' }
+  return { plannedDate: null, plannedStartAt: null, plannedEndAt: null, beforeEventId: null, ready: placement.kind === 'ready' }
 }
 export function taskDay(task: PlannerTask): string | null {
   return task.plannedStartAt !== null ? toLocalISODate(new Date(task.plannedStartAt)) : task.plannedDate

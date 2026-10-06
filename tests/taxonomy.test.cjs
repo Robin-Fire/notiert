@@ -13,11 +13,37 @@ buildSync({ entryPoints: [path.join(__dirname, '../src/main/storage/database.ts'
 const { Store } = require(path.join(generated, 'database.cjs'))
 after(() => fs.rmSync(generated, { recursive: true, force: true }))
 function fixture() {
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'notiert-taxonomy-'))
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'captured-taxonomy-'))
   const file = path.join(folder, 'notes.sqlite')
   return { folder, file, store: new Store(file), close() { this.store?.close(); this.store = null; fs.rmSync(folder, { recursive: true, force: true }) } }
 }
 const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl8n+QAAAAASUVORK5CYII='
+test('included tags combine with OR and excluded tags win before counts and pagination', () => {
+  const f = fixture()
+  try {
+    const category = f.store.createCategory('Work')
+    const make = (body, tags) => f.store.createPlannerTask({ body, categoryId: category.id, tags, placement: { kind: 'backlog' } })
+    const first = make('First', ['Design'])
+    const second = make('Second', ['Work'])
+    make('Hidden overlap', ['Design', 'Waiting'])
+    const untagged = make('Untagged', [])
+    make('Hidden', ['Waiting'])
+    const filter = { categoryId: category.id, tagNames: ['design', 'work'], excludedTags: ['waiting'], limit: 1 }
+    const page = f.store.listBacklog(filter)
+    assert.equal(page.total, 2)
+    assert.equal(page.items[0].id, first.id)
+    const next = f.store.listBacklog({ ...filter, cursor: page.nextCursor })
+    assert.equal(next.items[0].id, second.id)
+    assert.equal(next.nextCursor, null)
+    assert.deepEqual(f.store.listBacklog({ categoryId: category.id, excludedTags: ['Waiting'] }).items.map(item => item.id), [first.id, second.id, untagged.id])
+    const notes = f.store.listNotes({ query: '', scope: 'notes', sort: 'oldest', categoryId: category.id, tags: ['Design', 'Work'], excludedTags: ['Waiting'], includeCompleted: false, limit: 1 })
+    assert.equal(notes.total, 2)
+    const noteNext = f.store.listNotes({ query: '', scope: 'notes', sort: 'oldest', categoryId: category.id, tags: ['Design', 'Work'], excludedTags: ['Waiting'], includeCompleted: false, limit: 1, cursor: notes.nextCursor })
+    assert.equal(noteNext.items.length, 1)
+    assert.notEqual(noteNext.items[0].id, notes.items[0].id)
+    assert.equal(f.store.listNotes({ query: '', scope: 'notes', excludedTags: ['Waiting'], includeCompleted: false, limit: 50 }).total, 3)
+  } finally { f.close() }
+})
 function create(store, body, categoryId, tags, kind = 'note') {
   const id = store.submitCapture(randomUUID(), store.getCaptureDraft().generation, body, categoryId)
   if (kind !== 'inbox') store.classifyItem(id, kind, tags)

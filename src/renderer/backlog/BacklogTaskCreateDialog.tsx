@@ -33,7 +33,7 @@ export function BacklogTaskCreateDialog({ categories, tags, initialCategoryId, o
     if (busy) return
     setBusy(true)
     try {
-      const result = await window.notiert.planner.createTask({ body, categoryId, subcategoryId, tags: collectTags(selectedTags, tagDraft), placement: { kind: 'backlog-top' } })
+      const result = await window.captured.planner.createTask({ body, categoryId, subcategoryId, tags: collectTags(selectedTags, tagDraft), placement: { kind: 'backlog-top' } })
       if (!result.ok) throw new Error(result.message)
       onCreated(result.value)
     } catch (reason) {

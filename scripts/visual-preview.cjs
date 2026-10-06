@@ -6,7 +6,7 @@ const os = require('os')
 const root = path.resolve(__dirname, '..')
 const output = path.join(root, 'tests', '.visual')
 const tempRoot = path.resolve(os.tmpdir())
-const profile = fs.mkdtempSync(path.join(tempRoot, 'notiert-visual-'))
+const profile = fs.mkdtempSync(path.join(tempRoot, 'captured-visual-'))
 const theme = process.env.PREVIEW_THEME === 'dark' ? 'dark' : 'light'
 const view = process.env.PREVIEW_VIEW === 'inbox' ? 'inbox' : process.env.PREVIEW_VIEW === 'notes' ? 'notes' : 'calenban'
 const mode = process.env.PREVIEW_MODE === 'week' ? 'week' : 'three'
@@ -66,6 +66,6 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   const target = path.resolve(profile)
-  if (path.dirname(target) !== tempRoot || !path.basename(target).startsWith('notiert-visual-')) return
+  if (path.dirname(target) !== tempRoot || !path.basename(target).startsWith('captured-visual-')) return
   try { fs.rmSync(target, { recursive: true, force: true }) } catch {}
 })

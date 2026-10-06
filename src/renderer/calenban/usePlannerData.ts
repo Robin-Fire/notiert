@@ -18,7 +18,7 @@ export function usePlannerData(from: string, to: string) {
     const request = ++requestNumber.current
     setLoading(true)
     try {
-      const data = valueOf(await window.notiert.planner.tasks(from, to))
+      const data = valueOf(await window.captured.planner.tasks(from, to))
       if (request !== requestNumber.current) return
       setTasks(data.tasks)
       setEvents(data.events)
@@ -32,6 +32,6 @@ export function usePlannerData(from: string, to: string) {
   }, [from, to])
 
   useEffect(() => { void refresh(); return () => { requestNumber.current++ } }, [refresh])
-  useEffect(() => window.notiert.planner.onChanged(() => { void refresh() }), [refresh])
+  useEffect(() => window.captured.planner.onChanged(() => { void refresh() }), [refresh])
   return { tasks, events, tags, loading, error, refresh }
 }

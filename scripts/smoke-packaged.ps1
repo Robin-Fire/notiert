@@ -1,10 +1,10 @@
 $ErrorActionPreference = 'Stop'
 $workspaceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$executable = Join-Path $workspaceRoot 'release\win-unpacked\notiert.exe'
+$executable = Join-Path $workspaceRoot 'release\win-unpacked\captured.exe'
 if (-not (Test-Path -LiteralPath $executable)) { throw 'Build the unpacked Windows app before running this smoke test.' }
 
 $tempParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
-$smokeRoot = Join-Path $tempParent ('notiert-smoke-' + [guid]::NewGuid().ToString('N'))
+$smokeRoot = Join-Path $tempParent ('captured-smoke-' + [guid]::NewGuid().ToString('N'))
 $profilePath = Join-Path $smokeRoot 'profile'
 $logPath = Join-Path $smokeRoot 'electron.log'
 $stdoutPath = Join-Path $smokeRoot 'stdout.log'

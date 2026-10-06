@@ -30,7 +30,7 @@ export function ItemDetailDialog({ task, initialTags, suggestions, onClose, onCh
   const imageEdit = useImagePaste(setError)
   const [savedImages, setSavedImages] = useState(task.images)
   const [busy, setBusy] = useState(false)
-  const [placementKind, setPlacementKind] = useState<'timed' | 'date' | 'ready' | 'backlog' | 'later'>(task.later ? 'later' : task.plannedStartAt != null ? 'timed' : task.plannedDate ? 'date' : task.ready ? 'ready' : 'backlog')
+  const [placementKind, setPlacementKind] = useState<'timed' | 'ready' | 'backlog' | 'later'>(task.later ? 'later' : task.plannedStartAt != null ? 'timed' : task.plannedDate ? 'ready' : task.ready ? 'ready' : 'backlog')
   const initialStart = task.plannedStartAt ?? new Date(`${task.plannedDate ?? toLocalISODate(new Date())}T09:00`).getTime()
   const [start, setStart] = useState(localDateTime(initialStart))
   const [end, setEnd] = useState(localDateTime(task.plannedEndAt ?? initialStart + DEFAULT_DURATION))
@@ -82,21 +82,21 @@ export function ItemDetailDialog({ task, initialTags, suggestions, onClose, onCh
     if (busy || imageEdit.isPending()) return
     setBusy(true); setError('')
     try {
-      const result = resultValue(await window.notiert.notes.updateItem({ id: task.id, expectedRevision: revision, body, categoryId, subcategoryId, tags: collectTags(tags, tagDraft), images: imageEdit.images }))
+      const result = resultValue(await window.captured.notes.updateItem({ id: task.id, expectedRevision: revision, body, categoryId, subcategoryId, tags: collectTags(tags, tagDraft), images: imageEdit.images }))
       setSavedCategory(result.categoryId);setSavedSubcategory(result.subcategoryId);imageEdit.reset(result.images); setSavedImages(result.images); setRevision(result.revision); setSavedBody(result.body); setSavedTags(result.tags); setTags(result.tags); setTagDraft(''); onChanged(); onClose()
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'The item could not be saved.') }
     finally { setBusy(false) }
   }
 
   async function copy() {
-    try { const text = resultValue(await window.notiert.notes.copy([task.id])); setNotice(text ? 'Copied to clipboard.' : 'Nothing to copy.') }
+    try { const text = resultValue(await window.captured.notes.copy([task.id])); setNotice(text ? 'Copied to clipboard.' : 'Nothing to copy.') }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'The item could not be copied.') }
   }
 
   async function trash() {
     if (changed && !window.confirm('Discard unsaved changes and move this item to Trash?')) return
     setBusy(true)
-    try { resultValue(await window.notiert.notes.trash([task.id])); onChanged(); onClose() }
+    try { resultValue(await window.captured.notes.trash([task.id])); onChanged(); onClose() }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'The item could not be moved to Trash.') }
     finally { setBusy(false) }
   }
@@ -104,7 +104,7 @@ export function ItemDetailDialog({ task, initialTags, suggestions, onClose, onCh
   async function returnToInbox() {
     if (changed && !window.confirm('Discard unsaved changes and return this item to Inbox?')) return
     setBusy(true)
-    try { resultValue(await window.notiert.planner.unfile(task.id)); onChanged(); onClose() }
+    try { resultValue(await window.captured.planner.unfile(task.id)); onChanged(); onClose() }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'The item could not be returned to Inbox.') }
     finally { setBusy(false) }
   }
@@ -112,12 +112,12 @@ export function ItemDetailDialog({ task, initialTags, suggestions, onClose, onCh
   async function savePlacement() {
     if (busy) return
     const startAt = new Date(start).getTime(), endAt = new Date(end).getTime()
-    if ((placementKind === 'timed' || placementKind === 'date') && !Number.isFinite(startAt)) { setError('Choose a valid date.'); return }
+    if ((placementKind === 'timed') && !Number.isFinite(startAt)) { setError('Choose a valid date.'); return }
     if (placementKind === 'timed' && (!Number.isFinite(endAt) || endAt <= startAt)) { setError('End time must be after start time.'); return }
-    const placement: TaskPlacement = placementKind === 'timed' ? { kind: 'timed', startAt, endAt } : placementKind === 'date' ? { kind: 'date', date: start.slice(0, 10) } : { kind: placementKind }
+    const placement: TaskPlacement = placementKind === 'timed' ? { kind: 'timed', startAt, endAt } : { kind: placementKind }
     setBusy(true); setError('')
     try {
-      const saved = resultValue(await window.notiert.planner.scheduleTask({ id: task.id, expectedRevision: revision, placement }))
+      const saved = resultValue(await window.captured.planner.scheduleTask({ id: task.id, expectedRevision: revision, placement }))
       setRevision(saved.revision); setNotice('Schedule saved.'); onChanged()
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'The schedule could not be saved.') }
     finally { setBusy(false) }
@@ -130,12 +130,12 @@ export function ItemDetailDialog({ task, initialTags, suggestions, onClose, onCh
     <span className="image-paste-hint">{imageEdit.pending ? 'Reading image…' : 'Paste a screenshot with Ctrl+V · up to 5 images'}</span>
     <CategoryPicker categories={taxonomy.categories} subcategories={taxonomy.subcategories} categoryId={categoryId} subcategoryId={subcategoryId} onChange={(category,subcategory)=>{setCategoryId(category);setSubcategoryId(subcategory)}} disabled={busy}/>
     <div className="task-detail-tags"><span>Tags</span><TagEditor tags={tags} draft={tagDraft} onTagsChange={setTags} onDraftChange={setTagDraft} suggestions={taxonomy.tags.length?taxonomy.tags.map(tag=>tag.name):suggestions} disabled={busy} /></div>
-    {isTask && task.completedAt === null && <fieldset className="task-schedule-fields" disabled={busy}><legend>Schedule</legend><label>Placement<select className="text-field" value={placementKind} onChange={(event) => setPlacementKind(event.target.value as typeof placementKind)}><option value="timed">Time block</option><option value="date">Date only</option><option value="ready">Ready · unscheduled</option><option value="backlog">Backlog</option><option value="later">Later</option></select></label>{(placementKind === 'timed' || placementKind === 'date') && <div className="event-form-times"><label>{placementKind === 'date' ? 'Date' : 'Starts'}<input className="text-field" type={placementKind === 'date' ? 'date' : 'datetime-local'} value={placementKind === 'date' ? start.slice(0, 10) : start} onChange={(event) => setStart(placementKind === 'date' ? `${event.target.value}T09:00` : event.target.value)} /></label>{placementKind === 'timed' && <label>Ends<input className="text-field" type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} /></label>}</div>}<button type="button" className="button secondary small" onClick={() => void savePlacement()} disabled={changed} title={changed ? 'Save item changes before changing its schedule' : undefined}>Save schedule</button></fieldset>}
+    {isTask && task.completedAt === null && <fieldset className="task-schedule-fields" disabled={busy}><legend>Schedule</legend><label>Placement<select className="text-field" value={placementKind} onChange={(event) => setPlacementKind(event.target.value as typeof placementKind)}><option value="timed">Time block</option><option value="ready">Ready · unscheduled</option><option value="backlog">Backlog</option><option value="later">Later</option></select></label>{(placementKind === 'timed') && <div className="event-form-times"><label>Starts<input className="text-field" type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} /></label>{placementKind === 'timed' && <label>Ends<input className="text-field" type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} /></label>}</div>}<button type="button" className="button secondary small" onClick={() => void savePlacement()} disabled={changed} title={changed ? 'Save item changes before changing its schedule' : undefined}>Save schedule</button></fieldset>}
     {error && <div className="inline-error" role="alert">{error}</div>}
     {notice && <div role="status" className="task-detail-notice">{notice}</div>}
     <div className="task-detail-actions">
       <button className="button secondary small" onClick={() => void copy()} disabled={busy}><Copy size={14} /> Copy</button>
-      {isTask && <button className="button secondary small" disabled={busy} onClick={async () => { if (changed && !window.confirm('Discard unsaved item changes?')) return; setBusy(true); try { resultValue(await window.notiert.planner.setTaskCompleted({ id: task.id, completed: task.completedAt === null })); onChanged(); onClose() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not change task status.'); setBusy(false) } }}>{task.completedAt === null ? 'Complete' : 'Reopen'}</button>}
+      {isTask && <button className="button secondary small" disabled={busy} onClick={async () => { if (changed && !window.confirm('Discard unsaved item changes?')) return; setBusy(true); try { resultValue(await window.captured.planner.setTaskCompleted({ id: task.id, completed: task.completedAt === null })); onChanged(); onClose() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not change task status.'); setBusy(false) } }}>{task.completedAt === null ? 'Complete' : 'Reopen'}</button>}
       {isTask && <button className="button secondary small" onClick={() => void returnToInbox()} disabled={busy}><Archive size={14} /> Return to Inbox</button>}
       <button className="button secondary small danger-action" onClick={() => void trash()} disabled={busy}><Trash2 size={14} /> Trash</button>
       <span />

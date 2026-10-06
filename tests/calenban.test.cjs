@@ -21,7 +21,7 @@ const { localDateBounds, eventOverlapsLocalDay } = require(path.join(generated, 
 after(() => fs.rmSync(generated, { recursive: true, force: true }))
 
 function withStore(callback) {
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'notiert-test-'))
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'captured-test-'))
   const store = new Store(path.join(folder, 'notes.sqlite'))
   try { callback(store) }
   finally { store.close(); fs.rmSync(folder, { recursive: true, force: true }) }
@@ -34,7 +34,7 @@ function captureTask(store, body, tags = []) {
 }
 
 test('pasted image survives draft restart, image-only capture, filing, and backup', async () => {
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'notiert-image-test-'))
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'captured-image-test-'))
   const file = path.join(folder, 'notes.sqlite')
   const backup = path.join(folder, 'backup.sqlite')
   const dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl8n+QAAAAASUVORK5CYII='
@@ -61,7 +61,7 @@ test('pasted image survives draft restart, image-only capture, filing, and backu
 })
 
 test('version 3 database migrates to image storage without losing notes', () => {
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'notiert-v3-'))
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'captured-v3-'))
   const file = path.join(folder, 'notes.sqlite')
   let store = new Store(file)
   try {
@@ -183,7 +183,7 @@ test('tasks move between category backlog, Ready, a day, and back to Ready', () 
 })
 
 test('v7 migration assigns direct categories only from unambiguous legacy tags and initializes priority', () => {
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'notiert-v7-'))
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'captured-v7-'))
   const file = path.join(folder, 'notes.sqlite')
   let store = new Store(file)
   try {
@@ -221,7 +221,7 @@ test('v7 migration assigns direct categories only from unambiguous legacy tags a
 })
 
 test('capture category persists in the draft and copies to the submitted Inbox item', () => {
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'notiert-capture-category-'))
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'captured-capture-category-'))
   const file = path.join(folder, 'notes.sqlite')
   let store = new Store(file)
   try {
@@ -268,7 +268,7 @@ test('category tag filters use OR matching, deduplicate multi-tag tasks, and inc
     const filtered = store.listBacklog({ categoryId: category.id, tagNames: [tagOne.name, tagTwo.name], includeUntagged: true })
     assert.deepEqual(filtered.items.map((item) => item.id), [matching, untagged])
     assert.equal(filtered.total, 2)
-    assert.ok(filtered.tagNames.includes(foreignTag.name))
+    assert.ok(!('tagNames' in filtered), 'backlog pages omit unused tag options')
     assert.deepEqual(store.listBacklog({ categoryId: category.id, tagNames: [foreignTag.name], includeUntagged: false }).items.map((item) => item.id), [foreignTagged])
     assert.deepEqual(store.listBacklog({ categoryId: category.id, tagNames: [], includeUntagged: false }).items, [])
     assert.deepEqual(store.listBacklog({ categoryId: category.id, tagNames: [], includeUntagged: true }).items.map((item) => item.id), [untagged])
@@ -420,7 +420,7 @@ test('date bounds follow local daylight-saving day lengths', () => {
 })
 
 test('version 2 database migrates with historical meeting labels intact', () => {
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'notiert-v2-'))
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'captured-v2-'))
   const file = path.join(folder, 'legacy.sqlite')
   const legacy = new Database(file)
   legacy.exec(`
@@ -515,3 +515,51 @@ test('item image edits are atomic, retain attachments, and reject conflicts and 
   assert.deepEqual(removed.images, [])
   assert.throws(() => store.getItemImage(note.images[0].id), /no longer available/)
 }))
+
+
+test('backlog summary groups eligible tasks and counts-only requests preserve filtering', () => {
+  withStore(store => {
+    const category = store.createCategory('Work')
+    const subcategory = store.createSubcategory('Planning', category.id)
+    const assigned = captureTask(store, 'Prepare review', ['Waiting'])
+    store.setItemCategory(assigned, category.id, subcategory.id)
+    captureTask(store, 'Unassigned work')
+    const ready = captureTask(store, 'Ready work'); store.setTaskReady(ready)
+    const done = captureTask(store, 'Done work'); store.setTaskCompleted(done, true)
+    const trashed = captureTask(store, 'Trashed work'); store.trash([trashed])
+    const later = captureTask(store, 'Later work')
+    store.schedulePlannerTask({ id: later, expectedRevision: store.getNote(later).revision, placement: { kind: 'later' } })
+    assert.deepEqual(store.backlogSummary(), {
+      [category.id]: { total: 1, subcategoryCounts: { [subcategory.id]: 1 } },
+      unassigned: { total: 1, subcategoryCounts: { '': 1 } },
+    })
+    assert.deepEqual(store.backlogSummary(true), { unassigned: { total: 1, subcategoryCounts: { '': 1 } } })
+    const count = store.listBacklog({ categoryId: category.id, tagNames: ['Waiting'], countsOnly: true })
+    assert.equal(count.total, 1)
+    assert.deepEqual(count.items, [])
+    assert.equal(count.nextCursor, null)
+    assert.equal(store.listBacklog({ categoryId: category.id, excludedTags: ['Waiting'], countsOnly: true }).total, 0)
+    store.setTaskReady(assigned)
+    assert.deepEqual(store.backlogSummary(), { unassigned: { total: 1, subcategoryCounts: { '': 1 } } })
+  })
+})
+
+test('backlog pages share counts until the next database change', () => {
+  withStore(store => {
+    const first = store.createCategory('First'), second = store.createCategory('Second')
+    store.setItemCategory(captureTask(store, 'First work'), first.id)
+    store.setItemCategory(captureTask(store, 'Second work'), second.id)
+    const prepare = store.db.prepare.bind(store.db)
+    let reads = 0
+    store.db.prepare = (...args) => { reads++; return prepare(...args) }
+    try {
+      store.backlogSummary()
+      store.listBacklog({ categoryId: first.id })
+      store.listBacklog({ categoryId: second.id })
+      store.listBacklog({ categoryId: first.id, countsOnly: true })
+      assert.equal(reads, 3, 'one shared count query and two task pages')
+    } finally { store.db.prepare = prepare }
+    captureTask(store, 'New unassigned work')
+    assert.equal(store.backlogSummary().unassigned.total, 1)
+  })
+})

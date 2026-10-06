@@ -18,7 +18,7 @@ export function ItemImages({ images, expanded = false, onRemove, disabled = fals
     let active = true
     void Promise.all(images.map(async image => {
       if (image.dataUrl) return [image.id, image.dataUrl] as const
-      try { const result = await window.notiert.notes.image(image.id); return [image.id, result.ok ? result.value : ''] as const }
+      try { const result = await window.captured.notes.image(image.id); return [image.id, result.ok ? result.value : ''] as const }
       catch { return [image.id, ''] as const }
     })).then(entries => { if (active) setSources(Object.fromEntries(entries)) })
     return () => { active = false }

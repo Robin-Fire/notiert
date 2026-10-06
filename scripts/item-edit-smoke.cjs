@@ -5,7 +5,7 @@ const os = require('node:os')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const tempRoot = path.resolve(os.tmpdir())
-const profile = fs.mkdtempSync(path.join(tempRoot, 'notiert-item-edit-smoke-'))
+const profile = fs.mkdtempSync(path.join(tempRoot, 'captured-item-edit-smoke-'))
 const output = path.resolve(__dirname, '../tests/.visual')
 fs.mkdirSync(output, { recursive: true })
 fs.writeFileSync(path.join(profile, 'settings.json'), JSON.stringify({ firstRunComplete: true, shortcutEnabled: false, closeToTray: false, captureProtection: false, theme: 'light' }))
@@ -26,10 +26,10 @@ app.whenReady().then(async () => {
   const errors=[]
   window.webContents.on('console-message',event=>{if(event.level==='error')errors.push(event.message)})
   const seeded=await evaluate(`(async()=>{
-    const category=await window.notiert.notes.createCategory('Work');if(!category.ok)throw Error(category.message);
-    const other=await window.notiert.notes.createCategory('Personal');
-    const sub=await window.notiert.notes.createSubcategory({name:'Project Alpha',categoryId:category.value.id});if(!sub.ok)throw Error(sub.message);
-    const task=await window.notiert.planner.createTask({body:'Screenshot context',categoryId:category.value.id,subcategoryId:sub.value.id,tags:['waiting','follow-up'],placement:{kind:'backlog'}});if(!task.ok)throw Error(task.message);
+    const category=await window.captured.notes.createCategory('Work');if(!category.ok)throw Error(category.message);
+    const other=await window.captured.notes.createCategory('Personal');
+    const sub=await window.captured.notes.createSubcategory({name:'Project Alpha',categoryId:category.value.id});if(!sub.ok)throw Error(sub.message);
+    const task=await window.captured.planner.createTask({body:'Screenshot context',categoryId:category.value.id,subcategoryId:sub.value.id,tags:['waiting','follow-up'],placement:{kind:'backlog'}});if(!task.ok)throw Error(task.message);
     return {category:category.value,other:other.value,sub:sub.value,task:task.value};
   })()`)
   await wait(350)
@@ -55,9 +55,9 @@ app.whenReady().then(async () => {
   await screenshot('taxonomy-editor-light.png')
   await evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='Save').click()`)
   await wait(200)
-  let saved=await evaluate(`window.notiert.notes.get(${JSON.stringify(seeded.task.id)})`)
+  let saved=await evaluate(`window.captured.notes.get(${JSON.stringify(seeded.task.id)})`)
   assert.equal(saved.ok,true);assert.equal(saved.value.images.length,1);assert.equal(saved.value.subcategoryId,seeded.sub.id);assert.deepEqual(new Set(saved.value.tags),new Set(['waiting','follow-up']))
-  const image=await evaluate(`window.notiert.notes.image(${JSON.stringify(saved.value.images[0].id)})`);assert.equal(image.ok,true)
+  const image=await evaluate(`window.captured.notes.image(${JSON.stringify(saved.value.images[0].id)})`);assert.equal(image.ok,true)
   const close = () => evaluate(`[...document.querySelectorAll('.task-detail-actions button')].find(button=>button.textContent.trim()==='Close').click()`)
   const checkImages = async () => {
     await wait(200)
@@ -89,10 +89,10 @@ app.whenReady().then(async () => {
   await evaluate(`[...document.querySelectorAll('.task-detail-actions button')].find(button=>button.textContent.trim()==='Save').click()`)
   await wait(200)
   assert.equal(await evaluate(`document.querySelector('.inbox-page')!==null && document.querySelector('.task-detail-dialog')===null`),true)
-  saved=await evaluate(`window.notiert.notes.get(${JSON.stringify(seeded.task.id)})`)
+  saved=await evaluate(`window.captured.notes.get(${JSON.stringify(seeded.task.id)})`)
   assert.equal(saved.value.body,'Edited in Inbox');assert.equal(saved.value.images.length,1)
   assert.equal(errors.length,0,errors.join('\n'))
   process.stdout.write('shared_editor=ok expanded_images=ok inbox_save=ok schedule=ok screenshots=tests/.visual\n')
   app.exit(0)
 }).catch(error=>{process.stderr.write(`${error.stack??error}\n`);app.exit(1)})
-app.on('quit',()=>{const target=path.resolve(profile);if(path.dirname(target)!==tempRoot||!path.basename(target).startsWith('notiert-item-edit-smoke-'))return;try{fs.rmSync(target,{recursive:true,force:true})}catch{}})
+app.on('quit',()=>{const target=path.resolve(profile);if(path.dirname(target)!==tempRoot||!path.basename(target).startsWith('captured-item-edit-smoke-'))return;try{fs.rmSync(target,{recursive:true,force:true})}catch{}})

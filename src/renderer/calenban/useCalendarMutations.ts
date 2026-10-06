@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import type { PlannerTask, TaskPlacement } from '../../shared/contracts'
 import { placementFields } from '../../shared/calendarSchedule'
-import { toLocalISODate } from '../../shared/plannerDates'
 import type { EventCalendarProposedUpdate } from '../components/reui/event-calendar/event-calendar-types'
 import { meetingItem, taskItem, type CalendarItem, type CalendarItemData } from './calendarAdapter'
 import { resultValue } from '../apiResult'
@@ -33,19 +32,19 @@ export function useCalendarMutations(refresh: () => Promise<void>) {
 
   const schedule = useCallback((task: PlannerTask, placement: TaskPlacement) => {
     const next = { ...task, ...placementFields(placement) }
-    return run(`task:${task.id}`, taskItem(next), async () => taskItem(resultValue(await window.notiert.planner.scheduleTask({ id: task.id, expectedRevision: task.revision, placement }))))
+    return run(`task:${task.id}`, taskItem(next), async () => taskItem(resultValue(await window.captured.planner.scheduleTask({ id: task.id, expectedRevision: task.revision, placement }))))
   }, [run])
 
   const propose = useCallback((update: EventCalendarProposedUpdate<CalendarItemData>) => {
     const data = update.event.data
     if (!data || locks.current.has(update.event.id) || update.end <= update.start) return false
     if (data.kind === 'task') {
-      if (data.record.completedAt !== null) return false
-      void schedule(data.record, update.allDay ? { kind: 'date', date: toLocalISODate(update.start) } : { kind: 'timed', startAt: update.start.getTime(), endAt: update.end.getTime() })
+      if (data.record.completedAt !== null || update.allDay) return false
+      void schedule(data.record, { kind: 'timed', startAt: update.start.getTime(), endAt: update.end.getTime() })
     } else {
       const record = data.record
       const next = { ...record, startAt: update.start.getTime(), endAt: update.end.getTime(), allDay: update.allDay }
-      void run(update.event.id, meetingItem(next), async () => meetingItem(resultValue(await window.notiert.planner.updateEventTiming({ id: record.id, startAt: next.startAt, endAt: next.endAt, allDay: next.allDay, expectedStartAt: record.startAt, expectedEndAt: record.endAt, expectedAllDay: record.allDay }))))
+      void run(update.event.id, meetingItem(next), async () => meetingItem(resultValue(await window.captured.planner.updateEventTiming({ id: record.id, startAt: next.startAt, endAt: next.endAt, allDay: next.allDay, expectedStartAt: record.startAt, expectedEndAt: record.endAt, expectedAllDay: record.allDay }))))
     }
     return true
   }, [run, schedule])

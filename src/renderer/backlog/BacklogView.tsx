@@ -1,22 +1,21 @@
 import { ImageIndicator } from '../components/ItemImages'
-import { TagFilter } from '../components/TagFilter'
+import { TagFilter, type TagFilterValue } from '../components/TagFilter'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { closestCenter, DndContext, KeyboardSensor, PointerSensor, type DragEndEvent, useSensor, useSensors } from '@dnd-kit/core'
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { ChevronDown, Clock3, FolderKanban, GripVertical, Plus, RotateCcw, Search, X } from 'lucide-react'
-import type { Category, PlannerBacklogPage, PlannerTask, Subcategory, TagRecord } from '../../shared/contracts'
+import type { Category, PlannerBacklogPage, PlannerBacklogSummary, PlannerTask, Subcategory, TagRecord } from '../../shared/contracts'
 import { TaskDetailDialog } from '../calenban/TaskDetailDialog'
 import { BacklogTaskCreateDialog } from './BacklogTaskCreateDialog'
 import { resultValue as valueOf } from '../apiResult'
 
 const pageSize = 50
+const emptySummary = { total: 0, subcategoryCounts: {} as Record<string, number> }
 type Group = { id: string; name: string; categoryId: string | null; tags: TagRecord[]; allTags: TagRecord[] }
 
-export function BacklogView({ laterOnly = false }: { laterOnly?: boolean } = {}) {
-  const [categories, setCategories] = useState<Category[]>([])
-  const [subcategories,setSubcategories]=useState<Subcategory[]>([])
-  const [tags, setTags] = useState<TagRecord[]>([])
+export function BacklogView({ laterOnly = false, categories, subcategories, tags, taxonomyReady }: { laterOnly?: boolean; categories: Category[]; subcategories: Subcategory[]; tags: TagRecord[]; taxonomyReady: boolean }) {
+  const [summary, setSummary] = useState<PlannerBacklogSummary | null>(null)
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [counts, setCounts] = useState<Record<string, number>>({})
@@ -24,31 +23,29 @@ export function BacklogView({ laterOnly = false }: { laterOnly?: boolean } = {})
   const [createCategoryId, setCreateCategoryId] = useState<string | null | undefined>(undefined)
   const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null)
   const [error, setError] = useState('')
-  const [taxonomyReady, setTaxonomyReady] = useState(false)
-  const taxonomyRequest = useRef(0)
+  const summaryRequest = useRef(0)
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query.trim()), 150)
     return () => clearTimeout(timer)
   }, [query])
 
-  const refreshTaxonomy = useCallback(async () => {
-    const request = ++taxonomyRequest.current
+  const refreshSummary = useCallback(async () => {
+    const request = ++summaryRequest.current
     try {
-      const data = valueOf(await window.notiert.notes.taxonomy())
-      if (request !== taxonomyRequest.current) return
-      setSubcategories(data.subcategories??[])
-      setCategories((current) => JSON.stringify(current) === JSON.stringify(data.categories) ? current : data.categories)
-      setTags((current) => JSON.stringify(current) === JSON.stringify(data.tags) ? current : data.tags)
-      setTaxonomyReady(true)
+      const data = valueOf(await window.captured.planner.backlogSummary(laterOnly))
+      if (request !== summaryRequest.current) return
+      setSummary(data)
       setError('')
-    } catch (reason) { if (request === taxonomyRequest.current) setError(reason instanceof Error ? reason.message : 'Categories and tags could not be loaded.') }
-  }, [])
+    } catch (reason) {
+      if (request === summaryRequest.current) setError(reason instanceof Error ? reason.message : 'Backlog counts could not be loaded.')
+    }
+  }, [laterOnly])
   useEffect(() => {
-    void refreshTaxonomy()
-    const unsubscribe = window.notiert.notes.onChanged(() => { void refreshTaxonomy() })
-    return () => { taxonomyRequest.current++; unsubscribe() }
-  }, [refreshTaxonomy])
+    void refreshSummary()
+    const unsubscribe = window.captured.planner.onChanged(() => { void refreshSummary() })
+    return () => { summaryRequest.current++; unsubscribe() }
+  }, [refreshSummary])
 
   const groups = useMemo<Group[]>(() => [
     ...categories.map((category) => ({ id: category.id, name: category.name, categoryId: category.id, tags: subcategories.filter((item)=>item.categoryId===category.id), allTags: tags })),
@@ -60,20 +57,20 @@ export function BacklogView({ laterOnly = false }: { laterOnly?: boolean } = {})
   return <section className="backlog-page">
     <header className="backlog-header"><div><span className="eyebrow">{laterOnly ? 'OUT OF SIGHT, STILL SAVED' : 'TO-DOS BY CATEGORY'}</span><h1>{laterOnly ? 'Later' : 'Backlog'} <span className="title-count">{total}</span></h1><p>{laterOnly ? 'Tasks you have set aside. Return one to the top of its category when it is ready.' : 'Drag to set priority within each category. The order carries over to category and tag views.'}</p></div></header>
     <div className="backlog-toolbar"><label className="search-box"><Search size={15} /><input aria-label={`Search ${laterOnly ? 'later' : 'backlog'}`} placeholder="Search tasks or tags…" value={query} onChange={(event) => setQuery(event.target.value)} />{query && <button aria-label="Clear backlog search" onClick={() => setQuery('')}><X size={13} /></button>}</label><span>{total} {total === 1 ? 'to-do' : 'to-dos'}</span></div>
-    {error && <div className="inline-error" role="alert">{error}<button type="button" onClick={() => void refreshTaxonomy()}>Retry</button></div>}
+    {error && <div className="inline-error" role="alert">{error}<button type="button" onClick={() => void refreshSummary()}>Retry</button></div>}
     <div className="backlog-groups">
-      {!taxonomyReady ? <div className="loading-state"><span className="spinner" /> Loading backlog…</div> : groups.map((group) => <BacklogCategoryGroup key={group.id} group={group} categories={categories} query={debouncedQuery} onCount={setGroupCount} onOpenTask={setDetailTask} onError={setError} laterOnly={laterOnly} onAddTask={(categoryId) => { setQuery(''); setCreateCategoryId(categoryId) }} highlightTaskId={highlightTaskId} onHighlightHandled={() => setHighlightTaskId(null)} />)}
+      {!taxonomyReady || !summary ? <div className="loading-state"><span className="spinner" /> Loading backlog…</div> : groups.map((group) => <BacklogCategoryGroup key={group.id} summary={summary[group.id] ?? emptySummary} group={group} categories={categories} query={debouncedQuery} onCount={setGroupCount} onOpenTask={setDetailTask} onError={setError} laterOnly={laterOnly} onAddTask={(categoryId) => { setQuery(''); setCreateCategoryId(categoryId) }} highlightTaskId={highlightTaskId} onHighlightHandled={() => setHighlightTaskId(null)} />)}
     </div>
     {createCategoryId !== undefined && <BacklogTaskCreateDialog categories={categories} tags={tags} initialCategoryId={createCategoryId} onClose={() => setCreateCategoryId(undefined)} onError={setError} onCreated={(task) => { setCreateCategoryId(undefined); setQuery(''); setHighlightTaskId(task.id) }} />}
     {detailTask && <TaskDetailDialog task={detailTask} suggestions={tags.map((tag) => tag.name)} onClose={() => setDetailTask(null)} onChanged={() => setDetailTask(null)} />}
   </section>
 }
 
-function BacklogCategoryGroup({ group, categories, query, onCount, onOpenTask, onError, laterOnly, onAddTask, highlightTaskId, onHighlightHandled }: { group: Group; categories: Category[]; query: string; onCount: (id: string, count: number) => void; onOpenTask: (task: PlannerTask) => void; onError: (message: string) => void; laterOnly: boolean; onAddTask: (categoryId: string | null) => void; highlightTaskId: string | null; onHighlightHandled: () => void }) {
+function BacklogCategoryGroup({ summary, group, categories, query, onCount, onOpenTask, onError, laterOnly, onAddTask, highlightTaskId, onHighlightHandled }: { summary: PlannerBacklogSummary[string]; group: Group; categories: Category[]; query: string; onCount: (id: string, count: number) => void; onOpenTask: (task: PlannerTask) => void; onError: (message: string) => void; laterOnly: boolean; onAddTask: (categoryId: string | null) => void; highlightTaskId: string | null; onHighlightHandled: () => void }) {
   const [selected, setSelected] = useState<Record<string, boolean>>({})
   const [includeUntagged, setIncludeUntagged] = useState(true)
-  const [tagFilter,setTagFilter]=useState('')
-  const [subcategoryCounts, setSubcategoryCounts] = useState<Record<string, number>>({})
+  const [tagFilter,setTagFilter]=useState<TagFilterValue>({ included: [], excluded: [] })
+  const subcategoryCounts = summary.subcategoryCounts
   const [collapsed, setCollapsed] = useState(false)
   const [tasks, setTasks] = useState<PlannerTask[]>([])
   const [cursor, setCursor] = useState<PlannerBacklogPage['nextCursor']>(null)
@@ -86,33 +83,38 @@ function BacklogCategoryGroup({ group, categories, query, onCount, onOpenTask, o
   const tagOptions=group.tags
   const selectedTags=tagOptions.filter(item=>selected[item.id]!==false).map(item=>item.id)
   const everyTagSelected=tagOptions.every(item=>selected[item.id]!==false)&&includeUntagged
-  const selectionFilter=useMemo(()=>({...(!everyTagSelected?{subcategoryIds:selectedTags,includeNoSubcategory:includeUntagged}:{}),...(tagFilter?{tagNames:[tagFilter]}:{})}),[everyTagSelected,includeUntagged,selectedTags.join('|'),tagFilter])
+  const selectionFilter=useMemo(()=>({...(!everyTagSelected?{subcategoryIds:selectedTags,includeNoSubcategory:includeUntagged}:{}),...(tagFilter.included.length?{tagNames:tagFilter.included}:{}),...(tagFilter.excluded.length?{excludedTags:tagFilter.excluded}:{})}),[everyTagSelected,includeUntagged,selectedTags.join('|'),tagFilter])
 
   const refresh = useCallback(async () => {
     const request = ++requestId.current
     setLoading(true)
     setLoadingMore(false)
     try {
-      const page = valueOf(await window.notiert.planner.backlog({ categoryId: group.categoryId, query, ...selectionFilter, limit: pageSize, later: laterOnly }))
+      const page = valueOf(await window.captured.planner.backlog({ categoryId: group.categoryId, query, ...selectionFilter, limit: pageSize, later: laterOnly, countsOnly: collapsed }))
       if (request !== requestId.current) return
-      setSubcategoryCounts(page.subcategoryCounts); setTasks(page.items); setCursor(page.nextCursor); setTotal(page.total); onCount(group.id, page.total); setError(''); setLoaded(true)
+      setTasks(page.items); setCursor(page.nextCursor); setTotal(page.total); onCount(group.id, page.total); setError(''); setLoaded(true)
     } catch (reason) {
       if (request === requestId.current) setError(reason instanceof Error ? reason.message : 'This category could not be loaded.')
     } finally { if (request === requestId.current) setLoading(false) }
-  }, [group.categoryId, group.id, group.tags, onCount, query, selectionFilter, selectedTags.join('\u0000'), laterOnly])
+  }, [group.categoryId, group.id, onCount, query, selectionFilter, laterOnly, collapsed])
 
   useEffect(() => {
-    void refresh()
-    const unsubscribe = window.notiert.planner.onChanged(() => { void refresh() })
-    return () => { requestId.current += 1; unsubscribe() }
-  }, [refresh])
+    if (!summary.total || (collapsed && !query && !tagFilter.included.length && !tagFilter.excluded.length)) {
+      const count = Object.entries(summary.subcategoryCounts).reduce((sum, [id, amount]) => sum + ((id ? selected[id] !== false : includeUntagged) ? amount : 0), 0)
+      setTotal(count); onCount(group.id, count); setLoaded(true); setLoading(false)
+      if (!summary.total) { setTasks([]); setCursor(null) }
+    } else {
+      void refresh()
+    }
+    return () => { requestId.current += 1 }
+  }, [refresh, summary, collapsed, query, tagFilter, selected, includeUntagged, group.id, onCount])
 
   async function loadMore() {
     if (!cursor || loading || loadingMore) return
     const request = requestId.current
     setLoadingMore(true)
     try {
-      const page = valueOf(await window.notiert.planner.backlog({ categoryId: group.categoryId, query, ...selectionFilter, cursor, limit: pageSize, later: laterOnly }))
+      const page = valueOf(await window.captured.planner.backlog({ categoryId: group.categoryId, query, ...selectionFilter, cursor, limit: pageSize, later: laterOnly }))
       if (request !== requestId.current) return
       setTasks((current) => [...current, ...page.items]); setCursor(page.nextCursor); setTotal(page.total); onCount(group.id, page.total); setError('')
     } catch (reason) { if (request === requestId.current) setError(reason instanceof Error ? reason.message : 'Older to-dos could not be loaded.') }
@@ -124,7 +126,7 @@ function BacklogCategoryGroup({ group, categories, query, onCount, onOpenTask, o
   function toggleTag(name: string) { setSelected((current) => ({ ...current, [name]: !(current[name] ?? true) })) }
   function selectAll() { setSelected({}); setIncludeUntagged(true) }
   async function setCategory(id: string, categoryId: string | null) {
-    try { valueOf(await window.notiert.notes.setCategory({ id, categoryId })) }
+    try { valueOf(await window.captured.notes.setCategory({ id, categoryId })) }
     catch (reason) { onError(reason instanceof Error ? reason.message : 'Category could not be changed.') }
   }
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }))
@@ -137,11 +139,11 @@ function BacklogCategoryGroup({ group, categories, query, onCount, onOpenTask, o
     let beforeId = reordered[newIndex + 1]?.id ?? null
     try {
       if (beforeId === null && cursor) {
-        const nextPage = valueOf(await window.notiert.planner.backlog({ categoryId: group.categoryId, query, ...selectionFilter, cursor, limit: pageSize, later: laterOnly }))
+        const nextPage = valueOf(await window.captured.planner.backlog({ categoryId: group.categoryId, query, ...selectionFilter, cursor, limit: pageSize, later: laterOnly }))
         beforeId = nextPage.items[0]?.id ?? null
       }
       setTasks(reordered)
-      valueOf(await window.notiert.planner.reorderBacklog({ id: String(event.active.id), categoryId: group.categoryId, beforeId })); void refresh()
+      valueOf(await window.captured.planner.reorderBacklog({ id: String(event.active.id), categoryId: group.categoryId, beforeId }))
     }
     catch (reason) { void refresh(); onError(reason instanceof Error ? reason.message : 'Priority could not be saved.') }
   }
@@ -161,13 +163,12 @@ function BacklogCategoryGroup({ group, categories, query, onCount, onOpenTask, o
       {error && <div className="inline-error" role="alert">{error}<button type="button" onClick={() => void refresh()}>Retry</button></div>}
       {loading && !loaded ? <div className="loading-state"><span className="spinner" /> Loading to-dos…</div> : !tasks.length ? <div className="backlog-empty">{canShowTasks ? (query ? 'No to-dos match this search.' : 'No to-dos in this category.') : 'Select a subcategory to show matching to-dos.'}</div> : <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(event) => void onDragEnd(event)}>
         <SortableContext items={tasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
-          <div className="backlog-task-list">{tasks.map((task) => <SortableBacklogTask key={task.id} task={task} categories={categories} subcategoryName={group.tags.find(sub=>sub.id===task.subcategoryId)?.name} laterOnly={laterOnly} highlighted={highlightTaskId === task.id} onOpen={() => onOpenTask(task)} onLater={async () => { try { valueOf(await window.notiert.planner.scheduleTask({ id: task.id, expectedRevision: task.revision, placement: { kind: laterOnly ? 'backlog-top' : 'later' } })) } catch (reason) { onError(reason instanceof Error ? reason.message : 'Task placement could not be changed.') } }} onComplete={async (completed) => {
-            try { valueOf(await window.notiert.planner.setTaskCompleted({ id: task.id, completed })) }
+          <div className="backlog-task-list">{tasks.map((task) => <SortableBacklogTask key={task.id} task={task} categories={categories} subcategoryName={group.tags.find(sub=>sub.id===task.subcategoryId)?.name} laterOnly={laterOnly} highlighted={highlightTaskId === task.id} onOpen={() => onOpenTask(task)} onLater={async () => { try { valueOf(await window.captured.planner.scheduleTask({ id: task.id, expectedRevision: task.revision, placement: { kind: laterOnly ? 'backlog-top' : 'later' } })) } catch (reason) { onError(reason instanceof Error ? reason.message : 'Task placement could not be changed.') } }} onComplete={async (completed) => {
+            try { valueOf(await window.captured.planner.setTaskCompleted({ id: task.id, completed })) }
             catch (reason) { onError(reason instanceof Error ? reason.message : 'To-do status could not be changed.') }
           }} onReady={async () => {
             try {
-              valueOf(await window.notiert.planner.setReady({ id: task.id }))
-              await refresh()
+              valueOf(await window.captured.planner.setReady({ id: task.id }))
             }
             catch (reason) { onError(reason instanceof Error ? reason.message : 'To-do could not be added to Ready.') }
           }} onCategoryChange={(categoryId) => void setCategory(task.id, categoryId)} draggingDisabled={Boolean(query)} />)}</div>

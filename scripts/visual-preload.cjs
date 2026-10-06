@@ -34,7 +34,7 @@ const capture = { ...note, id: '15151515-1515-4515-8515-151515151515', kind: 'in
 const ok = (value) => Promise.resolve({ ok: true, value })
 const noop = () => () => {}
 
-contextBridge.exposeInMainWorld('notiert', {
+contextBridge.exposeInMainWorld('captured', {
   notes: { list: () => ok({ items: [note], nextCursor: null, total: 1 }), tags: () => ok(['Customer', 'Design', 'Personal', 'Work']), get: () => ok(note), update: () => ok(note), updateItem: () => ok(note), setTags: () => ok(), trash: () => ok(), restore: () => ok(), deletePermanently: () => ok(), emptyTrash: () => ok(), copy: () => ok('Copied'), onChanged: noop },
   planner: { inbox: () => ok({ items: [capture], nextCursor: null, total: 1 }), inboxCount: () => ok(1), unfile: () => ok(), classify: () => ok(), tasks: () => ok({ tasks, events, tags: ['Customer', 'Design', 'Personal', 'Work'], completedUnscheduledTotal: 0 }), move: (input) => { ipcRenderer.send('visual:move', input); return ok() }, complete: () => ok(), createEvent: () => ok(events[0]), updateEvent: () => ok(events[0]), deleteEvent: () => ok({ event: events[0], anchors: [] }), undoDeleteEvent: () => ok(), onChanged: noop },
   settings: { get: () => ok({ shortcut: 'Control+N', shortcutEnabled: true, shortcutRegistered: true, launchAtLogin: false, theme: process.env.PREVIEW_THEME === 'dark' ? 'dark' : 'light', monitor: 'active', captureProtection: false, protectionTestApp: '', protectionTestDate: '', protectionTestOS: '', lastBackupAt: null, backupWarning: false, firstRunComplete: true, closeToTray: true }), displays: () => ok([]), update: () => ok(), onChanged: noop, openFolder: () => ok() },

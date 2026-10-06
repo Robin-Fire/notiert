@@ -22,9 +22,9 @@ $font = [System.Drawing.Font]::new('Arial', 166, [System.Drawing.FontStyle]::Bol
 $format = [System.Drawing.StringFormat]::new()
 $format.Alignment = [System.Drawing.StringAlignment]::Center
 $format.LineAlignment = [System.Drawing.StringAlignment]::Center
-$graphics.DrawString('n', $font, [System.Drawing.Brushes]::White, [System.Drawing.RectangleF]::new(9, -7, 238, 259), $format)
+$graphics.DrawString('c', $font, [System.Drawing.Brushes]::White, [System.Drawing.RectangleF]::new(9, -7, 238, 259), $format)
 
 $handle = $bitmap.GetHicon()
 $icon = [System.Drawing.Icon]::FromHandle($handle)
-$stream = [System.IO.File]::Open((Join-Path $PSScriptRoot '..\resources\notiert.ico'), [System.IO.FileMode]::Create)
+$stream = [System.IO.File]::Open((Join-Path $PSScriptRoot '..\resources\captured.ico'), [System.IO.FileMode]::Create)
 try { $icon.Save($stream) } finally { $stream.Dispose(); $icon.Dispose(); $bitmap.Dispose(); $graphics.Dispose(); $font.Dispose(); $format.Dispose(); $path.Dispose() }

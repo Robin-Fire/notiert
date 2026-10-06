@@ -1,3 +1,3 @@
 /// <reference types="vite/client" />
-import type { NotiertApi } from '../shared/contracts'
-declare global { interface Window { notiert: NotiertApi } }
+import type { capturedApi } from '../shared/contracts'
+declare global { interface Window { captured: capturedApi } }

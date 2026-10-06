@@ -8,7 +8,7 @@ import './styles.css'
 import { NotesApp } from './notes/NotesApp'
 
 async function start() {
-  if (import.meta.env.DEV && !window.notiert) await import('./browserPreview')
+  if (import.meta.env.DEV && !window.captured) await import('./browserPreview')
   createRoot(document.getElementById('root')!).render(<React.StrictMode><NotesApp /></React.StrictMode>)
 }
 

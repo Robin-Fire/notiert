@@ -45,6 +45,9 @@ const makeNote = (id, body, kind, categoryId = null) => ({ id, body, meetingId: 
 function setup({ taxonomy, calendarHours = {}, notesApi = {} } = {}) {
   localStorage.clear()
   let viewListener = () => {}
+  let notesListener = () => {}
+  let taxonomyListener = () => {}
+  let plannerListener = () => {}
   const get = async (id) => ({ ok: true, value: id === captureId ? makeNote(captureId, 'Captured thought', 'inbox') : makeNote(noteId, 'Existing note', 'note') })
   const api = {
     updates: { getStatus: async () => ({ ok: true, value: { status: 'idle' } }), check: async () => ({ ok: true, value: undefined }), install: async () => ({ ok: true, value: undefined }), onChanged: () => () => {} },
@@ -55,14 +58,17 @@ function setup({ taxonomy, calendarHours = {}, notesApi = {} } = {}) {
       updateItem: async () => ({ ok: true, value: makeNote(noteId, 'Existing note', 'note') }), setCategory: async () => ({ ok: true, value: undefined }), setTags: async () => ({ ok: true, value: undefined }),
       trash: async () => ({ ok: true, value: undefined }), restore: async () => ({ ok: true, value: undefined }),
       deletePermanently: async () => ({ ok: true, value: undefined }), emptyTrash: async () => ({ ok: true, value: undefined }),
-      copy: async () => ({ ok: true, value: 'copied' }), onChanged: () => () => {},
+      copy: async () => ({ ok: true, value: 'copied' }),
+      onChanged: callback => { notesListener = callback; return () => {} },
+      onTaxonomyChanged: callback => { taxonomyListener = callback; return () => {} },
     },
     planner: {
       inbox: async () => ({ ok: true, value: { items: [makeNote(captureId, 'Captured thought', 'inbox')], nextCursor: null, total: 1 } }),
       inboxCount: async () => ({ ok: true, value: 1 }), unfile: async () => ({ ok: true, value: undefined }),
+      backlogSummary: async () => ({ ok: true, value: {} }),
       classify: async () => ({ ok: true, value: undefined }), backlog: async () => ({ ok: true, value: { items: [], nextCursor: null, total: 0 } }), reorderBacklog: async () => ({ ok: true, value: undefined }), setReady: async () => ({ ok: true, value: undefined }), tasks: async () => ({ ok: true, value: { tasks: [], events: [], tags: [] } }),
       move: async () => ({ ok: true, value: undefined }),
-      createEvent: async () => ({ ok: true, value: undefined }), updateEvent: async () => ({ ok: true, value: undefined }), deleteEvent: async () => ({ ok: true, value: undefined }), undoDeleteEvent: async () => ({ ok: true, value: undefined }), onChanged: () => () => {},
+      createEvent: async () => ({ ok: true, value: undefined }), updateEvent: async () => ({ ok: true, value: undefined }), deleteEvent: async () => ({ ok: true, value: undefined }), undoDeleteEvent: async () => ({ ok: true, value: undefined }), onChanged: callback => { plannerListener = callback; return () => {} },
     },
     settings: {
       get: async () => ({ ok: true, value: { shortcut: 'Control+N', shortcutEnabled: true, shortcutRegistered: true, launchAtLogin: false, theme: 'light', monitor: 'active', captureProtection: false, protectionTestApp: '', protectionTestDate: '', protectionTestOS: '', lastBackupAt: null, backupWarning: false, firstRunComplete: true, closeToTray: true, calendarStartMinute: 480, calendarEndMinute: 1080, ...calendarHours } }),
@@ -72,9 +78,9 @@ function setup({ taxonomy, calendarHours = {}, notesApi = {} } = {}) {
     windows: { openCapture() {}, openNotes() {}, openSettings() {}, quit() {}, ready() {}, onView(callback) { viewListener = callback; return () => {} } },
   }
   Object.assign(api.notes, notesApi)
-  window.notiert = api
+  window.captured = api
   const view = render(React.createElement(NotesApp))
-  return { ...view, api, changeView: (next) => act(() => viewListener(next)) }
+  return { ...view, api, notifyNotes: () => act(() => notesListener(1)), notifyTaxonomy: () => act(() => taxonomyListener()), notifyPlanner: () => act(() => plannerListener(1)), changeView: (next) => act(() => viewListener(next)) }
 }
 
 after(() => {
@@ -87,29 +93,29 @@ test('browser preview capture enters Inbox and a filed task moves through Backlo
   require(path.join(generated, 'browserPreview.cjs'))
   let opened = false
   const onOpen = () => { opened = true }
-  window.addEventListener('notiert:browser-capture', onOpen)
-  window.notiert.windows.openCapture()
+  window.addEventListener('captured:browser-capture', onOpen)
+  window.captured.windows.openCapture()
   assert.equal(opened, true)
-  window.removeEventListener('notiert:browser-capture', onOpen)
+  window.removeEventListener('captured:browser-capture', onOpen)
   const id = '66666666-6666-4666-8666-666666666666'
-  await window.notiert.capture.submit({ requestId: id, generation: 0, body: 'New browser task' })
-  const inbox = await window.notiert.planner.inbox()
+  await window.captured.capture.submit({ requestId: id, generation: 0, body: 'New browser task' })
+  const inbox = await window.captured.planner.inbox()
   const created = inbox.value.items.find((item) => item.body === 'New browser task')
   assert.ok(created)
-  await window.notiert.planner.classify({ id: created.id, kind: 'task', tags: ['Planning'] })
-  const backlog = await window.notiert.planner.backlog({})
+  await window.captured.planner.classify({ id: created.id, kind: 'task', tags: ['Planning'] })
+  const backlog = await window.captured.planner.backlog({})
   assert.ok(backlog.value.items.some((task) => task.id === created.id))
-  const tasks = await window.notiert.planner.tasks('2026-09-26', '2026-09-28')
+  const tasks = await window.captured.planner.tasks('2026-09-26', '2026-09-28')
   assert.ok(!tasks.value.tasks.some((task) => task.id === created.id))
-  await window.notiert.planner.setReady({ id: created.id })
-  const ready = await window.notiert.planner.tasks('2026-09-26', '2026-09-28')
+  await window.captured.planner.setReady({ id: created.id })
+  const ready = await window.captured.planner.tasks('2026-09-26', '2026-09-28')
   assert.ok(ready.value.tasks.some((task) => task.id === created.id && task.plannedDate === null))
   const app = render(React.createElement(NotesApp))
   try {
     fireEvent.click(await screen.findByRole('button', { name: 'Calendar' }))
     await screen.findByRole('heading', { name: 'Calendar' })
     await waitFor(() => assert.ok(document.querySelector('.calendar-ready')?.textContent.includes('New browser task')))
-    await act(async () => { await window.notiert.planner.move({ id: created.id, plannedDate: '2026-09-27', beforeEventId: null, beforeId: null }) })
+    await act(async () => { await window.captured.planner.move({ id: created.id, plannedDate: '2026-09-27', beforeEventId: null, beforeId: null }) })
     assert.ok(screen.getByRole('heading', { name: 'Calendar' }))
   } finally { app.unmount() }
 })
@@ -179,7 +185,7 @@ test('taxonomy refresh ignores old responses and does not trigger another notes 
   const requests = []
   let changed, listCalls = 0
   const app = setup({ taxonomy: () => new Promise((resolve) => requests.push(resolve)), notesApi: {
-    onChanged: (listener) => { changed = listener; return () => {} },
+    onTaxonomyChanged: (listener) => { changed = listener; return () => {} },
     list: async () => { listCalls++; return { ok: true, value: { items: [], nextCursor: null, total: 0 } } },
   } })
   try {
@@ -189,7 +195,7 @@ test('taxonomy refresh ignores old responses and does not trigger another notes 
     await act(async () => requests[0]({ ok: true, value: { categories: [{ id: noteId, name: 'Old category' }], tags: [] } }))
     assert.ok(screen.getByRole('button', { name: 'Current category', exact: true }))
     assert.equal(screen.queryByRole('button', { name: 'Old category', exact: true }), null)
-    assert.equal(listCalls, 2)
+    assert.equal(listCalls, 1)
   } finally { app.unmount() }
 })
 
@@ -197,7 +203,7 @@ test('sidebar Capture opens the browser preview editor and saves to Inbox', asyn
   const app = setup()
   let submitted
   app.api.capture = { submit: async (input) => { submitted = input; return { ok: true, value: { id: captureId } } } }
-  app.api.windows.openCapture = () => window.dispatchEvent(new window.Event('notiert:browser-capture'))
+  app.api.windows.openCapture = () => window.dispatchEvent(new window.Event('captured:browser-capture'))
   try {
     fireEvent.click(within(document.querySelector('.sidebar')).getByRole('button', { name: /Capture/ }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Capture text' }), { target: { value: 'New thought' } })
@@ -214,9 +220,11 @@ test('Backlog groups tasks by category and sends a task to Ready', async () => {
   let readyInput
   backlogTask.subcategoryId = '88888888-8888-4888-8888-888888888888'
   const unassignedTask = { ...backlogTask, id: captureId, body: 'Unsorted review', subcategoryId: null }
-  app.api.planner.backlog = async ({ categoryId }) => ({ ok: true, value: { items: categoryId === projectId ? [backlogTask, unassignedTask] : [], nextCursor: null, total: categoryId === projectId ? 2 : 0, tagNames: ['Planning', 'Other category tag'], subcategoryCounts: categoryId === projectId ? { [backlogTask.subcategoryId]: 1, '': 1 } : {} } })
+  app.api.planner.backlogSummary = async () => ({ ok: true, value: { [projectId]: { total: 2, subcategoryCounts: { [backlogTask.subcategoryId]: 1, '': 1 } } } })
+  app.api.planner.backlog = async ({ categoryId }) => ({ ok: true, value: { items: categoryId === projectId ? [backlogTask, unassignedTask] : [], nextCursor: null, total: categoryId === projectId ? 2 : 0, subcategoryCounts: categoryId === projectId ? { [backlogTask.subcategoryId]: 1, '': 1 } : {} } })
   app.api.planner.setReady = async (input) => { readyInput = input; return { ok: true, value: undefined } }
   app.api.notes.taxonomy = async () => ({ ok: true, value: { categories: [{ id: projectId, name: 'Client A' }, { id: '99999999-9999-4999-8999-999999999999', name: 'Client B' }], subcategories:[{id:'88888888-8888-4888-8888-888888888888',name:'Planning',categoryId:projectId,color:'#85858e',count:1}], tags: [{ id: '88888888-8888-4888-8888-888888888888', name: 'Planning', categoryId: projectId, color: '#85858e', count: 1 }] } })
+  app.notifyTaxonomy()
   try {
     fireEvent.click(screen.getByRole('button', { name: 'Backlog' }))
     await screen.findByRole('region', { name: 'Client A backlog' })
@@ -238,13 +246,13 @@ test('browser capture saves the chosen category to Inbox', async () => {
   require(path.join(generated, 'browserPreview.cjs'))
   const app = render(React.createElement(NotesApp))
   try {
-    act(() => window.notiert.windows.openCapture())
+    act(() => window.captured.windows.openCapture())
     const category = await screen.findByRole('combobox', { name: 'Capture category' })
     fireEvent.change(category, { target: { value: '11111111-1111-4111-8111-111111111111' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Capture text' }), { target: { value: 'Categorized browser capture' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save to Inbox' }))
     await screen.findByRole('heading', { name: /Inbox/ })
-    const inbox = await window.notiert.planner.inbox()
+    const inbox = await window.captured.planner.inbox()
     assert.equal(inbox.value.items.find((item) => item.body === 'Categorized browser capture').categoryId, '11111111-1111-4111-8111-111111111111')
   } finally { app.unmount() }
 })
@@ -256,8 +264,13 @@ test('Inbox chooses one subcategory and independent tags when filing', async () 
   app.api.planner.classify=async input=>{classified=input;return {ok:true,value:undefined}}
   try {
     fireEvent.click(within(screen.getByRole('navigation',{name:'Main navigation'})).getByRole('button',{name:/^Inbox/}))
-    fireEvent.change(await screen.findByRole('combobox',{name:'Item category'}),{target:{value:categoryId}})
-    fireEvent.change(screen.getByRole('combobox',{name:'Item subcategory'}),{target:{value:subcategoryId}})
+    const trigger = await screen.findByRole('button',{name:'Item category'})
+    assert.ok(trigger.classList.contains('is-unassigned'))
+    fireEvent.click(trigger)
+    const picker = within(await screen.findByRole('dialog'))
+    fireEvent.click(picker.getByRole('button',{name:'Client A'}))
+    fireEvent.click(await picker.findByRole('button',{name:'Planning'}))
+    await waitFor(() => assert.ok(!screen.getByRole('button',{name:'Item category'}).classList.contains('is-unassigned')))
     fireEvent.click(screen.getByRole('button',{name:'Edit tags'}))
     const input=screen.getByRole('combobox',{name:'Add a tag'})
     fireEvent.change(input,{target:{value:'Waiting'}});fireEvent.keyDown(input,{key:'Enter'})
@@ -418,7 +431,7 @@ test('creating a task from the calendar submits a real timed task', async () => 
 test('calendar mutations keep pending changes until refresh and revert rejected writes without duplicate saves', async () => {
   const task = { ...makeNote(noteId, 'Review', 'task'), completedAt: null, plannedDate: null, plannedStartAt: null, plannedEndAt: null, ready: true, beforeEventId: null, position: 0, priorityPosition: 0 }
   let finish, refreshFinish, calls = 0
-  window.notiert = { planner: { scheduleTask: () => { calls++; return new Promise((resolve) => { finish = resolve }) } } }
+  window.captured = { planner: { scheduleTask: () => { calls++; return new Promise((resolve) => { finish = resolve }) } } }
   const hook = renderHook(() => useCalendarMutations(() => new Promise((resolve) => { refreshFinish = resolve })))
   const placement = { kind: 'timed', startAt: new Date('2026-10-01T10:00').getTime(), endAt: new Date('2026-10-01T10:30').getTime() }
   let work
@@ -437,7 +450,7 @@ test('calendar mutations keep pending changes until refresh and revert rejected 
 
 test('late planner refresh cannot replace the currently selected date range', async () => {
   const requests = []
-  window.notiert = { planner: { tasks: (from, to) => { const request = { from, to }; requests.push(request); return new Promise((resolve) => { request.resolve = resolve }) }, onChanged: () => () => {} } }
+  window.captured = { planner: { tasks: (from, to) => { const request = { from, to }; requests.push(request); return new Promise((resolve) => { request.resolve = resolve }) }, onChanged: () => () => {} } }
   const hook = renderHook(({ from, to }) => usePlannerData(from, to), { initialProps: { from: '2026-10-01', to: '2026-10-03' } })
   const oldRefresh = hook.result.current.refresh
   try {
@@ -467,7 +480,7 @@ test('Calendar settings validate the pair and save precise visible hours', async
     fireEvent.change(end, { target: { value: '1440' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save calendar hours' }))
     await screen.findByText('Calendar hours saved.')
-    const saved = await window.notiert.settings.get()
+    const saved = await window.captured.settings.get()
     assert.equal(saved.value.calendarStartMinute, 495); assert.equal(saved.value.calendarEndMinute, 1440)
   } finally { app.unmount() }
 })
@@ -491,7 +504,7 @@ test('Inbox keeps a tag draft when leaving and returning', async () => {
   } finally { app.unmount() }
 })
 
-test('note editing saves tags and pill filters combine selected types and tags', async () => {
+test('note editing saves tags and multi-select filters combine selected types and tags', async () => {
   const app = setup()
   let saved
   const filters = []
@@ -499,16 +512,21 @@ test('note editing saves tags and pill filters combine selected types and tags',
   app.api.notes.list = async (filter) => { filters.push(filter); return { ok: true, value: { items: [makeNote(noteId, 'Existing note', 'note')], nextCursor: null, total: 1 } } }
   try {
     fireEvent.click(await screen.findByRole('button', { name: 'Filters' }))
-    const work = await screen.findByRole('button', { name: 'Work', pressed: false })
+    fireEvent.click(screen.getByRole('button', { name: 'Tag filter for items: All tags' }))
+    const popup = within(document.querySelector('.tag-filter-popover'))
+    const work = await popup.findByRole('button', { name: 'Work', pressed: false })
     fireEvent.click(work)
-    fireEvent.click(screen.getByRole('button', { name: 'Personal', pressed: false }))
+    fireEvent.click(popup.getByRole('button', { name: 'Personal', pressed: false }))
     fireEvent.click(screen.getByRole('button', { name: 'Notes', exact: true }))
     fireEvent.click(screen.getByRole('button', { name: 'To-dos', exact: true }))
     await waitFor(() => assert.ok(filters.some((filter) => filter.tags?.includes('Work') && filter.tags?.includes('Personal') && filter.kinds?.includes('note') && filter.kinds?.includes('task'))))
     assert.equal(work.getAttribute('aria-pressed'), 'true')
     fireEvent.click(screen.getByRole('button', { name: 'Clear all' }))
     await waitFor(() => assert.ok(filters.some((filter) => !filter.tags && !filter.kinds)))
-    assert.equal(work.getAttribute('aria-pressed'), 'false')
+    fireEvent.click(screen.getByRole('button', { name: 'Tag filter for items: All tags' }))
+    const cleared = within(await screen.findByRole('dialog'))
+    assert.equal(cleared.getByRole('button', { name: 'Work' }).getAttribute('aria-pressed'), 'false')
+    fireEvent.click(screen.getByRole('button', { name: 'Tag filter for items: All tags' }))
     fireEvent.click(await screen.findByRole('button', { name: /Open note Existing note/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Edit item' }))
     const tagInput = screen.getByRole('combobox', { name: 'Add a tag' })
@@ -643,27 +661,27 @@ test('browser preview upgrades category-linked tags without losing ambiguous lab
   localStorage.setItem('notiert-browser-preview',JSON.stringify({items:[item],categories:[{id:categoryId,name:'Work'}],tags:[{id:captureId,name:'Alpha',categoryId,color:'#123456',count:1},{id:'88888888-8888-4888-8888-888888888888',name:'Beta',categoryId,color:'#85858e',count:1}]}))
   delete require.cache[require.resolve(path.join(generated,'browserPreview.cjs'))]
   require(path.join(generated,'browserPreview.cjs'))
-  const taxonomy=(await window.notiert.notes.taxonomy()).value
+  const taxonomy=(await window.captured.notes.taxonomy()).value
   assert.equal(taxonomy.subcategories.length,2)
   assert.ok(taxonomy.tags.every(tag=>tag.categoryId===null))
-  const migrated=(await window.notiert.notes.get(noteId)).value
+  const migrated=(await window.captured.notes.get(noteId)).value
   assert.equal(migrated.subcategoryId,null)
   assert.deepEqual(migrated.tags,['Alpha','Beta'])
-  assert.equal((await window.notiert.notes.migrationReview()).value.length,1)
-  await window.notiert.notes.resolveMigrationReview({id:noteId,expectedRevision:1,categoryId,subcategoryId:taxonomy.subcategories[0].id})
-  assert.equal((await window.notiert.notes.migrationReview()).value.length,0)
+  assert.equal((await window.captured.notes.migrationReview()).value.length,1)
+  await window.captured.notes.resolveMigrationReview({id:noteId,expectedRevision:1,categoryId,subcategoryId:taxonomy.subcategories[0].id})
+  assert.equal((await window.captured.notes.migrationReview()).value.length,0)
   delete require.cache[require.resolve(path.join(generated,'browserPreview.cjs'))]
   require(path.join(generated,'browserPreview.cjs'))
-  assert.equal((await window.notiert.notes.taxonomy()).value.subcategories.length,2)
-  assert.equal((await window.notiert.notes.get(noteId)).value.subcategoryId,taxonomy.subcategories[0].id)
+  assert.equal((await window.captured.notes.taxonomy()).value.subcategories.length,2)
+  assert.equal((await window.captured.notes.get(noteId)).value.subcategoryId,taxonomy.subcategories[0].id)
 })
 
 
 test('capture from a subcategory or tag page preselects that context in browser preview', async () => {
   localStorage.clear();delete require.cache[require.resolve(path.join(generated,'browserPreview.cjs'))];require(path.join(generated,'browserPreview.cjs'))
-  const category=(await window.notiert.notes.createCategory('Client context')).value
-  const sub=(await window.notiert.notes.createSubcategory({name:'Project context',categoryId:category.id})).value
-  const tag=(await window.notiert.notes.createTag({name:'context-tag'})).value
+  const category=(await window.captured.notes.createCategory('Client context')).value
+  const sub=(await window.captured.notes.createSubcategory({name:'Project context',categoryId:category.id})).value
+  const tag=(await window.captured.notes.createTag({name:'context-tag'})).value
   const app=render(React.createElement(NotesApp))
   try {
     fireEvent.click(await screen.findByRole('button',{name:/^Project context/}))
@@ -673,7 +691,7 @@ test('capture from a subcategory or tag page preselects that context in browser 
     fireEvent.change(screen.getByRole('textbox',{name:'Capture text'}),{target:{value:'Context note'}})
     fireEvent.click(screen.getByRole('button',{name:'Save to Inbox'}))
     await waitFor(()=>assert.ok(!screen.queryByRole('textbox',{name:'Capture text'})))
-    const inbox=(await window.notiert.planner.inbox({})).value.items.find(item=>item.body==='Context note')
+    const inbox=(await window.captured.planner.inbox({})).value.items.find(item=>item.body==='Context note')
     assert.equal(inbox.subcategoryId,sub.id)
     fireEvent.click(await screen.findByRole('button',{name:new RegExp('^'+tag.name)}))
     fireEvent.click(document.querySelector('.capture-button'))
@@ -684,7 +702,7 @@ test('capture from a subcategory or tag page preselects that context in browser 
 
 test('All items has one checkbox per task and bulk selection never completes it', async () => {
   localStorage.clear();delete require.cache[require.resolve(path.join(generated,'browserPreview.cjs'))];require(path.join(generated,'browserPreview.cjs'))
-  const task=(await window.notiert.planner.createTask({body:'Select without completing',placement:{kind:'backlog'}})).value
+  const task=(await window.captured.planner.createTask({body:'Select without completing',placement:{kind:'backlog'}})).value
   const app=render(React.createElement(NotesApp))
   try {
     await screen.findByRole('button',{name:'Open to-do Select without completing'})
@@ -695,7 +713,7 @@ test('All items has one checkbox per task and bulk selection never completes it'
     assert.equal(row.getAllByRole('checkbox').length,1)
     fireEvent.click(row.getByRole('checkbox',{name:'Select item'}))
     assert.ok(screen.getByText('1 selected'))
-    assert.equal((await window.notiert.notes.get(task.id)).value.completedAt,null)
+    assert.equal((await window.captured.notes.get(task.id)).value.completedAt,null)
     fireEvent.click(screen.getByRole('button',{name:'Done selecting'}))
     assert.ok(!screen.queryByText('1 selected'))
     assert.ok(row.getByRole('checkbox',{name:'Mark as done to-do: Select without completing'}))
@@ -705,8 +723,8 @@ test('All items has one checkbox per task and bulk selection never completes it'
 test('Backlog and Later tag popovers search, filter and clear independently of subcategories', async () => {
   localStorage.clear();delete require.cache[require.resolve(path.join(generated,'browserPreview.cjs'))];require(path.join(generated,'browserPreview.cjs'))
   for(const placement of ['backlog','later']) {
-    await window.notiert.planner.createTask({body:`Tagged ${placement}`,tags:['waiting'],placement:{kind:placement}})
-    await window.notiert.planner.createTask({body:`Other ${placement}`,tags:['follow-up'],placement:{kind:placement}})
+    await window.captured.planner.createTask({body:`Tagged ${placement}`,tags:['waiting'],placement:{kind:placement}})
+    await window.captured.planner.createTask({body:`Other ${placement}`,tags:['follow-up'],placement:{kind:placement}})
   }
   const app=render(React.createElement(NotesApp))
   try {
@@ -716,13 +734,29 @@ test('Backlog and Later tag popovers search, filter and clear independently of s
       await group.findByRole('button',{name:`Other ${page.toLowerCase()}`})
       fireEvent.click(group.getByRole('button',{name:'Tag filter for Unassigned: All tags'}))
       fireEvent.change(await screen.findByRole('textbox',{name:'Find tag for Unassigned'}),{target:{value:'wait'}})
-      const popup=within(document.querySelector('.tag-filter-popover'))
+      let popup=within(document.querySelector('.tag-filter-popover'))
+      fireEvent.click(popup.getByRole('button',{name:'Show',exact:true}))
       assert.ok(!popup.queryByRole('button',{name:'follow-up',exact:true}))
       fireEvent.click(popup.getByRole('button',{name:'waiting',exact:true}))
       await waitFor(()=>assert.ok(!group.queryByRole('button',{name:`Other ${page.toLowerCase()}`})))
       assert.ok(group.getByRole('button',{name:`Tagged ${page.toLowerCase()}`}))
       fireEvent.click(group.getByRole('button',{name:'Clear tag filter for Unassigned'}))
       await group.findByRole('button',{name:`Other ${page.toLowerCase()}`})
+      fireEvent.click(group.getByRole('button',{name:'Tag filter for Unassigned: All tags'}))
+      await screen.findByRole('textbox',{name:'Find tag for Unassigned'})
+      popup=within(document.querySelector('.tag-filter-popover'))
+      fireEvent.click(popup.getByRole('button',{name:'waiting',exact:true}))
+      fireEvent.click(popup.getByRole('button',{name:'follow-up',exact:true}))
+      await group.findByRole('button',{name:`Other ${page.toLowerCase()}`})
+      assert.ok(group.getByRole('button',{name:`Tagged ${page.toLowerCase()}`}))
+      fireEvent.click(popup.getByRole('button',{name:'Hide',exact:true}))
+      fireEvent.click(popup.getByRole('button',{name:'waiting',exact:true}))
+      await waitFor(()=>assert.ok(!group.queryByRole('button',{name:`Tagged ${page.toLowerCase()}`})))
+      assert.ok(group.getByRole('button',{name:`Other ${page.toLowerCase()}`}))
+      assert.ok(group.getByRole('button',{name:'Tag filter for Unassigned: 1 shown · 1 hidden'}))
+      fireEvent.click(popup.getByRole('button',{name:'Clear filters',exact:true}))
+      await group.findByRole('button',{name:`Tagged ${page.toLowerCase()}`})
+      fireEvent.click(group.getByRole('button',{name:'Tag filter for Unassigned: All tags'}))
     }
   }finally{app.unmount()}
 })
@@ -752,5 +786,57 @@ test('Inbox modal shows existing images, keeps tag drafts, and saves without lea
     assert.equal(saved.images[0].id, noteId)
     assert.ok(screen.getByRole('heading', { name: /Inbox/ }))
     assert.equal(localStorage.getItem(`inbox-tags:${captureId}`), null)
+  } finally { app.unmount() }
+})
+
+
+test('routine item changes refresh notes without reloading taxonomy or migration data', async () => {
+  let taxonomyReads = 0, migrationReads = 0, noteReads = 0
+  const app = setup({ notesApi: {
+    taxonomy: async () => { taxonomyReads++; return { ok: true, value: { categories: [], subcategories: [], tags: [] } } },
+    migrationStatus: async () => { migrationReads++; return { ok: true, value: { upgraded: false, acknowledged: true } } },
+    migrationReview: async () => { migrationReads++; return { ok: true, value: [] } },
+    list: async () => { noteReads++; return { ok: true, value: { items: [], total: 0, nextCursor: null } } },
+  } })
+  try {
+    await waitFor(() => assert.equal(taxonomyReads, 1))
+    const previous = { taxonomyReads, migrationReads, noteReads }
+    app.notifyNotes(); app.notifyPlanner()
+    await waitFor(() => assert.ok(noteReads > previous.noteReads))
+    assert.equal(taxonomyReads, previous.taxonomyReads)
+    assert.equal(migrationReads, previous.migrationReads)
+    app.notifyTaxonomy()
+    await waitFor(() => assert.equal(taxonomyReads, previous.taxonomyReads + 1))
+    assert.equal(migrationReads, previous.migrationReads + 2)
+  } finally { app.unmount() }
+})
+
+test('Backlog skips empty categories and collapsed pages while keeping heading counts current', async () => {
+  const categoryId = '77777777-7777-4777-8777-777777777777'
+  const categories = Array.from({ length: 20 }, (_, index) => ({ id: `category-${index}`, name: `Empty ${index}` }))
+  categories.push({ id: categoryId, name: 'Work' })
+  const app = setup({ taxonomy: async () => ({ ok: true, value: { categories, subcategories: [], tags: [] } }) })
+  let total = 1, pageReads = 0, summaryReads = 0
+  const task = { ...makeNote(noteId, 'Review work', 'task', categoryId), plannedDate: null, beforeEventId: null, position: 0, priorityPosition: 0, ready: false }
+  app.api.planner.backlogSummary = async () => { summaryReads++; return { ok: true, value: { [categoryId]: { total, subcategoryCounts: { '': total } } } } }
+  app.api.planner.backlog = async ({ categoryId: requested }) => {
+    assert.equal(requested, categoryId)
+    pageReads++
+    return { ok: true, value: { items: [task], total, nextCursor: null, subcategoryCounts: { '': total } } }
+  }
+  try {
+    fireEvent.click(screen.getByRole('button', { name: 'Backlog' }))
+    await screen.findByRole('button', { name: 'Review work' })
+    assert.equal(pageReads, 1)
+    const group = within(screen.getByRole('region', { name: 'Work backlog' }))
+    fireEvent.click(group.getByRole('button', { name: /^Work\s*1$/ }))
+    total = 3
+    app.notifyPlanner()
+    await group.findByRole('button', { name: /^Work\s*3$/ })
+    assert.equal(summaryReads, 2)
+    assert.equal(pageReads, 1)
+    fireEvent.click(group.getByRole('button', { name: /^Work\s*3$/ }))
+    await waitFor(() => assert.equal(pageReads, 2))
+    await group.findByRole('button', { name: 'Review work' })
   } finally { app.unmount() }
 })

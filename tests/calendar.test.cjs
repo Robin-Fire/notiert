@@ -17,7 +17,7 @@ const { taskItem } = require(path.join(generated, 'adapter.cjs'))
 const { localDateBounds } = require(path.join(generated, 'dates.cjs'))
 after(() => fs.rmSync(generated, { recursive: true, force: true }))
 function fixture() {
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'notiert-calendar-test-'))
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'captured-calendar-test-'))
   const file = path.join(folder, 'notes.sqlite')
   const store = new Store(file)
   return { store, file, folder, cleanup() { if (store.db.open) store.close(); fs.rmSync(folder, { recursive: true, force: true }) } }
@@ -55,7 +55,7 @@ test('scheduling rejects stale, partial, reversed, invalid-date, completed, and 
     assert.throws(() => f.store.schedulePlannerTask({ id: task.id, expectedRevision: task.revision - 1, placement: timed() }), /changed/)
     assert.throws(() => f.store.schedulePlannerTask({ id: task.id, expectedRevision: task.revision, placement: { kind: 'timed', startAt: task.plannedStartAt } }))
     assert.throws(() => f.store.schedulePlannerTask({ id: task.id, expectedRevision: task.revision, placement: timed('2026-10-01', '11:00', '10:00') }))
-    assert.throws(() => f.store.schedulePlannerTask({ id: task.id, expectedRevision: task.revision, placement: { kind: 'date', date: '2026-02-31' } }), /valid task date/)
+    assert.throws(() => f.store.schedulePlannerTask({ id: task.id, expectedRevision: task.revision, placement: { kind: 'date', date: '2026-02-31' } }))
     assert.throws(() => f.store.db.prepare('UPDATE notes SET planned_end_at=NULL WHERE id=?').run(task.id), /Invalid task time range/)
     assert.equal(f.store.listPlanner('2026-10-01', '2026-10-01').tasks[0].revision, task.revision)
     f.store.setTaskCompleted(task.id, true)
@@ -65,14 +65,14 @@ test('scheduling rejects stale, partial, reversed, invalid-date, completed, and 
   } finally { f.cleanup() }
 })
 
-test('date-only, Ready, and Backlog transitions clear timing and legacy anchors', () => {
+test('Ready and Backlog transitions clear timing and legacy anchors; date-only scheduling is rejected', () => {
   const f = fixture()
   try {
     let task = f.store.createPlannerTask({ body: 'Review', placement: timed() })
-    task = f.store.schedulePlannerTask({ id: task.id, expectedRevision: task.revision, placement: { kind: 'date', date: '2026-10-02' } })
-    assert.equal(task.plannedStartAt, null); assert.equal(task.plannedEndAt, null)
+    assert.throws(() => f.store.schedulePlannerTask({ id: task.id, expectedRevision: task.revision, placement: { kind: 'date', date: '2026-10-02' } }))
     task = f.store.schedulePlannerTask({ id: task.id, expectedRevision: task.revision, placement: { kind: 'ready' } })
     assert.equal(task.plannedDate, null); assert.equal(task.ready, true)
+    assert.equal(task.plannedStartAt, null); assert.equal(task.plannedEndAt, null)
     task = f.store.schedulePlannerTask({ id: task.id, expectedRevision: task.revision, placement: { kind: 'backlog' } })
     assert.equal(task.ready, false)
     assert.ok(f.store.listBacklog({}).items.some((item) => item.id === task.id))
@@ -161,7 +161,7 @@ test('version 9 migrates without inventing task times and backups validate after
   const f = fixture()
   let migrated
   try {
-    const task = f.store.createPlannerTask({ body: 'Legacy dated task', placement: { kind: 'date', date: '2026-10-01' } })
+    const task = f.store.createPlannerTask({ body: 'Legacy dated task', placement: { kind: 'ready' } })
     const event = f.store.savePlannerEvent({ title: 'Review', ...timed(), allDay: false })
     f.store.movePlannerTask(task.id, '2026-10-01', event.id, null)
     legacyTaxonomy(f.store)
@@ -190,7 +190,9 @@ test('adapter uses separate IDs and preserves date-only and timed task semantics
   const original = process.env.TZ
   try {
     process.env.TZ = 'Europe/Berlin'
-    const date = f.store.createPlannerTask({ body: 'Date only', placement: { kind: 'date', date: '2026-03-29' } })
+    const legacy = f.store.createPlannerTask({ body: 'Date only', placement: { kind: 'ready' } })
+    f.store.db.prepare('UPDATE notes SET planned_date=? WHERE id=?').run('2026-03-29', legacy.id)
+    const date = f.store.listPlanner('2026-03-29', '2026-03-29').tasks.find(task => task.id === legacy.id)
     const item = taskItem(date)
     assert.equal(item.id, `task:${date.id}`); assert.equal(item.allDay, true)
     assert.equal(item.end - item.start, localDateBounds('2026-03-29').end - localDateBounds('2026-03-29').start)
@@ -200,4 +202,49 @@ test('adapter uses separate IDs and preserves date-only and timed task semantics
     f.store.setTaskCompleted(task.id, true)
     assert.equal(taskItem(f.store.listPlanner('2026-03-29', '2026-03-29').tasks.find((entry) => entry.id === task.id)).readOnly, true)
   } finally { if (original === undefined) delete process.env.TZ; else process.env.TZ = original; f.cleanup() }
+})
+
+test('daily rollover appends unfinished past and legacy tasks to Ready without moving current or protected tasks', () => {
+  const f = fixture()
+  try {
+    const category = f.store.createCategory('Work')
+    const ready = f.store.createPlannerTask({ body: 'Already ready', placement: { kind: 'ready' } })
+    const yesterday = f.store.createPlannerTask({ body: 'Yesterday', categoryId: category.id, tags: ['Planning'], placement: timed('2026-10-05') })
+    const older = f.store.createPlannerTask({ body: 'Older', placement: timed('2026-10-01') })
+    const today = f.store.createPlannerTask({ body: 'Today, elapsed time', placement: timed('2026-10-06', '00:00', '00:30') })
+    const future = f.store.createPlannerTask({ body: 'Future', placement: timed('2026-10-07') })
+    const completed = f.store.createPlannerTask({ body: 'Completed', placement: timed('2026-10-05') })
+    f.store.setTaskCompleted(completed.id, true)
+    const deleted = f.store.createPlannerTask({ body: 'Deleted', placement: timed('2026-10-05') })
+    f.store.trash([deleted.id])
+    const later = f.store.createPlannerTask({ body: 'Later', placement: { kind: 'later' } })
+    const legacy = f.store.createPlannerTask({ body: 'Legacy future date only', placement: { kind: 'ready' } })
+    f.store.db.prepare('UPDATE notes SET planned_date=? WHERE id=?').run('2026-10-10', legacy.id)
+    const sequence = f.store.changeSequence
+    assert.equal(f.store.reconcileReadyTasks('2026-10-06'), 3)
+    const data = f.store.listPlanner('2026-10-01', '2026-10-10').tasks
+    for (const source of [yesterday, older, legacy]) {
+      const moved = data.find(task => task.id === source.id)
+      assert.equal(moved.ready, true)
+      assert.equal(moved.plannedDate, null)
+      assert.equal(moved.plannedStartAt, null)
+      assert.equal(moved.plannedEndAt, null)
+      assert.equal(moved.beforeEventId, null)
+      assert.equal(moved.revision, source.revision + 1)
+      assert.equal(moved.priorityPosition, source.priorityPosition)
+      assert.equal(moved.categoryId, source.categoryId)
+      assert.deepEqual(moved.tags, source.tags)
+      assert.ok(moved.position > ready.position)
+    }
+    assert.equal(data.find(task => task.id === today.id).plannedDate, '2026-10-06')
+    assert.equal(data.find(task => task.id === future.id).plannedDate, '2026-10-07')
+    assert.equal(data.find(task => task.id === completed.id).plannedDate, '2026-10-05')
+    assert.equal(f.store.getNote(deleted.id).deletedAt !== null, true)
+    assert.equal(f.store.getNote(later.id).later, true)
+    assert.equal(f.store.changeSequence, sequence + 1)
+    assert.equal(f.store.reconcileReadyTasks('2026-10-06'), 0)
+    assert.equal(f.store.changeSequence, sequence + 1)
+    assert.throws(() => f.store.schedulePlannerTask({ id: yesterday.id, expectedRevision: yesterday.revision, placement: timed() }), /changed/)
+    assert.throws(() => f.store.createPlannerTask({ body: 'No date-only tasks', placement: { kind: 'date', date: '2026-10-06' } }))
+  } finally { f.cleanup() }
 })

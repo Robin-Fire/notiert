@@ -34,7 +34,7 @@ export function InboxView() {
     const request = ++requestNumber.current
     setLoading(true)
     try {
-      const page = valueOf(await window.notiert.planner.inbox({ cursor: cursor ?? undefined, limit: 50 }))
+      const page = valueOf(await window.captured.planner.inbox({ cursor: cursor ?? undefined, limit: 50 }))
       if (request !== requestNumber.current) return
       setItems((current) => append ? [...current, ...page.items] : page.items)
       setNextCursor(page.nextCursor); setTotal(page.total); setError('')
@@ -43,12 +43,12 @@ export function InboxView() {
     finally { if (request === requestNumber.current) setLoading(false) }
   }, [])
 
-  useEffect(() => { void load(); const unsubscribe = window.notiert.planner.onChanged(() => {
+  useEffect(() => { void load(); const unsubscribe = window.captured.planner.onChanged(() => {
     if (filingRef.current) { filingBroadcastSeen.current = true; return }
     if (skipNextBroadcast.current) { skipNextBroadcast.current = false; return }
     void load()
   }); return () => { requestNumber.current++; unsubscribe() } }, [load])
-  useEffect(() => { void window.notiert.notes.taxonomy().then((result) => { if (result.ok) { setCategories(result.value.categories);setSubcategories(result.value.subcategories??[]); setTagRecords(result.value.tags); setSuggestions(result.value.tags.map((tag) => tag.name));setTaxonomyReady(true) }else{setError(result.message);setTaxonomyReady(true)} }).catch(()=>{setError('Categories could not be loaded.');setTaxonomyReady(true)}) }, [])
+  useEffect(() => { void window.captured.notes.taxonomy().then((result) => { if (result.ok) { setCategories(result.value.categories);setSubcategories(result.value.subcategories??[]); setTagRecords(result.value.tags); setSuggestions(result.value.tags.map((tag) => tag.name));setTaxonomyReady(true) }else{setError(result.message);setTaxonomyReady(true)} }).catch(()=>{setError('Categories could not be loaded.');setTaxonomyReady(true)}) }, [])
 
   async function file(item: Note, kind: 'note' | 'task', tags: string[], categoryId: string | null, subcategoryId: string | null) {
     if (pendingId) return
@@ -58,7 +58,7 @@ export function InboxView() {
     filingBroadcastSeen.current = false
     setPendingId(item.id)
     try {
-      valueOf(await window.notiert.planner.classify({ id: item.id, kind, tags, categoryId, subcategoryId }))
+      valueOf(await window.captured.planner.classify({ id: item.id, kind, tags, categoryId, subcategoryId }))
       try { localStorage.removeItem(`inbox-tags:${item.id}`) } catch { /* Filing still succeeded. */ }
       setItems((current) => current.filter((candidate) => candidate.id !== item.id))
       setTotal((count) => Math.max(0, count - 1))
@@ -68,7 +68,7 @@ export function InboxView() {
   }
 
   async function setCategory(id: string, categoryId: string | null, subcategoryId: string | null) {
-    try { valueOf(await window.notiert.notes.setCategory({ id, categoryId, subcategoryId })); return true }
+    try { valueOf(await window.captured.notes.setCategory({ id, categoryId, subcategoryId })); return true }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Category could not be changed.'); return false }
   }
 
@@ -137,7 +137,7 @@ function InboxCard({ item, onFile, onCategoryChange, onOpen, busy, suggestions, 
           <TagEditor tags={tags} draft={draft} onTagsChange={changeTags} onDraftChange={changeDraft} suggestions={suggestions} disabled={busy} hint="Enter to add · drafts saved automatically" />
         </div>}
       </div>
-      <CategoryPicker categories={categories} subcategories={subcategories} categoryId={categoryId} subcategoryId={subcategoryId} disabled={busy} onChange={(category,subcategory)=>{
+      <CategoryPicker compact categories={categories} subcategories={subcategories} categoryId={categoryId} subcategoryId={subcategoryId} disabled={busy} onChange={(category,subcategory)=>{
         const previous={categoryId,subcategoryId};setCategoryId(category);setSubcategoryId(subcategory)
         stateRef.current={...stateRef.current!,categoryId:category,subcategoryId:subcategory};persist(stateRef.current)
         void onCategoryChange(item.id,category,subcategory).then(saved=>{if(!saved&&stateRef.current?.categoryId===category&&stateRef.current?.subcategoryId===subcategory){setCategoryId(previous.categoryId);setSubcategoryId(previous.subcategoryId);stateRef.current={...stateRef.current!,...previous};persist(stateRef.current)}})

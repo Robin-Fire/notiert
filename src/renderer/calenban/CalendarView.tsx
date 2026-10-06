@@ -20,7 +20,7 @@ import { resultValue } from '../apiResult'
 type Mode = 'day' | 'three' | 'workweek'
 const views: ReuiView[] = ['day', 'days', 'week']
 const viewSettings = { weekends: false, nowIndicator: true }
-const i18n = { labels: { allDay: 'All day / tasks' }, formats: { timeGutter: 'HH:mm', timeGutterMinute: 'HH:mm' } }
+const i18n = { labels: { allDay: 'All day' }, formats: { timeGutter: 'HH:mm', timeGutterMinute: 'HH:mm' } }
 const noEventsChange = () => {}
 const weekday = (date: string) => ![0, 6].includes(fromLocalISODate(date).getDay())
 function workday(date: string, direction = 1) { while (!weekday(date)) date = addLocalDays(date, direction); return date }
@@ -118,19 +118,19 @@ export function CalendarView({ settings }: { settings: Settings | null }) {
     meetingLock.current = true; setCreatingMeeting(true)
     const time = fromLocalISODate(toLocalISODate(day)); time.setHours(Math.floor(startMinute / 60), startMinute % 60)
     try {
-      resultValue(await window.notiert.planner.createEvent({ title: 'New meeting', startAt: time.getTime(), endAt: time.getTime() + Math.min(DEFAULT_DURATION, (endMinute - startMinute) * 60_000), allDay: false }))
+      resultValue(await window.captured.planner.createEvent({ title: 'New meeting', startAt: time.getTime(), endAt: time.getTime() + Math.min(DEFAULT_DURATION, (endMinute - startMinute) * 60_000), allDay: false }))
       setError(''); await refresh()
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'The meeting could not be created.') }
     finally { meetingLock.current = false; setCreatingMeeting(false) }
   }
   async function saveMeeting(input: PlannerEventInput) {
     try {
-      resultValue(input.id ? await window.notiert.planner.updateEvent({ ...input, id: input.id }) : await window.notiert.planner.createEvent(input))
+      resultValue(input.id ? await window.captured.planner.updateEvent({ ...input, id: input.id }) : await window.captured.planner.createEvent(input))
       setMeeting(null); setDraft(null); setError(''); await refresh(); return null
     } catch (reason) { return reason instanceof Error ? reason.message : 'The meeting could not be saved.' }
   }
   async function saveTask(input: PlannerTaskCreate) {
-    try { resultValue(await window.notiert.planner.createTask(input)); setDraft(null); setError(''); await refresh(); return null }
+    try { resultValue(await window.captured.planner.createTask(input)); setDraft(null); setError(''); await refresh(); return null }
     catch (reason) { return reason instanceof Error ? reason.message : 'The task could not be saved.' }
   }
   const openItem = useCallback((occurrence: EventCalendarOccurrence<CalendarItemData>) => {
@@ -156,17 +156,17 @@ export function CalendarView({ settings }: { settings: Settings | null }) {
     <div className="planner-range-bar"><span className="week-caption">{dateLabel(start)}{count > 1 ? ` – ${dateLabel(end)}` : ''}</span><div className="calendar-hours-caption"><span>{minuteLabel(startMinute)}–{minuteLabel(endMinute)}</span><button type="button" onClick={() => setFullDay((value) => !value)}>{fullDay ? 'Use settings hours' : 'Show full day'}</button></div></div>
     {(error || loadError) && <div className="inline-error" role="alert">{error || loadError}<button className="button secondary small" onClick={() => void refresh()}>Reload</button></div>}
     {hidden.length > 0 && <div className="calendar-hidden"><button type="button" aria-expanded={showHidden} onClick={() => setShowHidden((value) => !value)}>{hidden.length} {hidden.length === 1 ? 'item' : 'items'} outside visible hours or days · {showHidden ? 'Hide' : 'Show'}</button>{showHidden && <div className="calendar-hidden-list">{hidden.map((item) => <div key={item.id}><button onClick={() => { if (item.data?.kind === 'task') setDetail(item.data.record); else if (item.data?.kind === 'meeting') setMeeting(item.data.record) }}>{item.title}<small>{item.start.toLocaleString()}–{item.end.toLocaleString()}</small></button><button onClick={() => { setAnchor(toLocalISODate(item.start)); setMode('day'); setFullDay(true) }}>Show day</button></div>)}</div>}</div>}
-    {deleted && <div className="calendar-notice">Meeting deleted.<button onClick={async () => { try { resultValue(await window.notiert.planner.undoDeleteEvent(deleted)); setDeleted(null); await refresh() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not restore meeting.') } }}><RotateCcw size={13} /> Undo</button></div>}
+    {deleted && <div className="calendar-notice">Meeting deleted.<button onClick={async () => { try { resultValue(await window.captured.planner.undoDeleteEvent(deleted)); setDeleted(null); await refresh() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not restore meeting.') } }}><RotateCcw size={13} /> Undo</button></div>}
     <div ref={root} className="calendar-host">
-      <TooltipProvider><EventCalendar<CalendarItemData> className={`notiert-calendar ${showReady ? 'with-ready' : ''}`} events={allItems} onEventsChange={noEventsChange} view={mode === 'day' ? 'day' : mode === 'three' ? 'days' : 'week'} date={calendarDate} dayCount={dayCount} views={views} weekStartsOn={1} viewSettings={viewSettings} dayStartHour={startMinute / 60} dayEndHour={endMinute / 60} slotDuration={Math.min(30, endMinute - startMinute)} snapDuration={15} interval={30} scrollToHour={startMinute / 60} scrollbars="native" renderDayHeader={({ day }) => <div className="calendar-day-heading"><span>{day.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}</span><button type="button" className="icon-button calendar-day-add" aria-label={`Add meeting on ${dateLabel(toLocalISODate(day))}`} title="Add meeting" disabled={creatingMeeting} onClick={(event) => { event.stopPropagation(); void addMeeting(day) }}><Plus size={14} /></button></div>} renderEvent={itemContent} onEventUpdate={propose} onEventClick={(occurrence, event) => { event.preventDefault(); openItem(occurrence) }} onSlotClick={(slot) => setDraft({ start: slot.date, end: slot.end ?? fromLocalISODate(addLocalDays(toLocalISODate(slot.date), 1)), allDay: slot.allDay })} onSelectSlot={(slot) => setDraft(slot)} i18n={i18n}>
+      <TooltipProvider><EventCalendar<CalendarItemData> className={`captured-calendar ${showReady ? 'with-ready' : ''}`} events={allItems} onEventsChange={noEventsChange} view={mode === 'day' ? 'day' : mode === 'three' ? 'days' : 'week'} date={calendarDate} dayCount={dayCount} views={views} weekStartsOn={1} viewSettings={viewSettings} dayStartHour={startMinute / 60} dayEndHour={endMinute / 60} slotDuration={Math.min(30, endMinute - startMinute)} snapDuration={15} interval={30} scrollToHour={startMinute / 60} scrollbars="native" renderDayHeader={({ day }) => <div className="calendar-day-heading"><span>{day.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}</span><button type="button" className="icon-button calendar-day-add" aria-label={`Add meeting on ${dateLabel(toLocalISODate(day))}`} title="Add meeting" disabled={creatingMeeting} onClick={(event) => { event.stopPropagation(); void addMeeting(day) }}><Plus size={14} /></button></div>} renderEvent={itemContent} onEventUpdate={propose} onEventClick={(occurrence, event) => { event.preventDefault(); openItem(occurrence) }} onSlotClick={(slot) => setDraft({ start: slot.date, end: slot.end ?? fromLocalISODate(addLocalDays(toLocalISODate(slot.date), 1)), allDay: slot.allDay })} onSelectSlot={(slot) => setDraft(slot)} i18n={i18n}>
         <ReadyDropBridge onDrop={dropToReady} />
         {showReady && <aside className="calendar-ready" data-calendar-ready><header><b>READY</b><div className="calendar-ready-actions"><span>{ready.length}</span><button type="button" className="icon-button calendar-ready-add" aria-label="Add task to Ready" title="Add task to Ready" onClick={addTask}><Plus size={14} /></button></div></header><p className="calendar-ready-help">Drag a task to a time slot, or open it to set its schedule.</p>{taskList(ready)}{ready.length === 0 && <p className="drop-hint">Add a task here, choose from Backlog, or drag a scheduled task here.</p>}{past.length > 0 && <><button className="calendar-past-toggle" aria-expanded={showPast} onClick={() => setShowPast((value) => !value)}>Past plan · {past.length} · {showPast ? 'Hide' : 'Show'}</button>{showPast && taskList(past)}</>}</aside>}
         <div className="calendar-grid-pane" aria-busy={loading}><EventCalendarContent /></div>
       </EventCalendar></TooltipProvider>
-      {readyDrag.ghost && <div className="calendar-drop-hint" style={{ left: readyDrag.ghost.x + 12, top: readyDrag.ghost.y + 12 }}>{readyDrag.ghost.task.body.split('\n')[0]}<br />{readyDrag.ghost.placement?.kind === 'timed' ? `${new Date(readyDrag.ghost.placement.startAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })} · Drop to schedule` : readyDrag.ghost.placement?.kind === 'date' ? 'Date only · Drop to schedule' : 'Drag onto a time slot'}</div>}
+      {readyDrag.ghost && <div className="calendar-drop-hint" style={{ left: readyDrag.ghost.x + 12, top: readyDrag.ghost.y + 12 }}>{readyDrag.ghost.task.body.split('\n')[0]}<br />{readyDrag.ghost.placement?.kind === 'timed' ? `${new Date(readyDrag.ghost.placement.startAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })} · Drop to schedule` : 'Drag onto a time slot'}</div>}
     </div>
     {draft && <CalendarCreateDialog draft={draft} onClose={() => setDraft(null)} onMeeting={saveMeeting} onTask={saveTask} />}
-    {meeting && <EventDialog key={meeting.id} event={meeting} initialDate={toLocalISODate(new Date(meeting.startAt))} onClose={() => setMeeting(null)} onSave={saveMeeting} onDelete={async () => { setDeleted(resultValue(await window.notiert.planner.deleteEvent(meeting.id))); setMeeting(null); await refresh() }} />}
+    {meeting && <EventDialog key={meeting.id} event={meeting} initialDate={toLocalISODate(new Date(meeting.startAt))} onClose={() => setMeeting(null)} onSave={saveMeeting} onDelete={async () => { setDeleted(resultValue(await window.captured.planner.deleteEvent(meeting.id))); setMeeting(null); await refresh() }} />}
     {detail && <TaskDetailDialog key={detail.id} task={detail} suggestions={tags} onClose={() => setDetail(null)} onChanged={() => void refresh()} />}
   </section>
 }

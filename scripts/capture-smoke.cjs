@@ -4,7 +4,7 @@ const os = require('node:os')
 const path = require('node:path')
 
 const tempRoot = path.resolve(os.tmpdir())
-const profile = fs.mkdtempSync(path.join(tempRoot, 'notiert-capture-smoke-'))
+const profile = fs.mkdtempSync(path.join(tempRoot, 'captured-capture-smoke-'))
 app.setPath('userData', profile)
 app.commandLine.appendSwitch('disable-gpu')
 require('../out/main/index.js')
@@ -22,7 +22,7 @@ app.whenReady().then(async () => {
   }
   await notes.webContents.executeJavaScript("[...document.querySelectorAll('.side-nav button')].find((button) => button.textContent.includes('All items')).click()")
   await wait(300)
-  const createdCategory = await notes.webContents.executeJavaScript("window.notiert.notes.createCategory('Capture smoke')")
+  const createdCategory = await notes.webContents.executeJavaScript("window.captured.notes.createCategory('Capture smoke')")
   if (!createdCategory.ok) throw new Error(`Category creation failed: ${createdCategory.message}`)
   const categoryId = createdCategory.value.id
   await notes.webContents.executeJavaScript("document.querySelector('.capture-button').click()")
@@ -39,7 +39,7 @@ app.whenReady().then(async () => {
     if (!categoryAvailable) await wait(100)
   }
   if (!categoryAvailable) {
-    const categoryState = await capture.webContents.executeJavaScript("Promise.all([window.notiert.capture.getState(), window.notiert.capture.categories()])")
+    const categoryState = await capture.webContents.executeJavaScript("Promise.all([window.captured.capture.getState(), window.captured.capture.categories()])")
     throw new Error(`Capture category selector did not load the new category: ${JSON.stringify({ categoryId, categoryState })}`)
   }
   await capture.webContents.executeJavaScript(`(() => { const select = document.querySelector('[aria-label="Capture category"]'); select.value = ${JSON.stringify(categoryId)}; select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
@@ -52,7 +52,7 @@ app.whenReady().then(async () => {
   await wait(500)
   const after = await capture.webContents.executeJavaScript("({ text: document.querySelector('.capture-input').value, error: document.querySelector('.capture-alert')?.innerText })")
   const Database = require('better-sqlite3')
-  const db = new Database(path.join(profile, 'notiert.sqlite'), { readonly: true })
+  const db = new Database(path.join(profile, 'captured.sqlite'), { readonly: true })
   const count = db.prepare("SELECT count(*) AS count FROM notes WHERE kind='inbox' AND body='Capture smoke test'").get().count
   const categorizedCount = db.prepare("SELECT count(*) AS count FROM notes WHERE kind='inbox' AND body='Capture smoke test' AND project_id=?").get(categoryId).count
   db.close()
@@ -66,6 +66,8 @@ app.whenReady().then(async () => {
   if (!visible) throw new Error('Saved capture did not appear in All items')
   await notes.webContents.executeJavaScript("document.querySelector('.capture-button').click()")
   await wait(250)
+  const rememberedCategory = await capture.webContents.executeJavaScript("document.querySelector('[aria-label=\"Capture category\"]').value")
+  if (rememberedCategory !== categoryId) throw new Error('Capture must remember its category after saving and reopening')
   const pasted = await capture.webContents.executeJavaScript(`(() => {
     const base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl8n+QAAAAASUVORK5CYII='
     const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
@@ -81,6 +83,11 @@ app.whenReady().then(async () => {
   }
   const imageReady = await capture.webContents.executeJavaScript("Boolean(document.querySelector('.capture-images img')) && !document.querySelector('.capture-submit').disabled")
   if (!imageReady) throw new Error(`Image paste did not become ready: ${pasted}`)
+  await capture.webContents.executeJavaScript("window.captured.capture.dismiss('escape')")
+  await wait(150)
+  await notes.webContents.executeJavaScript("window.captured.windows.openCapture()")
+  await wait(200)
+  if (await capture.webContents.executeJavaScript("document.querySelector('[aria-label=\"Capture category\"]').value") !== categoryId) throw new Error('Image-only drafts must keep the session category')
   await capture.webContents.executeJavaScript("document.querySelector('.capture-submit').click()")
   await wait(350)
   const imageCount = dbImageCount(profile)
@@ -105,13 +112,13 @@ app.whenReady().then(async () => {
 
 function dbImageCount(profilePath) {
   const Database = require('better-sqlite3')
-  const db = new Database(path.join(profilePath, 'notiert.sqlite'), { readonly: true })
+  const db = new Database(path.join(profilePath, 'captured.sqlite'), { readonly: true })
   try { return db.prepare("SELECT count(*) AS count FROM notes n JOIN item_images i ON i.note_id=n.id WHERE n.kind='inbox' AND n.body=''").get().count }
   finally { db.close() }
 }
 
 app.on('quit', () => {
   const target = path.resolve(profile)
-  if (path.dirname(target) !== tempRoot || !path.basename(target).startsWith('notiert-capture-smoke-')) return
+  if (path.dirname(target) !== tempRoot || !path.basename(target).startsWith('captured-capture-smoke-')) return
   try { fs.rmSync(target, { recursive: true, force: true }) } catch {}
 })

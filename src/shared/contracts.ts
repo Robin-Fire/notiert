@@ -14,7 +14,6 @@ export const PlannerTaskSchema = NoteSchema.extend({ meetingTitle: Z.string().nu
 const CalendarInstantSchema = Z.number().int().min(-8640000000000000).max(8640000000000000)
 export const TaskPlacementSchema = Z.discriminatedUnion('kind', [
   Z.object({ kind: Z.literal('timed'), startAt: CalendarInstantSchema, endAt: CalendarInstantSchema }).refine((value) => value.endAt > value.startAt, 'End time must be after start time.'),
-  Z.object({ kind: Z.literal('date'), date: Z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
   Z.object({ kind: Z.literal('ready') }), Z.object({ kind: Z.literal('backlog') }), Z.object({ kind: Z.literal('backlog-top') }), Z.object({ kind: Z.literal('later') }),
 ])
 export const PlannerTaskScheduleSchema = Z.object({ id: Z.string().uuid(), expectedRevision: Z.number().int().nonnegative(), placement: TaskPlacementSchema })
@@ -33,10 +32,12 @@ export const PlannerBacklogQuerySchema = Z.object({
   subcategoryIds: Z.array(Z.string().uuid()).max(1000).optional(),
   includeNoSubcategory: Z.boolean().optional(),
   tagNames: Z.array(Z.string().max(40)).max(1000).optional(),
+  excludedTags: Z.array(Z.string().max(40)).max(1000).optional(),
   includeUntagged: Z.boolean().optional(),
   cursor: Z.object({ priorityPosition: Z.number().int().nonnegative(), id: Z.string().uuid() }).optional(),
   limit: Z.number().int().min(1).max(100).default(50),
   later: Z.boolean().default(false),
+  countsOnly: Z.boolean().optional(),
 })
 export const PlannerBacklogReorderSchema = Z.object({ id: Z.string().uuid(), categoryId: Z.string().uuid().nullable(), beforeId: Z.string().uuid().nullable() })
 export const PlannerEventInputSchema = Z.object({ id: Z.string().uuid().optional(), title: Z.string().trim().min(1).max(120), startAt: Z.number().int(), endAt: Z.number().int(), allDay: Z.boolean(), recurrence: Z.object({ frequency: Z.enum(['daily', 'weekly', 'monthly']), until: Z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).optional() }).refine((event) => event.endAt > event.startAt, 'End time must be after start time.')
@@ -65,6 +66,7 @@ export const NoteFilterSchema = Z.object({
   needsReview: Z.boolean().optional(),
   dateFrom: Z.number().optional(), dateTo: Z.number().optional(),
   kinds: Z.array(Z.enum(['inbox', 'note', 'task'])).max(3).optional(), tags: Z.array(Z.string().max(40)).max(10000).optional(),
+  excludedTags: Z.array(Z.string().max(40)).max(1000).optional(),
   includeCompleted: Z.boolean().default(false),
   cursor: Z.object({ sortAt: Z.number(), id: Z.string(), priorityPosition: Z.number().int().nonnegative().optional(), kindRank: Z.number().int().min(0).max(2).optional() }).optional(), limit: Z.number().int().min(1).max(100).default(50),
 })
@@ -95,13 +97,14 @@ export type CaptureState = { body: string; images: CaptureImage[]; generation: n
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; code: string; message: string }
 export type NotePage = { items: (Note & { meetingTitle: string | null })[]; nextCursor: { sortAt: number; id: string; priorityPosition?: number; kindRank?: number } | null; total: number }
 export type InboxPage = { items: (Note & { meetingTitle: string | null })[]; nextCursor: { sortAt: number; id: string } | null; total: number }
-export type PlannerBacklogPage = { items: PlannerTask[]; nextCursor: { priorityPosition: number; id: string } | null; total: number; tagNames: string[]; subcategoryCounts: Record<string, number> }
+export type PlannerBacklogPage = { items: PlannerTask[]; nextCursor: { priorityPosition: number; id: string } | null; total: number; subcategoryCounts: Record<string, number> }
+export type PlannerBacklogSummary = Record<string, { total: number; subcategoryCounts: Record<string, number> }>
 export type Category = { id: string; name: string; noSubcategoryCount?: number }
 export type Subcategory = { id: string; name: string; categoryId: string; color: string; count: number }
 export type MigrationReview = { noteId: string; reason: string; candidates: string[] }
 export type TagRecord = { id: string; name: string; categoryId: string | null; color: string; count: number }
 
-export type NotiertApi = {
+export type capturedApi = {
   updates: {
     getStatus(): Promise<ApiResult<{ status: 'idle' | 'checking' | 'available' | 'downloaded' | 'error'; version?: string; message?: string }>>
     check(): Promise<ApiResult<void>>
@@ -156,6 +159,7 @@ export type NotiertApi = {
     emptyTrash(): Promise<ApiResult<void>>
     copy(ids: string[]): Promise<ApiResult<string>>
     onChanged(callback: (sequence: number) => void): () => void
+    onTaxonomyChanged(callback: () => void): () => void
   }
   planner: {
     inbox(input?: { cursor?: InboxPage['nextCursor']; limit?: number }): Promise<ApiResult<InboxPage>>
@@ -164,6 +168,7 @@ export type NotiertApi = {
     classify(input: z.infer<typeof ClassifyItemSchema>): Promise<ApiResult<void>>
     tasks(from: string, to: string): Promise<ApiResult<{ tasks: PlannerTask[]; events: PlannerEvent[]; tags: string[] }>>
     backlog(input?: z.infer<typeof PlannerBacklogQuerySchema>): Promise<ApiResult<PlannerBacklogPage>>
+    backlogSummary(later: boolean): Promise<ApiResult<PlannerBacklogSummary>>
     setReady(input: z.infer<typeof PlannerReadySchema>): Promise<ApiResult<void>>
     setTaskCompleted(input: z.infer<typeof PlannerCompleteSchema>): Promise<ApiResult<void>>
     reorderBacklog(input: { id: string; categoryId: string | null; beforeId: string | null }): Promise<ApiResult<void>>

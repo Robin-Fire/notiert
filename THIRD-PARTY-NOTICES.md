@@ -1,6 +1,6 @@
 # Third-party notices
 
-notiert bundles software and typefaces under their respective licenses. Full installed dependency licenses are available in the npm package metadata and the corresponding upstream projects.
+captured bundles software and typefaces under their respective licenses. Full installed dependency licenses are available in the npm package metadata and the corresponding upstream projects.
 
 - SN Pro and Geist Mono: SIL Open Font License 1.1. Copies are included in `resources/licenses/`.
 - Electron: MIT License.

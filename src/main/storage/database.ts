@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { AppError } from '../../shared/errors'
 import { meetingOccurrences } from '../../shared/meetingRecurrence'
-import type { CaptureImage, Category, DeletedPlannerEvent, ImageRef, Note, NoteFilter, NotePage, PlannerEvent, PlannerEventInput, PlannerTask, Subcategory, MigrationReview, TagRecord } from '../../shared/contracts'
+import type { CaptureImage, Category, DeletedPlannerEvent, ImageRef, Note, NoteFilter, NotePage, PlannerEvent, PlannerEventInput, PlannerTask, PlannerBacklogSummary, Subcategory, MigrationReview, TagRecord } from '../../shared/contracts'
 import { eventOverlapsLocalDay, localDateBounds } from '../../shared/plannerDates'
 import { PlannerTaskCreateSchema, PlannerTaskScheduleSchema, PlannerEventTimingSchema, type PlannerTaskCreate, type PlannerTaskSchedule, type PlannerEventTiming } from '../../shared/contracts'
 import { placementFields, validLocalDate } from '../../shared/calendarSchedule'
@@ -42,6 +42,7 @@ export class Store {
   db: Database.Database
   readonly path: string
   changeSequence = 0
+  private backlogSummaryCache = new Map<boolean, { sequence: number; value: PlannerBacklogSummary }>()
 
   constructor(path: string) {
     this.path = path
@@ -61,7 +62,7 @@ export class Store {
   private migrate() {
     const hasMigrationTable = Boolean(this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").get())
     const currentVersion = hasMigrationTable ? (this.db.prepare('SELECT max(version) AS version FROM schema_migrations').get() as { version: number | null }).version ?? 0 : 0
-    if (currentVersion > 12) throw new AppError('DB_NEWER_VERSION', 'This database has an unsupported notiert schema.')
+    if (currentVersion > 12) throw new AppError('DB_NEWER_VERSION', 'This database has an unsupported captured schema.')
     if (hasMigrationTable && currentVersion < 12) {
       const backupDirectory = path.join(path.dirname(this.path), 'backups')
       fs.mkdirSync(backupDirectory, { recursive: true })
@@ -269,7 +270,7 @@ export class Store {
       })()
     }
     const version = this.db.prepare('SELECT max(version) AS version FROM schema_migrations').get() as { version: number | null }
-    if (version.version !== 12) throw new AppError('DB_INVALID_SCHEMA', 'This database has an unsupported notiert schema.')
+    if (version.version !== 12) throw new AppError('DB_INVALID_SCHEMA', 'This database has an unsupported captured schema.')
   }
 
   getCaptureDraft() {
@@ -374,6 +375,10 @@ export class Store {
     if (filter.tags?.length) {
       where.push(`EXISTS (SELECT 1 FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id AND t.name COLLATE NOCASE IN (${filter.tags.map(() => '?').join(',')}))`)
       params.push(...filter.tags)
+    }
+    if (filter.excludedTags?.length) {
+      where.push(`NOT EXISTS (SELECT 1 FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id AND t.name COLLATE NOCASE IN (${filter.excludedTags.map(() => '?').join(',')}))`)
+      params.push(...filter.excludedTags)
     }
     const query = filter.query.trim()
     if (query) {
@@ -629,14 +634,32 @@ export class Store {
     return (this.db.prepare("SELECT coalesce(max(backlog_position),-1)+1 AS position FROM notes WHERE kind='task' AND task_status='open' AND deleted_at IS NULL AND is_later=0 AND task_ready=0 AND planned_date IS NULL AND project_id IS ?").get(categoryId) as { position: number }).position
   }
 
-  listBacklog(input: { categoryId: string | null; query?: string; subcategoryIds?: string[]; includeNoSubcategory?: boolean; tagNames?: string[]; includeUntagged?: boolean; cursor?: { priorityPosition: number; id: string }; limit?: number; later?: boolean } = { categoryId: null }): { items: PlannerTask[]; nextCursor: { priorityPosition: number; id: string } | null; total: number; tagNames: string[]; subcategoryCounts: Record<string, number> } {
+  backlogSummary(later = false): PlannerBacklogSummary {
+    const cached = this.backlogSummaryCache.get(later)
+    if (cached?.sequence === this.changeSequence) return cached.value
+    const rows = this.db.prepare(`SELECT project_id AS categoryId,coalesce(subcategory_id,'') AS subcategoryId,count(*) AS count
+      FROM notes WHERE deleted_at IS NULL AND kind='task' AND task_status='open' AND task_ready=0
+      AND planned_date IS NULL AND is_later=? GROUP BY project_id,subcategory_id`).all(later ? 1 : 0) as { categoryId: string | null; subcategoryId: string; count: number }[]
+    const summary: PlannerBacklogSummary = {}
+    for (const row of rows) {
+      const group = summary[row.categoryId ?? 'unassigned'] ??= { total: 0, subcategoryCounts: {} }
+      group.total += row.count
+      group.subcategoryCounts[row.subcategoryId] = row.count
+    }
+    this.backlogSummaryCache.set(later, { sequence: this.changeSequence, value: summary })
+    return summary
+  }
+
+  listBacklog(input: { categoryId: string | null; query?: string; subcategoryIds?: string[]; includeNoSubcategory?: boolean; tagNames?: string[]; excludedTags?: string[]; includeUntagged?: boolean; cursor?: { priorityPosition: number; id: string }; limit?: number; later?: boolean; countsOnly?: boolean } = { categoryId: null }): { items: PlannerTask[]; nextCursor: { priorityPosition: number; id: string } | null; total: number; subcategoryCounts: Record<string, number> } {
     const limit = input.limit ?? 50
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new AppError('INVALID_INPUT', 'Choose a valid backlog page size.')
     const query = input.query?.trim() ?? ''
     const where = ["n.deleted_at IS NULL", "n.kind='task'", "n.task_status='open'", 'n.task_ready=0', 'n.planned_date IS NULL', 'n.is_later=?', 'n.project_id IS ?']
     const params: (string | number | null)[] = []
     params.push(input.later ? 1 : 0, input.categoryId)
-    const subcategoryCounts = Object.fromEntries((this.db.prepare(`SELECT coalesce(n.subcategory_id,'') AS id,count(*) AS count FROM notes n WHERE ${where.join(' AND ')} GROUP BY n.subcategory_id`).all(...params) as { id: string; count: number }[]).map(row => [row.id, row.count]))
+    const summary = this.backlogSummary(Boolean(input.later))[input.categoryId ?? 'unassigned']
+    const subcategoryCounts = summary?.subcategoryCounts ?? {}
+    const baseConditionCount = where.length
     if (input.subcategoryIds!==undefined || input.includeNoSubcategory!==undefined) {
       const selected=input.subcategoryIds??[], clauses:string[]=[]
       if (selected.length) { clauses.push(`n.subcategory_id IN (${selected.map(()=>'?').join(',')})`); params.push(...selected) }
@@ -653,14 +676,17 @@ export class Store {
       where.push(includeUntagged ? `(${selectedTags} OR ${untagged})` : selectedTags)
       params.push(...tagNames)
     } else if (hasTagFilter && includeUntagged) where.push('NOT EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id=n.id)')
+    if (input.excludedTags?.length) {
+      where.push(`NOT EXISTS (SELECT 1 FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id AND t.name COLLATE NOCASE IN (${input.excludedTags.map(() => '?').join(',')}))`)
+      params.push(...input.excludedTags)
+    }
     if (query) {
       where.push("(instr(lower(n.body),lower(?))>0 OR EXISTS (SELECT 1 FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id AND instr(lower(t.name),lower(?))>0) OR EXISTS(SELECT 1 FROM subcategories s WHERE s.id=n.subcategory_id AND instr(lower(s.name),lower(?))>0))")
       params.push(query, query, query)
     }
     const base = where.join(' AND ')
-    const total = (this.db.prepare(`SELECT count(*) AS count FROM notes n WHERE ${base}`).get(...params) as { count: number }).count
-    const availableTags = (this.db.prepare(`SELECT DISTINCT t.name FROM notes n JOIN note_tags nt ON nt.note_id=n.id JOIN item_tags t ON t.id=nt.tag_id
-      WHERE n.deleted_at IS NULL AND n.kind='task' AND n.task_status='open' AND n.task_ready=0 AND n.planned_date IS NULL AND n.is_later=? AND n.project_id IS ? ORDER BY t.name COLLATE NOCASE`).all(input.later ? 1 : 0, input.categoryId) as { name: string }[]).map((tag) => tag.name)
+    const total = where.length === baseConditionCount ? summary?.total ?? 0 : (this.db.prepare(`SELECT count(*) AS count FROM notes n WHERE ${base}`).get(...params) as { count: number }).count
+    if (input.countsOnly) return { items: [], nextCursor: null, total, subcategoryCounts }
     const pageWhere = [...where]
     const pageParams = [...params]
     if (input.cursor) {
@@ -672,7 +698,7 @@ export class Store {
     const hasMore = rows.length > limit
     const items = rows.slice(0, limit)
     const last = items.at(-1)
-    return { items: items.map(taskFrom), nextCursor: hasMore && last ? { priorityPosition: last.backlog_position, id: last.id } : null, total, tagNames: availableTags, subcategoryCounts }
+    return { items: items.map(taskFrom), nextCursor: hasMore && last ? { priorityPosition: last.backlog_position, id: last.id } : null, total, subcategoryCounts }
   }
 
   setTaskReady(id: string) {
@@ -736,6 +762,24 @@ export class Store {
     this.changeSequence++
   }
 
+  reconcileReadyTasks(today: string): number {
+    if (!validLocalDate(today)) throw new AppError('INVALID_INPUT', 'Choose a valid local day.')
+    // Date-only plans are legacy placements; unfinished ones also return to Ready.
+    const changed = this.db.transaction(() => {
+      const rows = this.db.prepare(`SELECT id FROM notes WHERE kind='task' AND deleted_at IS NULL
+        AND task_status='open' AND completed_at IS NULL AND is_later=0 AND planned_date IS NOT NULL
+        AND (planned_date<? OR planned_start_at IS NULL) ORDER BY planned_date,task_position,created_at,id`).all(today) as { id: string }[]
+      let position = (this.db.prepare("SELECT coalesce(max(task_position),-1)+1 AS position FROM notes WHERE kind='task' AND deleted_at IS NULL AND task_status='open' AND task_ready=1 AND planned_date IS NULL").get() as { position: number }).position
+      const update = this.db.prepare(`UPDATE notes SET task_ready=1,planned_date=NULL,planned_start_at=NULL,
+        planned_end_at=NULL,before_event_id=NULL,task_position=?,updated_at=?,revision=revision+1 WHERE id=?`)
+      const now = Date.now()
+      for (const row of rows) update.run(position++, now, row.id)
+      return rows.length
+    })()
+    if (changed) this.changeSequence++
+    return changed
+  }
+
   listPlanner(from: string, to: string): { tasks: PlannerTask[]; events: PlannerEvent[]; tags: string[] } {
     if (!isISODate(from) || !isISODate(to) || to < from) throw new AppError('INVALID_INPUT', 'Choose a valid planner date range.')
     const start = new Date(`${from}T00:00:00`).getTime()
@@ -758,7 +802,6 @@ export class Store {
 
   schedulePlannerTask(raw: PlannerTaskSchedule): PlannerTask {
     const input = PlannerTaskScheduleSchema.parse(raw)
-    if (input.placement.kind === 'date' && !validLocalDate(input.placement.date)) throw new AppError('INVALID_INPUT', 'Choose a valid task date.')
     const result = this.db.transaction(() => {
       const task = this.getPlannerTask(input.id)
       if (task.completedAt !== null) throw new AppError('TASK_COMPLETED', 'Reopen this task before scheduling it.')
@@ -1030,8 +1073,8 @@ export class Store {
       const version = database.prepare('SELECT max(version) AS version FROM schema_migrations').get() as { version: number | null }
       const required = ['notes', 'drafts', 'app_state', 'schema_migrations', 'note_search', ...(version.version && version.version >= 3 ? ['legacy_meeting_sessions', 'planner_events', 'item_tags', 'note_tags'] : ['meetings']), ...(version.version && version.version >= 4 ? ['item_images', 'capture_draft_images'] : []), ...(version.version && version.version >= 5 ? ['categories'] : []), ...(version.version && version.version >= 12 ? ['subcategories','taxonomy_migration_review','taxonomy_migration_mapping'] : [])]
       const tables = new Set((database.prepare("SELECT name FROM sqlite_master WHERE type IN ('table','view')").all() as { name: string }[]).map((row) => row.name))
-      if (required.some((name) => !tables.has(name))) throw new AppError('DB_INVALID_SCHEMA', 'The selected file is not a complete notiert backup.')
-      if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(version.version ?? 0)) throw new AppError(version.version && version.version > 12 ? 'DB_NEWER_VERSION' : 'DB_INVALID_SCHEMA', 'This backup has an unsupported notiert schema.')
+      if (required.some((name) => !tables.has(name))) throw new AppError('DB_INVALID_SCHEMA', 'The selected file is not a complete captured backup.')
+      if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(version.version ?? 0)) throw new AppError(version.version && version.version > 12 ? 'DB_NEWER_VERSION' : 'DB_INVALID_SCHEMA', 'This backup has an unsupported captured schema.')
       if ((database.pragma('foreign_key_check') as unknown[]).length) throw new AppError('DB_CORRUPT', 'The selected backup contains invalid note links.')
     } finally { if (path) database.close() }
   }
