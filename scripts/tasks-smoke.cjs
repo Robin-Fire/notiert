@@ -70,6 +70,7 @@ app.whenReady().then(async () => {
   // Backlog quick planning and Undo.
   await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Backlog')).click()`)
   await until(`Boolean(document.querySelector('[data-task-id="${seeded.capture.id}"]'))`,'Backlog capture')
+  assert.equal(await evaluate(`document.querySelector('.backlog-group-toggle b').textContent`),'Unassigned','Unassigned is the first Backlog category')
   await screenshot('backlog-light.png')
   assert.equal(await evaluate(`(()=>{const row=document.querySelector('[data-task-id="${seeded.capture.id}"]');const title=row.querySelector('.backlog-task-title').getBoundingClientRect();const picker=row.querySelector('.backlog-tag-picker').getBoundingClientRect();return Math.abs(title.y-picker.y)<35&&picker.x>title.x})()`),true,'Tag picker sits inline next to its task')
   win.setSize(850,850);await wait(250);await screenshot('backlog-inline-tags-narrow.png', 850, 850)
@@ -91,6 +92,13 @@ app.whenReady().then(async () => {
   await until(`document.querySelector('.tasks-page').getAttribute('aria-busy')==='false'`)
   assert.deepEqual((await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.tags,['Fresh backlog tag'])
 
+  await evaluate(`[...document.querySelectorAll('[data-task-id="${seeded.capture.id}"] button')].find(button=>button.textContent.trim()==='Later').click()`)
+  await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Later')`,'Backlog defer to Later')
+  assert.equal(await evaluate(`Boolean(document.querySelector('[data-task-id="${seeded.capture.id}"]'))`),false,'Deferred item leaves Backlog')
+  const deferred=(await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',scope:'planned',horizon:'later'})`)).value.items.find(item=>item.id===seeded.capture.id)
+  assert.equal(deferred.intention.kind,'later')
+  await click('Undo');await until(`Boolean(document.querySelector('[data-task-id="${seeded.capture.id}"]'))`,'Undo Later returns capture')
+  assert.equal((await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.kind,'inbox')
   await evaluate(`[...document.querySelectorAll('[data-task-id="${seeded.capture.id}"] button')].find(button=>button.textContent.trim()==='Tomorrow').click()`)
   await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Tomorrow')`, 'capture classification')
   assert.equal((await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.kind, 'task')
