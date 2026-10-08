@@ -224,3 +224,14 @@ Verification passed:
 - `npx electron scripts/item-edit-smoke.cjs`: shared editor, attachments, capture editing and scheduling.
 
 Smoke scripts use temporary profiles. Screenshots are stored locally in the ignored `tests/.visual` directory. No installer was packaged or published in this iteration.
+
+
+## 12. Follow-up refinements
+
+The Tasks page now scrolls as a whole; columns and capture lists grow with their contents. Cards have no Move to select and use drag handles for movement. The drag overlay has its drop animation disabled, so it no longer animates a duplicate back to the source card; the source is hidden while dragging.
+
+This week has been removed from both layouts, the overview, and creation choices. Per the user's choice, schema 15 defers the existing This week bucket to Later once, preserving calendar placements. Next week rolls into Today when its week arrives. Exact future dates outside Tomorrow and Next week appear in Upcoming.
+
+Follow-up verification includes native dragging after scrolling a long page, no column scroll containers, immediate overlay removal after drops, and schema 14-to-15 migration/reopening. Calendar drag/resize and scheduling smoke checks continue to pass.
+
+Final checks for the refinements: all 91 tests passed; type checking, production build, Tasks native drag/scroll smoke, and Calendar smoke passed.

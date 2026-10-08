@@ -27,11 +27,11 @@ test('horizons handle week boundaries, past work, year boundaries and future pla
   assert.equal(horizonOf(day('2026-10-07'), today), 'today')
   assert.equal(isCarriedOver(day('2026-10-07'), today), true)
   assert.equal(horizonOf(day('2026-10-09'), today), 'tomorrow')
-  assert.equal(horizonOf(day('2026-10-11'), today), 'week')
+  assert.equal(horizonOf(day('2026-10-11'), today), 'upcoming')
   assert.equal(horizonOf(day('2026-10-12'), today), 'next-week')
   assert.equal(horizonOf(day('2026-10-19'), today), 'upcoming')
   assert.equal(horizonOf(day('2026-10-12'), '2026-10-11'), 'tomorrow')
-  assert.equal(horizonOf(week('2026-10-05'), '2026-10-11'), 'week')
+  assert.equal(horizonOf(week('2026-10-05'), '2026-10-11'), 'today')
   assert.equal(horizonOf(week('2026-10-05'), '2026-10-12'), 'today')
   assert.deepEqual(intentionFor('tomorrow', '2026-12-31'), day('2027-01-01'))
   assert.equal(intentionFor('next-week', '2026-12-31').targetDate, '2027-01-04')
@@ -162,7 +162,7 @@ test('schema 13 upgrades without changing calendar fields and creates a restorab
   try {
     const backlog = make(f.store, 'Backlog'), ready = f.store.createPlannerTask({ body: 'Ready', tags: [], placement: { kind: 'ready' } }), later = f.store.createPlannerTask({ body: 'Later', tags: [], placement: { kind: 'later' } })
     const timed = f.store.createPlannerTask({ body: 'Scheduled', tags: [], placement: { kind: 'timed', startAt: new Date('2026-11-03T10:00').getTime(), endAt: new Date('2026-11-03T11:00').getTime() } })
-    f.store.db.exec('DROP TRIGGER task_intention_insert; DROP TRIGGER task_intention_classify; DROP TRIGGER task_intention_unfile; DROP TABLE task_intentions; ALTER TABLE drafts DROP COLUMN capture_kind; DELETE FROM schema_migrations WHERE version=14;')
+    f.store.db.exec('DROP TRIGGER task_intention_insert; DROP TRIGGER task_intention_classify; DROP TRIGGER task_intention_unfile; DROP TABLE task_intentions; ALTER TABLE drafts DROP COLUMN capture_kind; DELETE FROM schema_migrations WHERE version>=14;')
     f.store.close(); upgraded = new Store(f.file)
     assert.equal(upgraded.getNote(backlog.id).intention.kind, 'unplanned')
     assert.equal(upgraded.getNote(ready.id).intention.targetDate, toLocalISODate(new Date()))
@@ -173,7 +173,7 @@ test('schema 13 upgrades without changing calendar fields and creates a restorab
     assert.equal(upgraded.checkIntegrity(pre), undefined)
     const backup = path.join(f.folder, 'schema14.sqlite'); await upgraded.backupTo(backup); assert.equal(upgraded.checkIntegrity(backup), undefined)
     upgraded.replaceWith(pre); assert.equal(upgraded.getNote(later.id).intention.kind, 'later')
-    assert.equal(upgraded.db.prepare('SELECT max(version) AS version FROM schema_migrations').get().version, 14)
+    assert.equal(upgraded.db.prepare('SELECT max(version) AS version FROM schema_migrations').get().version, 15)
   } finally { upgraded?.close(); f.close() }
 })
 
@@ -190,4 +190,30 @@ test('SQL horizon projection agrees with domain classification for every date an
     }
     for (const reference of ['2026-12-27', '2026-12-31', '2027-01-03', '2027-01-04']) for (const task of list(f.store, { today: reference }).items) assert.equal(task.horizon, horizonOf(task.intention, reference))
   } finally { f.close() }
+})
+
+
+test('schema 14 defers the removed This week bucket to Later once and preserves calendar placements', () => {
+  const f = fixture()
+  let upgraded
+  try {
+    const localToday = toLocalISODate(new Date())
+    const current = make(f.store, 'Old current week')
+    const next = make(f.store, 'Keep next week')
+    const currentPlan = intentionFor('week', localToday), nextPlan = intentionFor('next-week', localToday)
+    f.store.db.prepare("UPDATE task_intentions SET kind='week',target_date=? WHERE note_id=?").run(currentPlan.targetDate, current.id)
+    f.store.db.prepare("UPDATE task_intentions SET kind='week',target_date=? WHERE note_id=?").run(nextPlan.targetDate, next.id)
+    const before = placement(f.store.getNote(current.id))
+    f.store.db.prepare('DELETE FROM schema_migrations WHERE version=15').run()
+    f.store.close()
+    upgraded = new Store(f.file)
+    assert.equal(upgraded.getNote(current.id).intention.kind, 'later')
+    assert.equal(upgraded.getNote(current.id).intention.targetDate, null)
+    assert.equal(upgraded.getNote(next.id).intention.targetDate, nextPlan.targetDate)
+    assert.equal(upgraded.listWorkspace({ today: localToday, horizon: 'later' }).items[0].id, current.id)
+    assert.deepEqual(placement(upgraded.getNote(current.id)), before)
+    const revision = upgraded.getNote(current.id).revision
+    upgraded.close(); upgraded = new Store(f.file)
+    assert.equal(upgraded.getNote(current.id).revision, revision)
+  } finally { upgraded?.close(); f.close() }
 })

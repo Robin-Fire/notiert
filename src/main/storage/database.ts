@@ -65,8 +65,8 @@ export class Store {
   private migrate() {
     const hasMigrationTable = Boolean(this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").get())
     const currentVersion = hasMigrationTable ? (this.db.prepare('SELECT max(version) AS version FROM schema_migrations').get() as { version: number | null }).version ?? 0 : 0
-    if (currentVersion > 14) throw new AppError('DB_NEWER_VERSION', 'This database has an unsupported captured schema.')
-    if (hasMigrationTable && currentVersion < 14) {
+    if (currentVersion > 15) throw new AppError('DB_NEWER_VERSION', 'This database has an unsupported captured schema.')
+    if (hasMigrationTable && currentVersion < 15) {
       const backupDirectory = path.join(path.dirname(this.path), 'backups')
       fs.mkdirSync(backupDirectory, { recursive: true })
       const checkpoint = this.db.pragma('wal_checkpoint(TRUNCATE)') as { busy: number }[]
@@ -292,8 +292,18 @@ export class Store {
         CREATE TRIGGER task_intention_unfile AFTER UPDATE OF kind ON notes WHEN NEW.kind<>'task' BEGIN DELETE FROM task_intentions WHERE note_id=NEW.id; END;`)
       this.db.prepare('INSERT INTO schema_migrations VALUES(14,?)').run(Date.now())
     })()
+    if (!applied.has(15)) this.db.transaction(() => {
+      const today = toLocalISODate(new Date()), monday = mondayISO(fromLocalISODate(today)), next = addLocalDays(monday, 7), tomorrow = addLocalDays(today, 1)
+      const deferred = this.db.prepare("SELECT note_id FROM task_intentions WHERE (kind='week' AND target_date=?) OR (kind='day' AND target_date>? AND target_date<?) ORDER BY position,note_id").all(monday, tomorrow, next) as { note_id: string }[]
+      let position = (this.db.prepare('SELECT coalesce(max(position),-1) AS position FROM task_intentions').get() as { position: number }).position + 1
+      for (const item of deferred) {
+        this.db.prepare("UPDATE task_intentions SET kind='later',target_date=NULL,position=? WHERE note_id=?").run(position++, item.note_id)
+        this.db.prepare('UPDATE notes SET revision=revision+1 WHERE id=?').run(item.note_id)
+      }
+      this.db.prepare('INSERT INTO schema_migrations VALUES(15,?)').run(Date.now())
+    })()
     const version = this.db.prepare('SELECT max(version) AS version FROM schema_migrations').get() as { version: number | null }
-    if (version.version !== 14) throw new AppError('DB_INVALID_SCHEMA', 'This database has an unsupported captured schema.')
+    if (version.version !== 15) throw new AppError('DB_INVALID_SCHEMA', 'This database has an unsupported captured schema.')
   }
 
   listWorkspace(raw: TasksQuery): TasksPage {
@@ -301,7 +311,7 @@ export class Store {
     if (!validLocalDate(input.today)) throw new AppError('INVALID_INPUT', 'Choose a valid local date.')
     if (input.cursor && (input.cursor.sequence !== this.changeSequence || input.cursor.today !== input.today)) throw new AppError('STALE_PAGE', 'Tasks changed. Refresh the board.')
     const monday = mondayISO(fromLocalISODate(input.today)), next = addLocalDays(monday, 7), after = addLocalDays(monday, 14), tomorrow = addLocalDays(input.today, 1)
-    const bucket = `CASE WHEN n.kind='inbox' OR coalesce(i.kind,'unplanned')='unplanned' THEN 'unplanned' WHEN i.kind='later' THEN 'later' WHEN i.kind='week' THEN CASE WHEN i.target_date<'${monday}' THEN 'today' WHEN i.target_date='${monday}' THEN 'week' WHEN i.target_date='${next}' THEN 'next-week' ELSE 'upcoming' END WHEN i.target_date<='${input.today}' THEN 'today' WHEN i.target_date='${tomorrow}' THEN 'tomorrow' WHEN i.target_date<'${next}' THEN 'week' WHEN i.target_date<'${after}' THEN 'next-week' ELSE 'upcoming' END`
+    const bucket = `CASE WHEN n.kind='inbox' OR coalesce(i.kind,'unplanned')='unplanned' THEN 'unplanned' WHEN i.kind='later' THEN 'later' WHEN i.kind='week' THEN CASE WHEN i.target_date<'${monday}' THEN 'today' WHEN i.target_date='${monday}' THEN 'today' WHEN i.target_date='${next}' THEN 'next-week' ELSE 'upcoming' END WHEN i.target_date<='${input.today}' THEN 'today' WHEN i.target_date='${tomorrow}' THEN 'tomorrow' WHEN i.target_date<'${next}' THEN 'upcoming' WHEN i.target_date<'${after}' THEN 'next-week' ELSE 'upcoming' END`
     const where = ["n.deleted_at IS NULL", input.completed ? "n.kind='task' AND n.task_status='done'" : "(n.kind='inbox' OR (n.kind='task' AND n.task_status='open'))"]
     const params: (string | number | null)[] = []
     if (input.categoryId !== undefined) { where.push('n.project_id IS ?'); params.push(input.categoryId) }
@@ -1220,9 +1230,9 @@ export class Store {
       const required = ['notes', 'drafts', 'app_state', 'schema_migrations', 'note_search', ...(version.version && version.version >= 3 ? ['legacy_meeting_sessions', 'planner_events', 'item_tags', 'note_tags'] : ['meetings']), ...(version.version && version.version >= 4 ? ['item_images', 'capture_draft_images'] : []), ...(version.version && version.version >= 5 ? ['categories'] : []), ...(version.version && version.version >= 12 ? ['subcategories','taxonomy_migration_review','taxonomy_migration_mapping'] : []), ...(version.version && version.version >= 14 ? ['task_intentions'] : [])]
       const tables = new Set((database.prepare("SELECT name FROM sqlite_master WHERE type IN ('table','view')").all() as { name: string }[]).map((row) => row.name))
       if (required.some((name) => !tables.has(name))) throw new AppError('DB_INVALID_SCHEMA', 'The selected file is not a complete captured backup.')
-      if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].includes(version.version ?? 0)) throw new AppError(version.version && version.version > 14 ? 'DB_NEWER_VERSION' : 'DB_INVALID_SCHEMA', 'This backup has an unsupported captured schema.')
+      if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].includes(version.version ?? 0)) throw new AppError(version.version && version.version > 15 ? 'DB_NEWER_VERSION' : 'DB_INVALID_SCHEMA', 'This backup has an unsupported captured schema.')
       if ((database.pragma('foreign_key_check') as unknown[]).length) throw new AppError('DB_CORRUPT', 'The selected backup contains invalid note links.')
-      if (version.version === 14) {
+      if (version.version! >= 14) {
         if (!(database.pragma('table_info(drafts)') as { name: string }[]).some(column => column.name === 'capture_kind')) throw new AppError('DB_INVALID_SCHEMA', 'This backup is missing capture type storage.')
         const intentions = database.prepare('SELECT kind,target_date AS targetDate,position FROM task_intentions').all() as TaskIntention[]
         if (intentions.some(intention => !validIntention(intention)) || database.prepare("SELECT 1 FROM notes n LEFT JOIN task_intentions i ON i.note_id=n.id WHERE n.kind='task' AND i.note_id IS NULL LIMIT 1").get()) throw new AppError('DB_CORRUPT', 'This backup contains invalid task plans.')

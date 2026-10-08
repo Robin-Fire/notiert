@@ -291,7 +291,7 @@ test('global note shortcuts do not intercept Enter in Inbox or Calenban controls
   app.api.notes.get = async (id) => { getCalls.push(id); return originalGet(id) }
   try {
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', { name: /^Tasks/ }))
-    const fileButton = await screen.findByRole('combobox', { name: 'Move to for Captured thought' })
+    const fileButton = await screen.findByRole('button', { name: 'Move Captured thought' })
     fireEvent.keyDown(fileButton, { key: 'Enter' })
     assert.deepEqual(getCalls, [])
 
@@ -686,7 +686,7 @@ const workspaceToday = () => new Date().toLocaleDateString('sv-SE')
 const planFor = (kind, targetDate = null) => ({ kind, targetDate, position: 0 })
 const tasksNav = () => fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', { name: /^Tasks/ }))
 
-test('Tasks shows horizons together and moves work without navigation; category layout has the same cards', async () => {
+test('Tasks shows horizons together with drag handles and category layout has the same cards', async () => {
   browserWorkspace()
   const work = (await window.captured.notes.taxonomy()).value.categories[0]
   for (const [body, intention] of [['Plan today', planFor('day', workspaceToday())], ['Plan later', planFor('later')], ['Plan undecided', planFor('unplanned')]]) await window.captured.taskWorkspace.create({ body, categoryId: work.id, intention })
@@ -696,42 +696,31 @@ test('Tasks shows horizons together and moves work without navigation; category 
     await screen.findByRole('button', { name: 'Plan today' })
     assert.ok(screen.getByRole('button', { name: 'Plan later' }))
     assert.ok(screen.getByRole('button', { name: 'Plan undecided' }))
+    assert.equal(document.querySelector('.tasks-card select'), null)
+    assert.equal(document.querySelector('[data-horizon="week"]'), null)
     const original = [...document.querySelectorAll('.tasks-card')].map(card => card.dataset.taskId).sort()
     fireEvent.click(screen.getByRole('button', { name: 'By category' }))
     assert.deepEqual([...document.querySelectorAll('.tasks-card')].map(card => card.dataset.taskId).sort(), original)
     assert.equal(document.querySelector('.tasks-category-column .tasks-column-heading b').textContent, work.name)
-    fireEvent.change(screen.getByRole('combobox', { name: 'Move to for Plan today' }), { target: { value: 'later' } })
-    await screen.findByText('Moved to Later.')
-    const moved = (await window.captured.taskWorkspace.list({ today: workspaceToday(), horizon: 'later' })).value.items.find(item => item.body === 'Plan today')
-    assert.ok(moved)
-    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
-    await screen.findByText('Change undone.')
-    assert.ok((await window.captured.taskWorkspace.list({ today: workspaceToday(), horizon: 'today' })).value.items.some(item => item.body === 'Plan today'))
     assert.equal(screen.queryByRole('button', { name: 'Backlog', exact: true }), null)
     assert.equal(screen.queryByRole('button', { name: 'Ready', exact: true }), null)
   } finally { app.unmount() }
 })
 
-test('integrated captures file directly as a task or reference note, retain draft tags/images, and support Undo', async () => {
+test('integrated captures file as reference notes, retain draft tags/images, and support Undo', async () => {
   browserWorkspace()
   const saved = await window.captured.capture.submit({ requestId: crypto.randomUUID(), generation: 0, body: 'Sort this capture', tags: ['waiting'] })
   localStorage.setItem(`inbox-tags:${saved.value.id}`, JSON.stringify({ tags: ['waiting'], draft: 'Draft label' }))
   const app = render(React.createElement(NotesApp))
   try {
     tasksNav()
-    const dropdown = await screen.findByRole('combobox', { name: 'Move to for Sort this capture' })
-    fireEvent.change(dropdown, { target: { value: 'tomorrow' } })
-    await screen.findByText('Moved to Tomorrow.')
-    let item = (await window.captured.notes.get(saved.value.id)).value
-    assert.equal(item.kind, 'task'); assert.deepEqual(item.tags, ['waiting', 'Draft label'])
-    assert.equal(item.intention.kind, 'day'); assert.equal(localStorage.getItem(`inbox-tags:${saved.value.id}`), null)
-    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
-    await screen.findByText('Change undone.')
-    assert.deepEqual((await window.captured.notes.get(saved.value.id)).value.tags, ['waiting', 'Draft label'])
+    await screen.findByRole('button', { name: 'Sort this capture' })
+    let item
     const card = screen.getByRole('button', { name: 'Sort this capture' }).closest('article')
     fireEvent.click(within(card).getByRole('button', { name: 'Note', exact: true }))
     await screen.findByText('Filed as a note.')
     item = (await window.captured.notes.get(saved.value.id)).value
+    assert.deepEqual(item.tags, ['waiting', 'Draft label'])
     assert.equal(item.kind, 'note'); assert.equal(screen.queryByRole('button', { name: 'Sort this capture' }), null)
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
     await screen.findByRole('button', { name: 'Sort this capture' })
@@ -776,7 +765,10 @@ test('Tasks completion and reopening retain the plan, and rejected moves leave t
     const originalMove = window.captured.taskWorkspace.move
     window.captured.taskWorkspace.move = async () => ({ ok: false, code: 'STALE_REVISION', message: 'Changed elsewhere; refresh before moving.' })
     await screen.findByRole('checkbox', { name: 'Complete Finish planned work' })
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Move to for Finish planned work' }), { target: { value: 'later' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Finish planned work' }))
+    const dialog = within(await screen.findByRole('dialog', { name: 'Edit to-do' }))
+    fireEvent.change(dialog.getByRole('combobox', { name: 'Task plan' }), { target: { value: 'later' } })
+    fireEvent.click(dialog.getByRole('button', { name: 'Save plan' }))
     await screen.findByText('Changed elsewhere; refresh before moving.')
     assert.ok(screen.getByRole('button', { name: 'Finish planned work' }))
     window.captured.taskWorkspace.move = originalMove

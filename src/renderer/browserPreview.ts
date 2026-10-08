@@ -22,10 +22,15 @@ const initialTags: TagRecord[] = [
   { id: '44444444-4444-4444-8444-444444444444', name: 'Ideas', categoryId: initialCategories[0]!.id, color: '#e65b50', count: 0 },
   { id: '55555555-5555-4555-8555-555555555555', name: 'Home', categoryId: initialCategories[1]!.id, color: '#18824b', count: 0 },
 ]
-const stored = (() => { try { return JSON.parse(localStorage.getItem('captured-browser-preview') ?? localStorage.getItem('notiert-browser-preview') ?? localStorage.getItem('notable-browser-preview') ?? 'null') as { items: Item[]; categories: Category[]; tags: TagRecord[]; subcategories?:Subcategory[]; reviews?:MigrationReview[]; events?: PlannerEvent[] } | null } catch { return null } })()
+const stored = (() => { try { return JSON.parse(localStorage.getItem('captured-browser-preview') ?? localStorage.getItem('notiert-browser-preview') ?? localStorage.getItem('notable-browser-preview') ?? 'null') as { items: Item[]; categories: Category[]; tags: TagRecord[]; subcategories?:Subcategory[]; reviews?:MigrationReview[]; events?: PlannerEvent[]; tasksRevision?: number } | null } catch { return null } })()
 let items = stored?.items ?? sample
 items = items.map((item) => ({ ...item, subcategoryId:item.subcategoryId??null, completedAt: 'completedAt' in item ? item.completedAt : null, later: 'later' in item ? item.later : false, categoryId: 'categoryId' in item ? item.categoryId : null })).map((item) => item.kind === 'task' ? { ...item, plannedStartAt: 'plannedStartAt' in item ? item.plannedStartAt : null, plannedEndAt: 'plannedEndAt' in item ? item.plannedEndAt : null, priorityPosition: 'priorityPosition' in item ? item.priorityPosition : 0, ready: 'ready' in item ? item.ready : Boolean('plannedDate' in item && item.plannedDate), later: 'later' in item ? item.later : false, position: 'position' in item ? item.position : 0, beforeEventId: 'beforeEventId' in item ? item.beforeEventId : null } as PlannerTask : item)
 items.forEach((item, position) => { if (item.kind === 'task' && !item.intention) { const task = item as PlannerTask; item.intention = { kind: task.later ? 'later' : task.plannedDate || task.ready ? 'day' : 'unplanned', targetDate: task.later ? null : task.plannedDate ?? (task.ready ? toLocalISODate(new Date()) : null), position } } })
+if ((stored?.tasksRevision ?? 0) < 15) {
+  const today = toLocalISODate(new Date()), monday = intentionFor('week', today).targetDate!, next = intentionFor('next-week', today).targetDate!
+  const tomorrow = intentionFor('tomorrow', today).targetDate!
+  items.forEach(item => { const plan = item.intention; if (item.kind === 'task' && plan && (plan.kind === 'week' && plan.targetDate === monday || plan.kind === 'day' && plan.targetDate! > tomorrow && plan.targetDate! < next)) { item.intention = { ...plan, kind: 'later', targetDate: null }; item.revision++ } })
+}
 let workspaceSequence = 0
 let events: PlannerEvent[] = stored?.events ?? []
 const categories = stored?.categories ?? initialCategories
@@ -42,7 +47,7 @@ const changed = () => {
   workspaceSequence++
   const signature = taxonomySignature()
   if (signature !== previousTaxonomy) { previousTaxonomy = signature; taxonomyListeners.forEach(callback => callback()) }
- localStorage.setItem('captured-browser-preview', JSON.stringify({ items, categories, subcategories, tags, events, reviews })); listeners.forEach((callback) => callback()) }
+ localStorage.setItem('captured-browser-preview', JSON.stringify({ items, categories, subcategories, tags, events, reviews, tasksRevision: 15 })); listeners.forEach((callback) => callback()) }
 const ok = <T,>(value: T) => Promise.resolve({ ok: true as const, value })
 const visible = () => items.filter((item) => item.deletedAt === null)
 const tagList = () => tags.map((tag) => ({ ...tag, count: visible().filter((item) => item.tags.includes(tag.name)).length }))
