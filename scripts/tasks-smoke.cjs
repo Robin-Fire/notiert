@@ -43,7 +43,7 @@ app.whenReady().then(async () => {
   await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Tasks')).click()`)
   await until(`document.querySelectorAll('.tasks-card').length===8`, 'all workspace cards')
   async function screenshot(name, width = 1400, height = 850) {
-    const html = await evaluate(`(()=>{const clone=document.documentElement.cloneNode(true);document.querySelectorAll('select').forEach((select,index)=>{const copy=clone.querySelectorAll('select')[index];for(const option of copy.options)option.toggleAttribute('selected',option.value===select.value)});return clone.outerHTML})()`), file = path.join(profile, 'tasks-snapshot.html'), base = pathToFileURL(path.resolve(__dirname, '../out/renderer/index.html')).href
+    const html = await evaluate(`(()=>{const clone=document.documentElement.cloneNode(true);document.querySelectorAll('select').forEach((select,index)=>{const copy=clone.querySelectorAll('select')[index];for(const option of copy.options)option.toggleAttribute('selected',option.value===select.value)});document.querySelectorAll('input').forEach((input,index)=>clone.querySelectorAll('input')[index].setAttribute('value',input.value));return clone.outerHTML})()`), file = path.join(profile, 'tasks-snapshot.html'), base = pathToFileURL(path.resolve(__dirname, '../out/renderer/index.html')).href
     fs.writeFileSync(file, html.replace('<head>', `<head><base href="${base}">`))
     const preview = new BrowserWindow({ width, height, show: false, webPreferences: { offscreen: true, javascript: false } })
     try { await preview.loadFile(file); await wait(400); fs.writeFileSync(path.join(output, name), (await preview.webContents.capturePage()).toPNG()) } finally { preview.destroy() }
@@ -71,6 +71,22 @@ app.whenReady().then(async () => {
   await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Backlog')).click()`)
   await until(`Boolean(document.querySelector('[data-task-id="${seeded.capture.id}"]'))`,'Backlog capture')
   await screenshot('backlog-light.png')
+  await evaluate(`document.querySelector('[data-task-id="${seeded.capture.id}"] [role="combobox"]').focus()`)
+  win.webContents.insertText('Planning');await until(`Boolean([...document.querySelectorAll('[role="option"]')].find(option=>option.textContent.trim()==='Planning'))`,'existing tag option')
+  await evaluate(`[...document.querySelectorAll('[role="option"]')].find(option=>option.textContent.trim()==='Planning').click()`)
+  await until(`document.querySelector('.tasks-page').getAttribute('aria-busy')==='false'`)
+  assert.deepEqual((await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.tags,['Planning'])
+  await evaluate(`document.querySelector('[data-task-id="${seeded.capture.id}"] [role="combobox"]').focus()`)
+  win.webContents.insertText('Fresh backlog tag');await until(`Boolean([...document.querySelectorAll('[role="option"]')].find(option=>option.textContent.includes('Create')))`,'creatable tag option')
+  await screenshot('backlog-tag-picker-light.png')
+  await evaluate(`[...document.querySelectorAll('[role="option"]')].find(option=>option.textContent.includes('Create')).click()`)
+  await until(`document.querySelector('.tasks-page').getAttribute('aria-busy')==='false'`)
+  const tagged=(await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value
+  assert.equal(tagged.kind,'inbox');assert.deepEqual(new Set(tagged.tags),new Set(['Planning','Fresh backlog tag']))
+  await evaluate(`(()=>{const chip=[...document.querySelectorAll('[data-task-id="${seeded.capture.id}"] [data-slot="combobox-chip"]')].find(chip=>chip.textContent==='Planning');chip.querySelector('[data-slot="combobox-chip-remove"]').click()})()`)
+  await until(`document.querySelector('.tasks-page').getAttribute('aria-busy')==='false'`)
+  assert.deepEqual((await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.tags,['Fresh backlog tag'])
+
   await evaluate(`[...document.querySelectorAll('[data-task-id="${seeded.capture.id}"] button')].find(button=>button.textContent.trim()==='Tomorrow').click()`)
   await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Tomorrow')`, 'capture classification')
   assert.equal((await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.kind, 'task')

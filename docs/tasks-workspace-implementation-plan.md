@@ -244,3 +244,10 @@ Per the updated direction, Backlog is again a separate navigation destination wi
 Queries apply planned/backlog scope before counts and pagination so both pages have accurate totals. Calendar stays unchanged. Both pages reuse the intention API and shared editor; the old scheduling-based Backlog API is retained for compatibility rather than used for the new page.
 
 Verification: 93 tests passed; type checking, build, native board/table drag with Undo and page scrolling, Backlog planning, capture, taxonomy, shared editor and Calendar smoke checks passed. Backlog category counts include captures across all pages. Screenshots are available locally as `tests/.visual/backlog-light.png` and `tests/.visual/tasks-table-light.png`.
+
+
+## 14. Backlog tag picker
+
+Installed the requested `@reui/c-combobox-12` using the shadcn CLI. Adapted its Base UI multi-select and chips composition into `BacklogTagPicker`, with searchable existing tags, a Create option, Enter-to-create when no existing tag matches, chip removal and the existing 20-tag limit. Each Backlog task or capture saves tags directly through the storage API; creating and assigning a new tag is atomic. Captures retain their kind and planning state. Tag names remain case-insensitively unique, and legacy capture tag drafts are preserved until a successful save.
+
+Verification: type checking, build and all 95 tests passed. Native Electron smoke covers existing selection, creation, removal, unchanged capture type, Backlog planning, board/table movement and scrolling. A popup screenshot is saved locally at `tests/.visual/backlog-tag-picker-light.png`.

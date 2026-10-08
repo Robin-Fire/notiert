@@ -84,3 +84,5 @@ Before distributing a release, record the Windows build and test shortcut regist
 See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and [resources/licenses](resources/licenses/) for font and dependency license references.
 
 Tasks scrolls as one page. Planned tasks move by dragging their grip; Backlog also has quick planning buttons. The columns have no individual scrollbars. The removed This week bucket is deferred to Later during schema 15 migration, without changing calendar placements.
+
+Backlog items have a searchable ReUI multi-select tag picker. Select existing tags, remove chips, or choose Create for a new name; tags save directly without classifying captures.

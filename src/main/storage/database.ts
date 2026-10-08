@@ -749,7 +749,7 @@ export class Store {
 
   setItemTags(id: string, tags: string[]) {
     const current = this.getNote(id)
-    if (!current || current.deletedAt !== null || current.kind === 'inbox') throw new AppError('NOT_FOUND', 'This item is not filed.')
+    if (!current || current.deletedAt !== null) throw new AppError('NOT_FOUND', 'This item no longer exists.')
     const cleanTags = normalizeTags(tags)
     const transaction = this.db.transaction(() => {
       const category = this.db.prepare('SELECT project_id AS categoryId FROM notes WHERE id=?').get(id) as { categoryId: string | null; subcategoryId: string | null } | undefined

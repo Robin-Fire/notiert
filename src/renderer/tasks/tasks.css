@@ -94,3 +94,13 @@
 .tasks-table tr.is-dragging { visibility: hidden; }
 .tasks-table-empty td { height: 38px; }
 @media (max-width: 800px) { .tasks-backlog-group .tasks-card { grid-template-columns: 1fr; } .tasks-backlog-group .tasks-card-actions { grid-column: 1; grid-row: auto; justify-content: flex-start; margin-left: 32px; } .tasks-table > thead th:first-child { width: 45%; } }
+
+.tasks-backlog-group .backlog-tag-picker { grid-column: 1; margin-left: 32px; max-width: 500px; }
+.backlog-tag-picker [data-slot=combobox-chips] { min-height: 26px; padding: 2px 5px; border-radius: 4px; border-color: var(--border); gap: 4px; box-shadow: none; }
+.backlog-tag-picker [data-slot=combobox-chip] { height: 20px; font-size: 11px; background: var(--surface-raised); color: var(--text-secondary); }
+.backlog-tag-picker [data-slot=combobox-chip-remove] { height: 18px; width: 18px; min-width: 18px; padding: 1px; }
+.backlog-tag-picker [data-slot=combobox-chip-input] { min-width: 90px; font-size: 11px; background: transparent; color: var(--text); }
+.backlog-tag-picker [data-slot=combobox-chip-input]::placeholder { color: var(--text-muted); }
+.backlog-tag-popup { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-card); border-radius: 5px; }
+.backlog-tag-popup [data-slot=combobox-item] { font-size: 12px; padding-top: 7px; padding-bottom: 7px; }
+.backlog-tag-popup [data-slot=combobox-item][data-highlighted] { background: var(--blue-soft); color: var(--text); }

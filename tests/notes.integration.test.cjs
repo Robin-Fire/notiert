@@ -20,6 +20,7 @@ global.document = dom.window.document
 global.HTMLElement = dom.window.HTMLElement
 global.Element = dom.window.Element
 global.Node = dom.window.Node
+global.NodeFilter = dom.window.NodeFilter
 global.getComputedStyle = dom.window.getComputedStyle
 global.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window)
 global.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window)
@@ -829,5 +830,29 @@ test('Backlog keeps captures and undecided tasks separate from Tasks; planning b
     await waitFor(() => assert.ok(screen.queryByRole('button', { name: 'Backlog candidate' }) === null))
     fireEvent.click(screen.getByRole('button', { name: 'By time', exact: true }))
     assert.equal(document.querySelector('.tasks-table'), null)
+  } finally { app.unmount() }
+})
+
+
+test('Backlog ReUI tag picker selects, creates and removes tags without classifying a capture', async () => {
+  browserWorkspace()
+  const saved = await window.captured.capture.submit({ requestId: crypto.randomUUID(), generation: 0, body: 'Pick capture tags' })
+  const app = render(React.createElement(NotesApp))
+  try {
+    backlogNav()
+    const input = await screen.findByRole('combobox', { name: 'Tags for Pick capture tags' })
+    act(() => input.focus())
+    fireEvent.change(input, { target: { value: 'Planning' } })
+    fireEvent.keyDown(input, { key: 'ArrowDown', code: 'ArrowDown' })
+    fireEvent.click(await screen.findByRole('option', { name: 'Planning', exact: true }))
+    await waitFor(async () => assert.deepEqual((await window.captured.notes.get(saved.value.id)).value.tags, ['Planning']))
+    fireEvent.change(input, { target: { value: 'Fresh backlog tag' } })
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
+    await waitFor(async () => assert.deepEqual((await window.captured.notes.get(saved.value.id)).value.tags, ['Planning', 'Fresh backlog tag']))
+    assert.equal((await window.captured.notes.get(saved.value.id)).value.kind, 'inbox')
+    assert.ok((await window.captured.notes.taxonomy()).value.tags.some(tag => tag.name === 'Fresh backlog tag'))
+    const chip = [...document.querySelectorAll('[data-slot="combobox-chip"]')].find(chip => chip.textContent === 'Planning')
+    fireEvent.click(chip.querySelector('[data-slot="combobox-chip-remove"]'))
+    await waitFor(async () => assert.deepEqual((await window.captured.notes.get(saved.value.id)).value.tags, ['Fresh backlog tag']))
   } finally { app.unmount() }
 })

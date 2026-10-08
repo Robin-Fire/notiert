@@ -241,3 +241,21 @@ test('Backlog and planned scopes filter before counts and pagination', () => {
     assert.equal(active.counts.unplanned, 0)
   } finally { f.close() }
 })
+
+
+test('Backlog tags can be created on a capture without classifying or planning it', () => {
+  const f = fixture()
+  try {
+    const id = f.store.submitCapture(crypto.randomUUID(), 0, 'Tag this capture')
+    const before = f.store.getNote(id)
+    f.store.setItemTags(id, ['Planning', 'New tag', 'planning'])
+    const tagged = f.store.getNote(id)
+    assert.equal(tagged.kind, 'inbox')
+    assert.equal(tagged.categoryId, before.categoryId)
+    assert.equal(tagged.revision, before.revision + 1)
+    assert.deepEqual(new Set(tagged.tags), new Set(['planning', 'New tag']))
+    assert.equal(f.store.taxonomy().tags.filter(tag => tag.name.toLowerCase() === 'planning').length, 1)
+    f.store.setItemTags(id, ['New tag'])
+    assert.deepEqual(f.store.getNote(id).tags, ['New tag'])
+  } finally { f.close() }
+})
