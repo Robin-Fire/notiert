@@ -40,8 +40,7 @@
 .tasks-card-meta { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: var(--type-caption); color: var(--text-muted); }
 .tasks-category-label { padding: 0 4px; font-size: 10px; line-height: 15px; border-radius: 3px; background: var(--surface-raised); color: var(--text-secondary); }
 .tasks-card-tags { display: flex; gap: 5px; flex-wrap: wrap; color: var(--text-muted); font-size: var(--type-caption); margin-top: 5px; overflow-wrap: anywhere; }
-.tasks-carried, .tasks-target, .tasks-scheduled { display: flex; align-items: center; gap: 4px; margin-top: 7px; font-size: var(--type-caption); color: var(--text-muted); }
-.tasks-carried { color: var(--blue); }
+.tasks-scheduled { display: flex; align-items: center; gap: 4px; margin-top: 7px; font-size: var(--type-caption); color: var(--text-muted); }
 .tasks-card-actions { display: flex; justify-content: flex-end; align-items: center; gap: 5px; margin-top: 7px; }
 .tasks-card-actions button { display: flex; align-items: center; gap: 4px; font-size: var(--type-caption); padding: 3px 4px; color: var(--text-secondary); background: transparent; border: 1px solid var(--border); border-radius: 3px; max-width: 100%; }
 .tasks-empty { display: block; color: var(--text-muted); font-size: var(--type-caption); padding: 12px 5px; margin: 0; line-height: 1.6; }

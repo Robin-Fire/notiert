@@ -5,7 +5,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy, sortableKeyb
 import { CSS } from '@dnd-kit/utilities'
 import { Archive, CalendarDays, ChevronDown, Columns3, FileText, FolderKanban, GripVertical, Plus, Search, Undo2, X } from 'lucide-react'
 import type { Category, Subcategory, TagRecord, TasksPage, TasksQuery, TaskWorkspaceItem, TaskWorkspaceUndo } from '../../shared/contracts'
-import { horizons, horizonLabels, horizonOf, intentionFor, isCarriedOver, type Horizon, type TaskIntention } from '../../shared/taskHorizons'
+import { horizons, horizonLabels, horizonOf, intentionFor, type Horizon, type TaskIntention } from '../../shared/taskHorizons'
 import { toLocalISODate } from '../../shared/plannerDates'
 import { resultValue } from '../apiResult'
 import { ItemDetailDialog } from '../components/ItemDetailDialog'
@@ -132,7 +132,7 @@ export function TasksView({ categories, subcategories, tags, taxonomyReady, expa
   function toggleCollapse(key: string) { if (compact && ['unplanned', 'later'].includes(key) && !collapsed.includes(key)) { setExpandedCompact(current => current.includes(key) ? current.filter(item => item !== key) : [...current, key]); return } setCollapsed(current => { const next = current.includes(key) ? current.filter(item => item !== key) : [...current, key]; remember('tasks-collapsed-v1', next); return next }) }
   function toggleCaptures() { setCapturesOpen(current => { remember('tasks-captures-v1', !current); return !current }) }
   function card(item: TaskWorkspaceItem, categoryId?: string | null) {
-    return <TaskCard key={item.id} item={item} categoryName={categoryMap.get(item.categoryId ?? '') ?? 'Unassigned'} subcategory={subcategoryMap.get(item.subcategoryId ?? '')} today={today} busy={busy} categoryId={categoryId} onOpen={() => setDetail(item)} onNote={() => move(item, { horizon: 'unplanned' }, 'note')} onComplete={() => void mutate(async () => { resultValue(await window.captured.planner.setTaskCompleted({ id: item.id, completed: !completed })); setUndo(null); setNotice(completed ? 'Task reopened.' : 'Task completed.') })} />
+    return <TaskCard key={item.id} item={item} categoryName={categoryMap.get(item.categoryId ?? '') ?? 'Unassigned'} subcategory={subcategoryMap.get(item.subcategoryId ?? '')} busy={busy} categoryId={categoryId} onOpen={() => setDetail(item)} onNote={() => move(item, { horizon: 'unplanned' }, 'note')} onComplete={() => void mutate(async () => { resultValue(await window.captured.planner.setTaskCompleted({ id: item.id, completed: !completed })); setUndo(null); setNotice(completed ? 'Task reopened.' : 'Task completed.') })} />
   }
   function section(horizon: Horizon, group: TaskWorkspaceItem[], categoryId?: string | null) {
     return <TaskSection key={horizon} horizon={horizon} categoryId={categoryId} dragging={!!active} count={group.length} onAdd={() => setCreate({ horizon, categoryId })}><SortableContext items={group.map(item => item.id)} strategy={verticalListSortingStrategy}>{group.map(item => card(item, categoryId))}</SortableContext></TaskSection>
@@ -171,15 +171,13 @@ function TaskSection({ horizon, categoryId, count, children, dragging, onAdd }: 
   return <section ref={setNodeRef} data-horizon={horizon} className={`tasks-section ${isOver ? 'is-over' : ''} ${!count ? 'is-empty' : ''} ${dragging ? 'is-dragging' : ''}`} aria-label={`${horizonLabels[horizon]} tasks`}><div className="tasks-section-heading"><span>{horizonLabels[horizon]}</span><span>{count}</span>{horizon !== 'upcoming' && <button type="button" aria-label={`Add ${horizonLabels[horizon]} task`} onClick={onAdd}><Plus size={12} /></button>}</div>{children}{!count && dragging && <span className="tasks-empty">Drop here</span>}</section>
 }
 
-function TaskCard({ item, categoryName, subcategory, today, busy, categoryId, onOpen, onNote, onComplete }: { item: TaskWorkspaceItem; categoryName: string; subcategory?: Subcategory; today: string; busy: boolean; categoryId?: string | null; onOpen: () => void; onNote: () => void; onComplete: () => void }) {
+function TaskCard({ item, categoryName, subcategory, busy, categoryId, onOpen, onNote, onComplete }: { item: TaskWorkspaceItem; categoryName: string; subcategory?: Subcategory; busy: boolean; categoryId?: string | null; onOpen: () => void; onNote: () => void; onComplete: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id, data: { horizon: item.horizon, categoryId, item }, disabled: busy || item.completedAt !== null })
   const capture = item.kind === 'inbox'
   return <article ref={setNodeRef} data-task-id={item.id} style={{ transform: CSS.Transform.toString(transform), transition }} className={`tasks-card ${capture ? 'is-capture' : ''} ${isDragging ? 'is-dragging' : ''}`}>
     <div className="tasks-card-heading"><button type="button" className="tasks-drag-handle" aria-label={`Move ${item.body.split('\n')[0] || 'capture'}`} disabled={busy || item.completedAt !== null} {...attributes} {...listeners}><GripVertical size={13} /></button>{!capture && <input type="checkbox" aria-label={`${item.completedAt ? 'Reopen' : 'Complete'} ${item.body.split('\n')[0] || 'task'}`} checked={item.completedAt !== null} disabled={busy} onChange={onComplete} />}<button type="button" className="tasks-card-body" disabled={busy} onClick={onOpen}>{item.body.trim() || (item.images.length ? 'Image capture' : 'Untitled task')}</button></div>
     <div className="tasks-card-meta"><span className="tasks-category-label">{categoryName}</span>{subcategory && <span style={{ color: subcategory.color }}>{subcategory.name}</span>}<ImageIndicator count={item.images.length} /></div>
     {!!item.tags.length && <div className="tasks-card-tags">{item.tags.map(tag => <span key={tag}>#{tag}</span>)}</div>}
-    {isCarriedOver(item.intention, today) && <small className="tasks-carried">Carried over · {item.intention.targetDate}</small>}
-    {!isCarriedOver(item.intention, today) && item.intention.targetDate && item.horizon !== 'today' && item.horizon !== 'tomorrow' && <small className="tasks-target">{item.intention.kind === 'week' ? 'Week of ' : ''}{item.intention.targetDate}</small>}
     {item.plannedStartAt !== null && <small className="tasks-scheduled"><CalendarDays size={11} /> Scheduled {new Date(item.plannedStartAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>}
     {capture && item.completedAt === null && <div className="tasks-card-actions"><button type="button" disabled={busy} onClick={onNote}><FileText size={12} /> Note</button></div>}
   </article>
