@@ -702,7 +702,7 @@ test('Tasks shows horizons together with drag handles and category layout has th
     fireEvent.click(screen.getByRole('button', { name: 'By category' }))
     assert.deepEqual([...document.querySelectorAll('.tasks-card')].map(card => card.dataset.taskId).sort(), original)
     assert.equal(document.querySelector('.tasks-category-column .tasks-column-heading b').textContent, work.name)
-    assert.equal(screen.queryByRole('button', { name: 'Backlog', exact: true }), null)
+    assert.equal(within(screen.getByRole('navigation', { name: 'Main navigation' })).queryByRole('button', { name: 'Backlog', exact: true }), null)
     assert.equal(screen.queryByRole('button', { name: 'Ready', exact: true }), null)
   } finally { app.unmount() }
 })
@@ -792,5 +792,28 @@ test('Tasks filters all pages in storage, loads remaining cards, and keeps filte
     assert.equal(screen.getByRole('textbox', { name: 'Search tasks' }).value, 'Paged task 53')
     assert.equal(document.querySelectorAll('.tasks-card').length, 1)
     assert.ok(screen.getByRole('button', { name: 'Paged task 53' }))
+  } finally { app.unmount() }
+})
+
+
+test('empty Backlog is hidden and pending captures keep it visible', async () => {
+  const app = setup()
+  try {
+    const inbox = app.api.planner.inbox
+    app.api.planner.inbox = async () => ({ ok: true, value: { items: [], total: 0, nextCursor: null } })
+    tasksNav()
+    await screen.findByRole('heading', { name: /Tasks/ })
+    await waitFor(() => assert.equal(document.querySelector('.tasks-page').getAttribute('aria-busy'), 'false'))
+    assert.equal(document.querySelector('.tasks-board > [data-horizon="unplanned"]'), null)
+    assert.equal(screen.queryByText('New captures'), null)
+    app.api.planner.inbox = inbox
+    app.unmount()
+    const reopened = setup()
+    try {
+      tasksNav()
+      await screen.findByRole('button', { name: 'Captured thought' })
+      assert.ok(document.querySelector('.tasks-board > [data-horizon="unplanned"]'))
+      assert.ok(screen.getByRole('button', { name: /^Backlog/ }))
+    } finally { reopened.unmount() }
   } finally { app.unmount() }
 })

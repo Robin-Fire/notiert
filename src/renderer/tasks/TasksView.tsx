@@ -83,7 +83,7 @@ export function TasksView({ categories, subcategories, tags, taxonomyReady, expa
   const captures = items.filter(item => item.kind === 'inbox')
   const taskItems = items.filter(item => item.kind === 'task')
   const total = Object.values(counts).reduce((a, b) => a + b, 0)
-  const visibleHorizons = horizons.filter(h => h !== 'upcoming' || counts.upcoming > 0)
+  const visibleHorizons = horizons.filter(h => (h !== 'upcoming' || counts.upcoming > 0) && (h !== 'unplanned' || counts.unplanned > 0 || !!active))
   const categoryMap = useMemo(() => new Map(categories.map(item => [item.id, item.name])), [categories])
   const subcategoryMap = useMemo(() => new Map(subcategories.map(item => [item.id, item])), [subcategories])
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }))
@@ -137,7 +137,7 @@ export function TasksView({ categories, subcategories, tags, taxonomyReady, expa
   function section(horizon: Horizon, group: TaskWorkspaceItem[], categoryId?: string | null) {
     return <TaskSection key={horizon} horizon={horizon} categoryId={categoryId} dragging={!!active} count={group.length} onAdd={() => setCreate({ horizon, categoryId })}><SortableContext items={group.map(item => item.id)} strategy={verticalListSortingStrategy}>{group.map(item => card(item, categoryId))}</SortableContext></TaskSection>
   }
-  const capturePanel = <div className="tasks-captures"><button type="button" className="tasks-capture-toggle" onClick={toggleCaptures} aria-expanded={capturesOpen}><Archive size={14} /><b>New captures</b><span>{pages.unplanned?.captureTotal ?? captures.length}</span><ChevronDown size={14} className={capturesOpen ? '' : 'is-closed'} /></button>{capturesOpen && <div className="tasks-capture-list"><SortableContext items={captures.map(item => item.id)} strategy={verticalListSortingStrategy}>{captures.map(item => card(item))}</SortableContext></div>}</div>
+  const capturePanel = (pages.unplanned?.captureTotal ?? captures.length) > 0 ? <div className="tasks-captures"><button type="button" className="tasks-capture-toggle" onClick={toggleCaptures} aria-expanded={capturesOpen}><Archive size={14} /><b>New captures</b><span>{pages.unplanned?.captureTotal ?? captures.length}</span><ChevronDown size={14} className={capturesOpen ? '' : 'is-closed'} /></button>{capturesOpen && <div className="tasks-capture-list"><SortableContext items={captures.map(item => item.id)} strategy={verticalListSortingStrategy}>{captures.map(item => card(item))}</SortableContext></div>}</div> : null
 
   return <section className="tasks-page" aria-label="Tasks workspace" aria-busy={busy}>
     <header className="tasks-heading"><div><h1>Tasks <span className="title-count">{total}</span></h1></div><button type="button" className="button primary small" disabled={busy || !taxonomyReady} onClick={() => setCreate({ horizon: 'unplanned' })}><Plus size={14} /> Add task</button></header>
