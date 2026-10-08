@@ -10,7 +10,6 @@
 .tasks-done-filter[aria-pressed=true] { color: var(--blue); }
 .tasks-board { display: flex; gap: 10px; flex: 1 0 auto; min-height: 360px; min-width: 0; overflow: visible; padding-bottom: 6px; align-items: stretch; }
 .tasks-column { display: flex; flex-direction: column; flex: 1 0 165px; min-width: 165px; border: 1px solid var(--border); border-radius: 7px; background: color-mix(in srgb, var(--surface-raised) 45%, var(--surface)); overflow: hidden; }
-.tasks-category-column { flex-basis: 235px; min-width: 235px; }
 .tasks-column.is-collapsed { flex: 0 0 39px; min-width: 39px; }
 .tasks-column.is-collapsed .tasks-column-heading { writing-mode: vertical-rl; align-items: center; height: 100%; padding: 12px 8px; }
 .tasks-column.is-collapsed .tasks-column-heading > button { display: flex; gap: 13px; align-items: center; flex-direction: row; writing-mode: vertical-rl; }
@@ -27,8 +26,6 @@
 .tasks-section-heading > span:nth-child(2) { margin-left: auto; }
 .tasks-section-heading button { border: 0; background: transparent; color: var(--text-muted); padding: 0; }
 .tasks-board-time .tasks-section-heading { display: none; }
-.tasks-category-column .tasks-section.is-empty:not(.is-dragging) { display: none; }
-.tasks-category-column .tasks-section.is-empty:first-child { display: block; }
 .tasks-card { border: 1px solid var(--border); border-radius: 5px; padding: 10px 8px 7px; background: var(--surface); margin-bottom: 6px; box-shadow: 0 1px 2px rgb(0 0 0 / .025); }
 .tasks-card.is-capture { border-style: dashed; }
 .tasks-card.is-dragging { visibility: hidden; }
@@ -137,3 +134,8 @@
 @media (max-width: 1000px) { .backlog-task { flex-wrap: wrap; } .backlog-task-main { flex-basis: calc(100% - 70px); } .backlog-task > .backlog-tag-picker { margin-left: 35px; flex-grow: 1; } }
 
 @media (max-width: 760px) { .tasks-table-groups { padding-right: 12px; padding-left: 12px; } .tasks-table-task { gap: 5px; } .tasks-group-table td { padding: 9px 6px; } }
+
+/* Match Backlog dividers and keep card labels anchored at the bottom right. */
+.tasks-table-panel > .backlog-group-heading { border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0; }
+.tasks-card { display: flex; flex-direction: column; }
+.tasks-card-tags { justify-content: flex-end; text-align: right; margin-top: auto; padding-top: 8px; }

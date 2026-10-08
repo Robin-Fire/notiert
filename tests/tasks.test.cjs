@@ -173,7 +173,7 @@ test('schema 13 upgrades without changing calendar fields and creates a restorab
     assert.equal(upgraded.checkIntegrity(pre), undefined)
     const backup = path.join(f.folder, 'schema14.sqlite'); await upgraded.backupTo(backup); assert.equal(upgraded.checkIntegrity(backup), undefined)
     upgraded.replaceWith(pre); assert.equal(upgraded.getNote(later.id).intention.kind, 'later')
-    assert.equal(upgraded.db.prepare('SELECT max(version) AS version FROM schema_migrations').get().version, 15)
+    assert.equal(upgraded.db.prepare('SELECT max(version) AS version FROM schema_migrations').get().version, 16)
   } finally { upgraded?.close(); f.close() }
 })
 

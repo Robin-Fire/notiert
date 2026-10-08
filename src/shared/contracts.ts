@@ -62,12 +62,14 @@ export const SettingsSchema = Z.object({
   shortcut: Z.string(), shortcutEnabled: Z.boolean(), shortcutRegistered: Z.boolean(), launchAtLogin: Z.boolean(), theme: Z.enum(['system', 'light', 'dark']),
   monitor: Z.string(), captureProtection: Z.boolean(), protectionTestApp: Z.string(), protectionTestDate: Z.string(),
   protectionTestOS: Z.string(), lastBackupAt: Z.number().nullable(), backupWarning: Z.boolean(), firstRunComplete: Z.boolean(), closeToTray: Z.boolean(),
+  showCalendar: Z.boolean().default(true),
   calendarStartMinute: Z.number().int().min(0).max(1425).multipleOf(15).default(480),
   calendarEndMinute: Z.number().int().min(15).max(1440).multipleOf(15).default(1080),
 })
 export const CalendarHoursSchema = SettingsSchema.pick({ calendarStartMinute: true, calendarEndMinute: true }).refine((value) => value.calendarEndMinute > value.calendarStartMinute, 'Calendar end time must be after start time.')
 // Optional patches must not apply field defaults when changing unrelated settings.
 export const SettingsPatchSchema = SettingsSchema.partial().extend({
+  showCalendar: Z.boolean().optional(),
   calendarStartMinute: Z.number().int().min(0).max(1425).multipleOf(15).optional(),
   calendarEndMinute: Z.number().int().min(15).max(1440).multipleOf(15).optional(),
 })
@@ -90,7 +92,7 @@ export const InboxPageSchema = Z.object({ cursor: Z.object({ sortAt: Z.number().
 export const CategoryNameSchema = Z.string().trim().min(1).max(60)
 export const TagNameSchema = Z.string().trim().min(1).max(40)
 export const TagUpdateSchema = Z.object({ id: Z.string().uuid(), categoryId: Z.string().uuid().nullable(), color: Z.string().regex(/^#[0-9a-fA-F]{6}$/), name: Z.string().trim().min(1).max(40).optional() })
-export const CategoryUpdateSchema = Z.object({ id: Z.string().uuid(), name: CategoryNameSchema })
+export const CategoryUpdateSchema = Z.object({ id: Z.string().uuid(), name: CategoryNameSchema, color: Z.string().regex(/^#[0-9a-f]{6}$/i).optional() })
 export const CategoriesReorderSchema = Z.object({ ids: Z.array(Z.string().uuid()).max(1000) })
 export const TagsReorderSchema = Z.object({ categoryId: Z.string().uuid().nullable(), ids: Z.array(Z.string().uuid()).max(1000) })
 
@@ -104,7 +106,7 @@ export type PlannerTaskSchedule = z.infer<typeof PlannerTaskScheduleSchema>
 export type PlannerTaskCreate = z.infer<typeof PlannerTaskCreateSchema>
 export type PlannerEventTiming = z.infer<typeof PlannerEventTimingSchema>
 export type Settings = z.infer<typeof SettingsSchema>
-export type SettingsUpdate = Partial<Pick<Settings, 'shortcut' | 'shortcutEnabled' | 'launchAtLogin' | 'theme' | 'monitor' | 'captureProtection' | 'protectionTestApp' | 'protectionTestDate' | 'closeToTray' | 'firstRunComplete' | 'calendarStartMinute' | 'calendarEndMinute'>>
+export type SettingsUpdate = Partial<Pick<Settings, 'shortcut' | 'shortcutEnabled' | 'launchAtLogin' | 'theme' | 'monitor' | 'captureProtection' | 'protectionTestApp' | 'protectionTestDate' | 'closeToTray' | 'firstRunComplete' | 'calendarStartMinute' | 'calendarEndMinute' | 'showCalendar'>>
 export type NoteFilter = z.infer<typeof NoteFilterSchema>
 export type CaptureState = { body: string; images: CaptureImage[]; generation: number; revision: number; shortcut: string; theme: Settings['theme']; available: boolean; captureKind?: 'inbox' | 'task' | 'note'; tags?:string[]; categoryId: string | null; subcategoryId?: string | null }
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; code: string; message: string }
@@ -112,7 +114,7 @@ export type NotePage = { items: (Note & { meetingTitle: string | null })[]; next
 export type InboxPage = { items: (Note & { meetingTitle: string | null })[]; nextCursor: { sortAt: number; id: string } | null; total: number }
 export type PlannerBacklogPage = { items: PlannerTask[]; nextCursor: { priorityPosition: number; id: string } | null; total: number; subcategoryCounts: Record<string, number> }
 export type PlannerBacklogSummary = Record<string, { total: number; subcategoryCounts: Record<string, number> }>
-export type Category = { id: string; name: string; noSubcategoryCount?: number }
+export type Category = { id: string; name: string; color?: string; noSubcategoryCount?: number }
 export type Subcategory = { id: string; name: string; categoryId: string; color: string; count: number }
 export type MigrationReview = { noteId: string; reason: string; candidates: string[] }
 export type TagRecord = { id: string; name: string; categoryId: string | null; color: string; count: number }

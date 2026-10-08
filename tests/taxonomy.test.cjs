@@ -239,3 +239,21 @@ test('backlog subcategory counts cover all pages and stay separate from Later an
     assert.deepEqual(f.store.listBacklog({categoryId:category.id}).subcategoryCounts,{[sub.id]:1})
   } finally { f.close() }
 })
+
+test('category colors persist through rename, reopen, and backups', async () => {
+  const f = fixture()
+  try {
+    const category = f.store.createCategory('Color category')
+    f.store.updateCategory(category.id, category.name, '#ef4444')
+    f.store.updateCategory(category.id, 'Renamed category')
+    assert.throws(() => f.store.updateCategory(category.id, 'Renamed category', 'invalid'))
+    f.store.close(); f.store = new Store(f.file)
+    assert.equal(f.store.taxonomy().categories.find(item => item.id === category.id).color, '#ef4444')
+    const backup = path.join(f.folder, 'colors.sqlite')
+    await f.store.backupTo(backup)
+    f.store.checkIntegrity(backup)
+    f.store.updateCategory(category.id, 'Renamed category', '#3b82f6')
+    f.store.replaceWith(backup)
+    assert.equal(f.store.taxonomy().categories.find(item => item.id === category.id).color, '#ef4444')
+  } finally { f.close() }
+})

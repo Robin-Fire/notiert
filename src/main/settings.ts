@@ -6,7 +6,7 @@ import { CalendarHoursSchema, SettingsSchema, type Settings } from '../shared/co
 const defaults: Settings = {
   shortcut: 'Control+N', shortcutEnabled: true, shortcutRegistered: false, launchAtLogin: false, theme: 'system', monitor: 'active',
   captureProtection: true, protectionTestApp: '', protectionTestDate: '', protectionTestOS: '', lastBackupAt: null, backupWarning: false, firstRunComplete: false, closeToTray: true,
-  calendarStartMinute: 480, calendarEndMinute: 1080,
+  showCalendar: true, calendarStartMinute: 480, calendarEndMinute: 1080,
 }
 
 export class SettingsStore {

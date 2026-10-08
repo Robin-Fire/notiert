@@ -991,3 +991,8 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .ready-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 10px 0 0 26px; }
 .ready-saving { padding: 8px 27px 0; color: var(--text-muted); font-size: var(--type-caption); }
 @media (max-width: 760px) { .ready-board-scroll { padding: 16px 12px 24px; } .ready-column { width: 280px; flex-basis: 280px; } }
+
+.category-task-group { margin: 0 0 16px; overflow: hidden; }
+.category-task-group > .backlog-group-heading { border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0; }
+.category-task-group-items .priority-task-group > .date-label { display: none; }
+.category-task-group-items .note-row:last-child { border-bottom: 0; }

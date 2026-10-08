@@ -205,7 +205,7 @@ function showCapture() {
 }
 
 function showNotes(view: 'all' | 'inbox' | 'calenban' | 'trash' | 'settings' = 'all') {
-  const win = createNotesWindow(view)
+  const win = createNotesWindow(view === 'calenban' && !settings.get().showCalendar ? 'all' : view)
   if (!win.isVisible()) win.show()
   win.focus()
 }
@@ -243,9 +243,9 @@ function syncTray() {
   const current = settings.get()
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: current.shortcutEnabled ? `Capture thought  (${current.shortcut.replace('Control', 'Ctrl')})` : 'Capture thought', click: showCapture },
-    { label: 'Open notes', click: () => showNotes('all') },
+    { label: 'Open tasks', click: () => showNotes('all') },
     { type: 'separator' },
-    { label: 'Open Plan', click: () => showNotes('calenban') },
+    { label: 'Open Plan', visible: current.showCalendar, click: () => showNotes('calenban') },
     { label: 'Settings', click: () => showNotes('settings') },
     { type: 'separator' },
     { label: 'Quit captured', click: requestQuit },
@@ -369,7 +369,7 @@ function registerIpc() {
   roleHandler('notes:migration-review','notes',()=>requireStore().migrationReview())
   roleHandler('notes:migration-review:resolve','notes',(_event,raw)=> { const input=Z.object({id:Z.string().uuid(),expectedRevision:Z.number().int().nonnegative(),subcategoryId:Z.string().uuid().nullable(),categoryId:Z.string().uuid().nullable().optional()}).parse(raw); requireStore().resolveMigrationReview(input.id,input.expectedRevision,input.subcategoryId,input.categoryId); broadcastTaxonomyChange() })
   roleHandler('notes:category:create', 'notes', (_event, raw) => { const result = requireStore().createCategory(CategoryNameSchema.parse(raw)); broadcastTaxonomyChange('notes'); return result })
-  roleHandler('notes:category:update', 'notes', (_event, raw) => { const input = CategoryUpdateSchema.parse(raw); const result = requireStore().updateCategory(input.id, input.name); broadcastTaxonomyChange('notes'); return result })
+  roleHandler('notes:category:update', 'notes', (_event, raw) => { const input = CategoryUpdateSchema.parse(raw); const result = requireStore().updateCategory(input.id, input.name, input.color); broadcastTaxonomyChange('notes'); return result })
   roleHandler('notes:category:delete', 'notes', (_event, raw) => { requireStore().deleteCategory(IdsSchema.element.parse(raw)); broadcastTaxonomyChange() })
   roleHandler('notes:categories:reorder', 'notes', (_event, raw) => { const input = CategoriesReorderSchema.parse(raw); requireStore().reorderCategories(input.ids); broadcastTaxonomyChange('notes') })
   roleHandler('notes:tags:reorder', 'notes', (_event, raw) => { const input = TagsReorderSchema.parse(raw); requireStore().reorderTags(input.categoryId, input.ids); broadcastTaxonomyChange('notes') })
@@ -429,7 +429,7 @@ function registerIpc() {
   roleHandler('settings:get', 'notes', () => settingsView())
   roleHandler('settings:update', 'notes', (_event, raw) => {
     const input = raw as Record<string, unknown>
-    const allowed = ['shortcut', 'launchAtLogin', 'theme', 'monitor', 'captureProtection', 'protectionTestApp', 'protectionTestDate', 'closeToTray', 'calendarStartMinute', 'calendarEndMinute']
+    const allowed = ['shortcut', 'launchAtLogin', 'theme', 'monitor', 'captureProtection', 'protectionTestApp', 'protectionTestDate', 'closeToTray', 'showCalendar', 'calendarStartMinute', 'calendarEndMinute']
     if (Object.keys(input).some((key) => ![...allowed, 'shortcutEnabled', 'firstRunComplete'].includes(key))) throw new AppError('INVALID_INPUT', 'A setting is not supported.')
     if (input.firstRunComplete !== undefined && typeof input.firstRunComplete !== 'boolean') throw new AppError('INVALID_INPUT', 'Invalid setup state.')
     if (input.shortcutEnabled !== undefined && typeof input.shortcutEnabled !== 'boolean') throw new AppError('INVALID_INPUT', 'Invalid shortcut setting.')

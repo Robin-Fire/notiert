@@ -88,3 +88,5 @@ Tasks scrolls as one page. Planned tasks move by dragging their grip; Backlog al
 Backlog items have a searchable ReUI multi-select tag picker. Select existing tags, remove chips, or choose Create for a new name; tags save directly without classifying captures.
 
 Dropdowns throughout capture, tasks, category pickers, and settings use the shared ReUI select, with searchable tag selection handled by the Backlog tag picker. Calendar scheduling behavior is unchanged.
+
+The current interface focuses on tasks: Tasks opens by default, quick captures can be sorted into task plans, and note creation is unavailable. Existing notes remain in local storage and full backups but are hidden from task lists.

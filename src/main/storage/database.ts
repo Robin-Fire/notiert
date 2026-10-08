@@ -65,8 +65,8 @@ export class Store {
   private migrate() {
     const hasMigrationTable = Boolean(this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").get())
     const currentVersion = hasMigrationTable ? (this.db.prepare('SELECT max(version) AS version FROM schema_migrations').get() as { version: number | null }).version ?? 0 : 0
-    if (currentVersion > 15) throw new AppError('DB_NEWER_VERSION', 'This database has an unsupported captured schema.')
-    if (hasMigrationTable && currentVersion < 15) {
+    if (currentVersion > 16) throw new AppError('DB_NEWER_VERSION', 'This database has an unsupported captured schema.')
+    if (hasMigrationTable && currentVersion < 16) {
       const backupDirectory = path.join(path.dirname(this.path), 'backups')
       fs.mkdirSync(backupDirectory, { recursive: true })
       const checkpoint = this.db.pragma('wal_checkpoint(TRUNCATE)') as { busy: number }[]
@@ -302,8 +302,12 @@ export class Store {
       }
       this.db.prepare('INSERT INTO schema_migrations VALUES(15,?)').run(Date.now())
     })()
+    if (!applied.has(16)) this.db.transaction(() => {
+      if (!(this.db.pragma('table_info(categories)') as { name: string }[]).some(column => column.name === 'color')) this.db.exec("ALTER TABLE categories ADD COLUMN color TEXT NOT NULL DEFAULT '#85858e'");
+      this.db.prepare('INSERT INTO schema_migrations VALUES(16,?)').run(Date.now());
+    })()
     const version = this.db.prepare('SELECT max(version) AS version FROM schema_migrations').get() as { version: number | null }
-    if (version.version !== 15) throw new AppError('DB_INVALID_SCHEMA', 'This database has an unsupported captured schema.')
+    if (version.version !== 16) throw new AppError('DB_INVALID_SCHEMA', 'This database has an unsupported captured schema.')
   }
 
   listWorkspace(raw: TasksQuery): TasksPage {
@@ -571,7 +575,7 @@ export class Store {
   }
 
   taxonomy(): { categories: Category[]; subcategories: Subcategory[]; tags: TagRecord[] } {
-    const categories = this.db.prepare('SELECT c.id,c.name,(SELECT count(*) FROM notes n WHERE n.project_id=c.id AND n.subcategory_id IS NULL AND n.deleted_at IS NULL) AS noSubcategoryCount FROM categories c ORDER BY c.position,c.name COLLATE NOCASE').all() as Category[]
+    const categories = this.db.prepare('SELECT c.id,c.name,c.color,(SELECT count(*) FROM notes n WHERE n.project_id=c.id AND n.subcategory_id IS NULL AND n.deleted_at IS NULL) AS noSubcategoryCount FROM categories c ORDER BY c.position,c.name COLLATE NOCASE').all() as Category[]
     const rows = this.db.prepare(`SELECT t.id,t.name,NULL AS categoryId,t.color,count(n.id) AS count
       FROM item_tags t LEFT JOIN note_tags nt ON nt.tag_id=t.id LEFT JOIN notes n ON n.id=nt.note_id AND n.deleted_at IS NULL
       GROUP BY t.id ORDER BY t.position,t.name COLLATE NOCASE`).all() as TagRecord[]
@@ -588,14 +592,15 @@ export class Store {
     return category
   }
 
-  updateCategory(id: string, name: string): Category {
+  updateCategory(id: string, name: string, color?: string): Category {
     const clean = name.trim().replace(/\s+/g, ' ')
     if (!clean || clean.length > 60) throw new AppError('INVALID_INPUT', 'Category names must be 1 to 60 characters.')
     if (this.db.prepare('SELECT id FROM categories WHERE name=? COLLATE NOCASE AND id<>?').get(clean, id)) throw new AppError('DUPLICATE_CATEGORY', 'That category already exists.')
-    const result = this.db.prepare('UPDATE categories SET name=? WHERE id=?').run(clean, id)
+    if (color !== undefined && !/^#[0-9a-f]{6}$/i.test(color)) throw new AppError('INVALID_INPUT', 'Choose a valid category color.')
+    const result = this.db.prepare('UPDATE categories SET name=?,color=coalesce(?,color) WHERE id=?').run(clean, color ?? null, id)
     if (!result.changes) throw new AppError('CATEGORY_MISSING', 'That category no longer exists.')
     this.changeSequence++
-    return { id, name: clean }
+    return this.taxonomy().categories.find(category => category.id === id)!
   }
 
   deleteCategory(id: string) {
@@ -1232,7 +1237,7 @@ export class Store {
       const required = ['notes', 'drafts', 'app_state', 'schema_migrations', 'note_search', ...(version.version && version.version >= 3 ? ['legacy_meeting_sessions', 'planner_events', 'item_tags', 'note_tags'] : ['meetings']), ...(version.version && version.version >= 4 ? ['item_images', 'capture_draft_images'] : []), ...(version.version && version.version >= 5 ? ['categories'] : []), ...(version.version && version.version >= 12 ? ['subcategories','taxonomy_migration_review','taxonomy_migration_mapping'] : []), ...(version.version && version.version >= 14 ? ['task_intentions'] : [])]
       const tables = new Set((database.prepare("SELECT name FROM sqlite_master WHERE type IN ('table','view')").all() as { name: string }[]).map((row) => row.name))
       if (required.some((name) => !tables.has(name))) throw new AppError('DB_INVALID_SCHEMA', 'The selected file is not a complete captured backup.')
-      if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].includes(version.version ?? 0)) throw new AppError(version.version && version.version > 15 ? 'DB_NEWER_VERSION' : 'DB_INVALID_SCHEMA', 'This backup has an unsupported captured schema.')
+      if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].includes(version.version ?? 0)) throw new AppError(version.version && version.version > 16 ? 'DB_NEWER_VERSION' : 'DB_INVALID_SCHEMA', 'This backup has an unsupported captured schema.')
       if ((database.pragma('foreign_key_check') as unknown[]).length) throw new AppError('DB_CORRUPT', 'The selected backup contains invalid note links.')
       if (version.version! >= 14) {
         if (!(database.pragma('table_info(drafts)') as { name: string }[]).some(column => column.name === 'capture_kind')) throw new AppError('DB_INVALID_SCHEMA', 'This backup is missing capture type storage.')

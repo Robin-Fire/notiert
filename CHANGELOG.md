@@ -1,5 +1,14 @@
 # Release notes
 
+## 0.1.14 - 2026-10-08
+
+- Focus the app on tasks, hide existing notes without deleting them, and remove note creation actions.
+- Remove All tasks navigation and the By category layout; Tasks search includes planned work, Backlog tasks, and captures.
+- Add persistent category colors and show colored tags at the bottom right of Kanban cards.
+- Rename unassigned Backlog groups to Inbox and improve task section dividers.
+- Simplify category navigation and group direct tasks before collapsible subcategory panels.
+- Add Settings → Calendar → Show Calendar to hide the page from the sidebar and tray while preserving calendar data.
+
 ## 0.1.13 - 2026-10-08
 
 - Refine Tasks table and Backlog rows, inline tag picking, quick planning, and wide-screen Kanban columns.
@@ -15,7 +24,7 @@
 - Replace browser-default dropdowns throughout the app with shared ReUI selects.
 - Preserve calendar placements; migrate the removed This week bucket to Later.
 
-## 0.1.8 � 2026-10-02
+## 0.1.8 � 2026-10-02
 
 - Use the same edit modal for Inbox, All Items, category, tag, backlog, and calendar items.
 - Show attached image previews automatically in the editor and keep Inbox tag drafts when editing.

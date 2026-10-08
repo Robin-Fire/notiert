@@ -6,7 +6,7 @@ import type { CaptureState, Category, Subcategory } from '../../shared/contracts
 export function Capture() {
   const [state, setState] = useState<CaptureState>({ body: '', images: [], generation: 0, revision: 0, shortcut: 'Control+N', theme: 'system', available: false, categoryId: null })
   const [subcategories,setSubcategories]=useState<Subcategory[]>([])
-  const captureKind = useRef<'inbox' | 'task' | 'note'>('inbox')
+  const captureKind = useRef<'inbox' | 'task'>('inbox')
   const captureTags=useRef<string[]>([])
   const subcategoryId=useRef<string|null>(null)
   const [categories, setCategories] = useState<Category[]>([])
@@ -48,7 +48,7 @@ export function Capture() {
       if (typeof next.body === 'string') setBody(next.body)
       if (typeof next.generation === 'number') generation.current = next.generation
       if (typeof next.revision === 'number') revision.current = next.revision
-      if(next.captureKind!==undefined)captureKind.current=next.captureKind
+      if(next.captureKind!==undefined)captureKind.current=next.captureKind === 'note' ? 'task' : next.captureKind
       if(next.tags!==undefined)captureTags.current=next.tags
       if(next.subcategoryId!==undefined)subcategoryId.current=next.subcategoryId
       if (next.categoryId !== undefined) categoryId.current = next.categoryId
@@ -216,13 +216,13 @@ export function Capture() {
       <header className="capture-header">
         <span className="wordmark">captured</span>
         <span className="capture-heading">Quick capture</span>
-        <button className="icon-button capture-open" title="Open notes" aria-label="Open notes" onClick={() => window.captured.windows.openNotes()}><ArrowUpRight size={15} /></button>
+        <button className="icon-button capture-open" title="Open tasks" aria-label="Open tasks" onClick={() => window.captured.windows.openNotes()}><ArrowUpRight size={15} /></button>
         <button className="icon-button capture-close" title="Close capture (Esc)" aria-label="Close capture" onClick={() => void flushDraft().finally(() => window.captured.capture.dismiss('escape'))}><X size={15} /></button>
       </header>
       <textarea
         ref={inputRef} className="capture-input" rows={1} value={body} maxLength={100000}
         placeholder={state.available ? 'Capture a thought…' : 'Storage is unavailable. Keep this text on screen.'}
-        aria-label="Note text" aria-describedby="capture-status" readOnly={saving}
+        aria-label="Task text" aria-describedby="capture-status" readOnly={saving}
         onChange={(event) => onChange(event.target.value)} onKeyDown={onKeyDown} onPaste={onPaste}
         onCompositionStart={() => setComposing(true)} onCompositionEnd={(_event: CompositionEvent<HTMLTextAreaElement>) => setComposing(false)}
         onBlur={(event) => {
@@ -231,7 +231,7 @@ export function Capture() {
           if (!(next instanceof Node && event.currentTarget.closest('.capture-card')?.contains(next))) void window.captured.capture.dismiss('blur')
         }}
       />
-      <label className="capture-category-control"><span>Save as</span><AppSelect aria-label="Capture type" value={state.captureKind ?? 'inbox'} disabled={saving} onChange={event => { captureKind.current=event.target.value as 'inbox' | 'task' | 'note';setState(current=>({...current,captureKind:captureKind.current}));void persistDraft(bodyRef.current) }}><option value="inbox">Capture · sort later</option><option value="task">Task</option><option value="note">Note</option></AppSelect></label>
+      <label className="capture-category-control"><span>Save as</span><AppSelect aria-label="Capture type" value={state.captureKind === 'note' ? 'task' : state.captureKind ?? 'inbox'} disabled={saving} onChange={event => { captureKind.current=event.target.value as 'inbox' | 'task';setState(current=>({...current,captureKind:captureKind.current}));void persistDraft(bodyRef.current) }}><option value="inbox">Capture · sort later</option><option value="task">Task</option></AppSelect></label>
       {categories.length > 0 && <label className="capture-category-control"><Folder size={13} /><span>Category</span><AppSelect aria-label="Capture category" disabled={saving} value={state.categoryId ?? ''} onChange={(event) => {
         const selected = event.target.value || null
         categoryId.current = selected;subcategoryId.current=null
@@ -242,7 +242,7 @@ export function Capture() {
       {!!state.tags?.length&&<div className="capture-context-tags" aria-label="Capture tags">{state.tags.map(tag=><span key={tag}>#{tag}<button type="button" aria-label={`Remove capture tag ${tag}`} disabled={saving} onClick={()=>{captureTags.current=captureTags.current.filter(value=>value!==tag);setState(current=>({...current,tags:captureTags.current}));void persistDraft(bodyRef.current)}}><X size={10}/></button></span>)}</div>}
       {state.images.length > 0 && <div className="capture-images" aria-label="Pasted images">{state.images.map((image, index) => <div className="capture-image" key={image.id}><img src={image.dataUrl} alt={`Pasted image ${index + 1}`} /><button type="button" aria-label={`Remove pasted image ${index + 1}`} onClick={() => void removeImage(image.id)} disabled={saving || imagePending}><X size={12} /></button></div>)}</div>}
       {(error || tooLong || !state.available) && <div className={`capture-alert ${!state.available || error ? 'is-error' : ''}`} id="capture-status" role="status">
-        <AlertCircle size={14} /> <span>{!state.available ? 'Couldn’t reach local storage. This draft may not be persisted.' : tooLong ? 'A note can contain up to 50,000 characters. Existing text was kept.' : error}</span>
+        <AlertCircle size={14} /> <span>{!state.available ? 'Couldn’t reach local storage. This draft may not be persisted.' : tooLong ? 'A task can contain up to 50,000 characters. Existing text was kept.' : error}</span>
         {(error || !state.available) && <div className="capture-alert-actions">{error && <button onClick={() => void submit()} disabled={saving}><RotateCcw size={13} /> Retry</button>}<button onClick={() => void copyText()}><Copy size={13} /> Copy</button></div>}
       </div>}
       {state.available && !error && <footer className="capture-footer">

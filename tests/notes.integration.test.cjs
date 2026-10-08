@@ -92,7 +92,7 @@ function setup({ taxonomy, calendarHours = {}, notesApi = {} } = {}) {
   }
   Object.assign(api.notes, notesApi)
   window.captured = api
-  const view = render(React.createElement(NotesApp))
+  const view = render(React.createElement(NotesApp, { initialView: 'all' }))
   return { ...view, api, notifyNotes: () => act(() => notesListener(1)), notifyTaxonomy: () => act(() => taxonomyListener()), notifyPlanner: () => act(() => plannerListener(1)), changeView: (next) => act(() => viewListener(next)) }
 }
 
@@ -138,6 +138,7 @@ test('older note list responses cannot overwrite newer search results', async ()
   const app = setup({ notesApi: { list: (filter) => new Promise((resolve) => requests.push({ filter, resolve })) } })
   try {
     await waitFor(() => assert.equal(requests.length, 1))
+    assert.deepEqual(requests[0].filter.kinds, ['task', 'inbox'])
     fireEvent.change(screen.getByRole('textbox', { name: 'Search items' }), { target: { value: 'current' } })
     await waitFor(() => assert.equal(requests.length, 2))
     await act(async () => requests[1].resolve({ ok: true, value: { items: [makeNote(noteId, 'Current result', 'note')], nextCursor: null, total: 1 } }))
@@ -219,14 +220,15 @@ test('browser capture saves the chosen category to Inbox', async () => {
   } finally { app.unmount() }
 })
 
-test('category view includes direct items under No subcategory', async () => {
+test('category view shows direct items first without a No subcategory sidebar entry', async () => {
   const categoryId = '77777777-7777-4777-8777-777777777777'
   const app = setup({ taxonomy: async () => ({ ok: true, value: { categories: [{ id: categoryId, name: 'Client A' }], tags: [] } }) })
   app.api.notes.list = async (filter) => ({ ok: true, value: { items: filter.categoryId === categoryId ? [makeNote(noteId, 'Untagged reference', 'note', categoryId)] : [], nextCursor: null, total: filter.categoryId === categoryId ? 1 : 0 } })
   try {
     fireEvent.click(await screen.findByRole('button', { name: 'Client A' }))
     await screen.findByRole('button', { name: 'Open note Untagged reference' })
-    assert.ok(screen.getByText('No subcategory',{selector:'div'}))
+    assert.ok(screen.queryByRole('button', { name: 'No subcategory', exact: true }) === null)
+    assert.ok(screen.getByRole('region', { name: 'Client A tasks' }))
     assert.ok(screen.getByRole('heading', { name: /Client A/ }))
   } finally { app.unmount() }
 })
@@ -251,7 +253,7 @@ test('sidebar category and tag deletion requires confirmation and returns to a v
     approve = true
     fireEvent.click(screen.getByRole('button', { name: 'Delete category Client A' }))
     await waitFor(() => assert.equal(deletedCategory, categoryId))
-    await screen.findByRole('heading', { name: /All items/ })
+    await screen.findByRole('heading', { name: /^Tasks/ })
 
     fireEvent.click(await screen.findByRole('button', { name: 'Delete tag Planning' }))
     await waitFor(() => assert.equal(deletedTag, tagId))
@@ -437,12 +439,12 @@ test('note editing saves tags and multi-select filters combine selected types an
     const work = await popup.findByRole('button', { name: 'Work', pressed: false })
     fireEvent.click(work)
     fireEvent.click(popup.getByRole('button', { name: 'Personal', pressed: false }))
-    fireEvent.click(screen.getByRole('button', { name: 'Notes', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Inbox', exact: true }))
     fireEvent.click(screen.getByRole('button', { name: 'To-dos', exact: true }))
-    await waitFor(() => assert.ok(filters.some((filter) => filter.tags?.includes('Work') && filter.tags?.includes('Personal') && filter.kinds?.includes('note') && filter.kinds?.includes('task'))))
+    await waitFor(() => assert.ok(filters.some((filter) => filter.tags?.includes('Work') && filter.tags?.includes('Personal') && filter.kinds?.includes('inbox') && filter.kinds?.includes('task'))))
     assert.equal(work.getAttribute('aria-pressed'), 'true')
     fireEvent.click(screen.getByRole('button', { name: 'Clear all' }))
-    await waitFor(() => assert.ok(filters.some((filter) => !filter.tags && !filter.kinds)))
+    await waitFor(() => assert.ok(filters.some((filter) => !filter.tags && filter.kinds?.includes('task') && !filter.kinds?.includes('note'))))
     fireEvent.click(screen.getByRole('button', { name: 'Tag filter for items: All tags' }))
     const cleared = within(await screen.findByRole('dialog'))
     assert.equal(cleared.getByRole('button', { name: 'Work' }).getAttribute('aria-pressed'), 'false')
@@ -581,18 +583,18 @@ test('subcategory navigation filters by ID and editor category changes preserve 
 test('migration review supports explicit empty assignment and keeps Trash separate', async () => {
   const categoryId='77777777-7777-4777-8777-777777777777',subcategoryId='88888888-8888-4888-8888-888888888888'
   let resolved
-  const app=setup({taxonomy:async()=>({ok:true,value:{categories:[{id:categoryId,name:'Work'}],subcategories:[{id:subcategoryId,name:'Project',categoryId,color:'#85858e',count:1}],tags:[]}}),notesApi:{migrationReview:async()=>({ok:true,value:[{noteId,reason:'multiple-matching-subcategories',candidates:[subcategoryId]},{noteId:captureId,reason:'foreign-category-labels',candidates:[subcategoryId]}]}),get:async id=>({ok:true,value:{...makeNote(id,id===noteId?'Ambiguous note':'Deleted note','note',categoryId),deletedAt:id===captureId?1:null}}),resolveMigrationReview:async input=>{resolved=input;return {ok:true,value:undefined}}}})
+  const app=setup({taxonomy:async()=>({ok:true,value:{categories:[{id:categoryId,name:'Work'}],subcategories:[{id:subcategoryId,name:'Project',categoryId,color:'#85858e',count:1}],tags:[]}}),notesApi:{migrationReview:async()=>({ok:true,value:[{noteId,reason:'multiple-matching-subcategories',candidates:[subcategoryId]},{noteId:captureId,reason:'foreign-category-labels',candidates:[subcategoryId]}]}),get:async id=>({ok:true,value:{...makeNote(id,id===noteId?'Ambiguous task':'Deleted task','task',categoryId),deletedAt:id===captureId?1:null}}),resolveMigrationReview:async input=>{resolved=input;return {ok:true,value:undefined}}}})
   try {
     fireEvent.click(await screen.findByRole('button',{name:/Review subcategories/}))
-    await screen.findByRole('button',{name:'Ambiguous note'})
-    assert.equal(screen.queryByRole('button',{name:/Deleted note/}),null)
+    await screen.findByRole('button',{name:'Ambiguous task'})
+    assert.equal(screen.queryByRole('button',{name:/Deleted task/}),null)
     fireEvent.click(screen.getByRole('checkbox',{name:'Include Trash'}))
-    await screen.findByRole('button',{name:/Deleted note/})
+    await screen.findByRole('button',{name:/Deleted task/})
     fireEvent.click(screen.getByRole('button',{name:'Keep without subcategory'}))
     await waitFor(()=>assert.equal(resolved?.subcategoryId,null))
     assert.equal(resolved.id,noteId)
     assert.equal(resolved.expectedRevision,1)
-    await waitFor(()=>assert.equal(screen.queryByRole('button',{name:'Ambiguous note'}),null))
+    await waitFor(()=>assert.equal(screen.queryByRole('button',{name:'Ambiguous task'}),null))
   }finally{app.unmount()}
 })
 
@@ -646,7 +648,7 @@ test('capture from a subcategory or tag page preselects that context in browser 
 test('All items has one checkbox per task and bulk selection never completes it', async () => {
   localStorage.clear();delete require.cache[require.resolve(path.join(generated,'browserPreview.cjs'))];require(path.join(generated,'browserPreview.cjs'))
   const task=(await window.captured.planner.createTask({body:'Select without completing',placement:{kind:'backlog'}})).value
-  const app=render(React.createElement(NotesApp))
+  const app=render(React.createElement(NotesApp, { initialView: 'all' }))
   try {
     await screen.findByRole('button',{name:'Open to-do Select without completing'})
     const row=within(document.querySelector(`[data-note-id="${task.id}"]`))
@@ -694,8 +696,9 @@ const planFor = (kind, targetDate = null) => ({ kind, targetDate, position: 0 })
 const backlogNav = () => fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', { name: /^Backlog/ }))
 const tasksNav = () => fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', { name: /^Tasks/ }))
 
-test('Tasks shows horizons together with drag handles and category layout has the same cards', async () => {
+test('Tasks falls back from the removed category layout and keeps the same tasks in Table', async () => {
   browserWorkspace()
+  localStorage.setItem('tasks-layout-v1', JSON.stringify('category'))
   const work = (await window.captured.notes.taxonomy()).value.categories[0]
   for (const [body, intention] of [['Plan today', planFor('day', workspaceToday())], ['Plan later', planFor('later')], ['Plan undecided', planFor('unplanned')]]) await window.captured.taskWorkspace.create({ body, categoryId: work.id, intention })
   const app = render(React.createElement(NotesApp))
@@ -707,15 +710,16 @@ test('Tasks shows horizons together with drag handles and category layout has th
     assert.equal(document.querySelector('.tasks-card select'), null)
     assert.equal(document.querySelector('[data-horizon="week"]'), null)
     const original = [...document.querySelectorAll('.tasks-card')].map(card => card.dataset.taskId).sort()
-    fireEvent.click(screen.getByRole('button', { name: 'By category' }))
-    assert.deepEqual([...document.querySelectorAll('.tasks-card')].map(card => card.dataset.taskId).sort(), original)
-    assert.equal(document.querySelector('.tasks-category-column .tasks-column-heading b').textContent, work.name)
+    assert.ok(screen.queryByRole('button', { name: 'By category' }) === null)
+    assert.equal(screen.getByRole('button', { name: 'By time' }).getAttribute('aria-pressed'), 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Table' }))
+    assert.deepEqual([...document.querySelectorAll('.tasks-group-table [data-task-id]')].map(card => card.dataset.taskId).sort(), original)
     assert.ok(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', { name: /^Backlog/ }))
     assert.equal(screen.queryByRole('button', { name: 'Ready', exact: true }), null)
   } finally { app.unmount() }
 })
 
-test('integrated captures file as reference notes, retain draft tags/images, and support Undo', async () => {
+test('integrated captures offer task planning and retain draft tags through Undo', async () => {
   browserWorkspace()
   const saved = await window.captured.capture.submit({ requestId: crypto.randomUUID(), generation: 0, body: 'Sort this capture', tags: ['waiting'] })
   localStorage.setItem(`inbox-tags:${saved.value.id}`, JSON.stringify({ tags: ['waiting'], draft: 'Draft label' }))
@@ -725,11 +729,12 @@ test('integrated captures file as reference notes, retain draft tags/images, and
     await screen.findByRole('button', { name: 'Sort this capture' })
     let item
     const card = screen.getByRole('button', { name: 'Sort this capture' }).closest('article')
-    fireEvent.click(within(card).getByRole('button', { name: 'Note', exact: true }))
-    await screen.findByText('Filed as a note.')
+    assert.equal(within(card).queryByRole('button', { name: 'Note', exact: true }), null)
+    fireEvent.click(within(card).getByRole('button', { name: 'Today', exact: true }))
+    await screen.findByText('Moved to Today.')
     item = (await window.captured.notes.get(saved.value.id)).value
     assert.deepEqual(item.tags, ['waiting', 'Draft label'])
-    assert.equal(item.kind, 'note'); assert.equal(screen.queryByRole('button', { name: 'Sort this capture' }), null)
+    assert.equal(item.kind, 'task')
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
     await screen.findByRole('button', { name: 'Sort this capture' })
     fireEvent.click(screen.getByRole('button', { name: 'Sort this capture' }))
@@ -796,9 +801,9 @@ test('Tasks filters all pages in storage, loads remaining cards, and keeps filte
     await screen.findByRole('button', { name: 'Paged task 53', exact: true })
     fireEvent.change(screen.getByRole('textbox', { name: 'Search tasks' }), { target: { value: 'Paged task 53' } })
     await waitFor(() => assert.equal(document.querySelectorAll('.tasks-card').length, 1))
-    fireEvent.click(screen.getByRole('button', { name: 'By category' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Table' }))
     assert.equal(screen.getByRole('textbox', { name: 'Search tasks' }).value, 'Paged task 53')
-    assert.equal(document.querySelectorAll('.tasks-card').length, 1)
+    assert.equal(document.querySelectorAll('.tasks-group-table [data-task-id]').length, 1)
     assert.ok(screen.getByRole('button', { name: 'Paged task 53' }))
   } finally { app.unmount() }
 })
@@ -871,5 +876,78 @@ test('Backlog ReUI tag picker selects, creates and removes tags without classify
     const chip = [...document.querySelectorAll('[data-slot="combobox-chip"]')].find(chip => chip.textContent === 'Planning')
     fireEvent.click(chip.querySelector('[data-slot="combobox-chip-remove"]'))
     await waitFor(async () => assert.deepEqual((await window.captured.notes.get(saved.value.id)).value.tags, ['Fresh backlog tag']))
+  } finally { app.unmount() }
+})
+
+test('Tasks search includes planned work, backlog tasks, and captures then restores planned scope', async () => {
+  browserWorkspace()
+  await window.captured.taskWorkspace.create({ body: 'Shared planned work', categoryId: null, intention: planFor('day', workspaceToday()) })
+  await window.captured.taskWorkspace.create({ body: 'Shared backlog work', categoryId: null, intention: { kind: 'unplanned', targetDate: null, position: 0 } })
+  await window.captured.capture.submit({ requestId: crypto.randomUUID(), generation: 0, body: 'Shared capture' })
+  const app = render(React.createElement(NotesApp))
+  try {
+    assert.ok(screen.queryByRole('button', { name: /All tasks/ }) === null)
+    await screen.findByRole('button', { name: 'Shared planned work' })
+    assert.ok(screen.queryByRole('button', { name: 'Shared backlog work' }) === null)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search tasks' }), { target: { value: 'Shared' } })
+    await screen.findByRole('button', { name: 'Shared backlog work' })
+    await screen.findByRole('button', { name: 'Shared capture' })
+    assert.ok(screen.getByRole('button', { name: 'Shared planned work' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Table', exact: true }))
+    await screen.findByRole('button', { name: 'Shared capture' })
+    assert.ok(screen.queryByRole('checkbox', { name: 'Complete Shared capture' }) === null)
+    fireEvent.click(screen.getByRole('button', { name: 'By time', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear task search' }))
+    await waitFor(() => assert.ok(screen.queryByRole('button', { name: 'Shared backlog work' }) === null))
+    assert.ok(screen.queryByRole('button', { name: 'Shared capture' }) === null)
+    assert.ok(screen.getByRole('button', { name: 'Shared planned work' }))
+  } finally { app.unmount() }
+})
+
+test('category tasks show direct tasks first followed by collapsible subcategory panels', async () => {
+  browserWorkspace()
+  const category = (await window.captured.notes.taxonomy()).value.categories[0]
+  const sub = (await window.captured.notes.createSubcategory({ name: 'Project group', categoryId: category.id })).value
+  await window.captured.taskWorkspace.create({ body: 'Direct category task', categoryId: category.id, intention: planFor('unplanned') })
+  await window.captured.taskWorkspace.create({ body: 'Nested category task', categoryId: category.id, subcategoryId: sub.id, intention: planFor('later') })
+  const app = render(React.createElement(NotesApp))
+  try {
+    fireEvent.click(await screen.findByRole('button', { name: category.name, exact: true }))
+    await screen.findByRole('button', { name: 'Open to-do Direct category task' })
+    await screen.findByRole('button', { name: 'Open to-do Nested category task' })
+    assert.ok(screen.queryByRole('button', { name: 'No subcategory', exact: true }) === null)
+    const groups = [...document.querySelectorAll('.category-task-group')]
+    assert.ok(groups[0].textContent.includes('Direct category task'))
+    assert.ok(groups[1].textContent.includes('Nested category task'))
+    const toggle = within(groups[1]).getByRole('button', { name: /^Project group/ })
+    fireEvent.click(toggle)
+    assert.ok(screen.queryByRole('button', { name: 'Open to-do Nested category task' }) === null)
+    fireEvent.click(toggle)
+    assert.ok(screen.getByRole('button', { name: 'Open to-do Nested category task' }))
+  } finally { app.unmount() }
+})
+
+test('Calendar visibility setting hides navigation and persists after remount', async () => {
+  browserWorkspace()
+  let app = render(React.createElement(NotesApp))
+  try {
+    fireEvent.click(screen.getByRole('button', { name: 'Settings', exact: true }))
+    fireEvent.click(within(document.querySelector('.settings-nav')).getByRole('button', { name: 'Calendar', exact: true }))
+    const toggle = await screen.findByRole('switch', { name: 'Show Calendar' })
+    assert.equal(toggle.getAttribute('aria-checked'), 'true')
+    fireEvent.click(toggle)
+    await waitFor(() => assert.equal(toggle.getAttribute('aria-checked'), 'false'))
+    assert.ok(within(screen.getByRole('navigation', { name: 'Main navigation' })).queryByRole('button', { name: 'Calendar', exact: true }) === null)
+    app.unmount()
+    delete require.cache[require.resolve(path.join(generated, 'browserPreview.cjs'))]
+    require(path.join(generated, 'browserPreview.cjs'))
+    assert.equal((await window.captured.settings.get()).value.showCalendar, false)
+    app = render(React.createElement(NotesApp))
+    fireEvent.click(screen.getByRole('button', { name: 'Settings', exact: true }))
+    fireEvent.click(within(document.querySelector('.settings-nav')).getByRole('button', { name: 'Calendar', exact: true }))
+    const restored = await screen.findByRole('switch', { name: 'Show Calendar' })
+    await waitFor(() => assert.equal(restored.getAttribute('aria-checked'), 'false'))
+    fireEvent.click(restored)
+    await waitFor(() => assert.ok(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', { name: 'Calendar', exact: true })))
   } finally { app.unmount() }
 })
