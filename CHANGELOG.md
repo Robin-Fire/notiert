@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.1.12 - 2026-10-08
+
+- Organize planned tasks in Today, Tomorrow, Next week, and Later, with category and grouped table views.
+- Restore a separate Backlog page with quick planning buttons and a searchable tag picker that can create tags.
+- Scroll the whole Tasks page, simplify task cards, and fix the drag overlay returning to its previous column.
+- Replace browser-default dropdowns throughout the app with shared ReUI selects.
+- Preserve calendar placements; migrate the removed This week bucket to Later.
+
 ## 0.1.8 — 2026-10-02
 
 - Use the same edit modal for Inbox, All Items, category, tag, backlog, and calendar items.
