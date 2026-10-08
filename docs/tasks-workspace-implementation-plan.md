@@ -1,6 +1,6 @@
 # Tasks workspace implementation plan
 
-Date: 2026-10-08. Status: implementation plan; application changes have not started.
+Date: 2026-10-08. Status: implemented; verification results are recorded at the end of this document.
 
 ## 1. Baseline and objective
 
@@ -204,3 +204,23 @@ Visual/manual acceptance:
 - Calendar looks and behaves as before, including Ready tasks, meetings, resizing, settings and old-task reconciliation.
 
 The implementation is complete when Inbox/Backlog/Ready/Later are consolidated into Tasks, both overview layouts work against persistent data, capture sorting and horizon movement avoid page changes, migrations preserve existing items, and Calendar regression checks pass unchanged.
+
+
+## 11. Implementation and verification results
+
+Completed on 2026-10-08. The implementation delivers the Tasks workspace with time and category layouts, integrated captures, explicit capture types, persisted intentions, drag/reorder, menu movement, completion, Undo, filtering and pagination. Narrow windows fold Unplanned and Later into count rails so the four near-term horizons fit together; the rails accept drops. Upcoming appears for plans beyond next week. Existing Inbox navigation opens Tasks with captures expanded.
+
+Schema 14 migrates existing task intentions and retains calendar placements. Calendar retains its existing view, Ready panel, scheduling and reconciliation behavior. Legacy scheduling APIs remain available for Calendar. Standalone Inbox, Backlog, Ready and Later components have been removed.
+
+Verification passed:
+
+- `npm run typecheck`
+- `npm test`: 90 tests passed, including storage migration/restore, horizon boundaries, atomic movement/Undo, stale revisions, filtered pagination, capture retries and both layouts.
+- `npm run build`
+- `npm run smoke:tasks`: both layouts, capture sorting/Undo, native pointer movement/reordering/category changes, folded-column drops, calendar isolation, and light/dark/narrow screenshots.
+- `npm run smoke:capture`: categorized text capture, image-only capture, remembered category and image rendering.
+- `npm run smoke:taxonomy`: category/subcategory changes, independent tags, image editing, draft persistence, restart and theme screenshots.
+- `npm run smoke:calendar`: meeting/task drag and resize, Ready scheduling, unscheduling, settings, workweek and reload persistence.
+- `npx electron scripts/item-edit-smoke.cjs`: shared editor, attachments, capture editing and scheduling.
+
+Smoke scripts use temporary profiles. Screenshots are stored locally in the ignored `tests/.visual` directory. No installer was packaged or published in this iteration.

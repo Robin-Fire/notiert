@@ -1,3 +1,4 @@
+import { horizonOf, horizonLabels, horizons, intentionFor } from '../../shared/taskHorizons'
 import { CategoryPicker } from '../components/CategoryPicker'
 import { useTaxonomy } from '../components/useTaxonomy'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
@@ -11,7 +12,7 @@ import { toLocalISODate } from '../../shared/plannerDates'
 import type { TaskPlacement } from '../../shared/contracts'
 import { resultValue } from '../apiResult'
 
-export function ItemDetailDialog({ task, initialTags, suggestions, onClose, onChanged }: { task: Note & Partial<PlannerTask>; initialTags?: string[]; suggestions: string[]; onClose: () => void; onChanged: () => void }) {
+export function ItemDetailDialog({ task, initialTags, suggestions, onClose, onChanged, showPlanning = false }: { task: Note & Partial<PlannerTask>; initialTags?: string[]; suggestions: string[]; onClose: () => void; onChanged: () => void; showPlanning?: boolean }) {
   const isTask = task.kind === 'task'
   const label = isTask ? 'to-do' : task.kind === 'inbox' ? 'inbox item' : 'note'
   const taxonomy=useTaxonomy()
@@ -30,6 +31,8 @@ export function ItemDetailDialog({ task, initialTags, suggestions, onClose, onCh
   const imageEdit = useImagePaste(setError)
   const [savedImages, setSavedImages] = useState(task.images)
   const [busy, setBusy] = useState(false)
+  const [plan, setPlan] = useState(() => task.intention ? horizonOf(task.intention, toLocalISODate(new Date())) : 'unplanned')
+  const [planDate, setPlanDate] = useState(task.intention?.targetDate ?? toLocalISODate(new Date()))
   const [placementKind, setPlacementKind] = useState<'timed' | 'ready' | 'backlog' | 'later'>(task.later ? 'later' : task.plannedStartAt != null ? 'timed' : task.plannedDate ? 'ready' : task.ready ? 'ready' : 'backlog')
   const initialStart = task.plannedStartAt ?? new Date(`${task.plannedDate ?? toLocalISODate(new Date())}T09:00`).getTime()
   const [start, setStart] = useState(localDateTime(initialStart))
@@ -130,13 +133,14 @@ export function ItemDetailDialog({ task, initialTags, suggestions, onClose, onCh
     <span className="image-paste-hint">{imageEdit.pending ? 'Reading image…' : 'Paste a screenshot with Ctrl+V · up to 5 images'}</span>
     <CategoryPicker categories={taxonomy.categories} subcategories={taxonomy.subcategories} categoryId={categoryId} subcategoryId={subcategoryId} onChange={(category,subcategory)=>{setCategoryId(category);setSubcategoryId(subcategory)}} disabled={busy}/>
     <div className="task-detail-tags"><span>Tags</span><TagEditor tags={tags} draft={tagDraft} onTagsChange={setTags} onDraftChange={setTagDraft} suggestions={taxonomy.tags.length?taxonomy.tags.map(tag=>tag.name):suggestions} disabled={busy} /></div>
-    {isTask && task.completedAt === null && <fieldset className="task-schedule-fields" disabled={busy}><legend>Schedule</legend><label>Placement<select className="text-field" value={placementKind} onChange={(event) => setPlacementKind(event.target.value as typeof placementKind)}><option value="timed">Time block</option><option value="ready">Ready · unscheduled</option><option value="backlog">Backlog</option><option value="later">Later</option></select></label>{(placementKind === 'timed') && <div className="event-form-times"><label>Starts<input className="text-field" type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} /></label>{placementKind === 'timed' && <label>Ends<input className="text-field" type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} /></label>}</div>}<button type="button" className="button secondary small" onClick={() => void savePlacement()} disabled={changed} title={changed ? 'Save item changes before changing its schedule' : undefined}>Save schedule</button></fieldset>}
+    {showPlanning && isTask && task.completedAt === null && <fieldset className="task-schedule-fields" disabled={busy}><legend>Task plan</legend><label>When<select aria-label="Task plan" value={plan} onChange={event => setPlan(event.target.value as typeof plan)}>{horizons.filter(h => h !== 'upcoming').map(h => <option key={h} value={h}>{horizonLabels[h]}</option>)}<option value="upcoming">Choose date…</option></select></label>{plan === 'upcoming' && <label>Date<input type="date" aria-label="Task plan date" value={planDate} onChange={event => setPlanDate(event.target.value)} /></label>}<button type="button" className="button secondary small" disabled={changed || plan === 'upcoming' && !planDate} title={changed ? 'Save item changes before moving the task' : undefined} onClick={async () => { setBusy(true); setError(''); try { const today = toLocalISODate(new Date()); resultValue(await window.captured.taskWorkspace.move({ id: task.id, expectedRevision: revision, today, intention: plan === 'upcoming' ? { kind: 'day', targetDate: planDate, position: 0 } : intentionFor(plan, today), beforeId: null })); onChanged(); onClose() } catch (reason) { setError(reason instanceof Error ? reason.message : 'The plan could not be saved.') } finally { setBusy(false) } }}>Save plan</button></fieldset>}
+    {isTask && task.completedAt === null && <fieldset className="task-schedule-fields" disabled={busy}><legend>Schedule</legend><label>Placement<select className="text-field" value={placementKind} onChange={(event) => setPlacementKind(event.target.value as typeof placementKind)}><option value="timed">Time block</option><option value="ready">Ready · unscheduled</option><option value="backlog">{showPlanning ? 'Unscheduled' : 'Backlog'}</option><option value="later">{showPlanning ? 'Calendar Later' : 'Later'}</option></select></label>{(placementKind === 'timed') && <div className="event-form-times"><label>Starts<input className="text-field" type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} /></label>{placementKind === 'timed' && <label>Ends<input className="text-field" type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} /></label>}</div>}<button type="button" className="button secondary small" onClick={() => void savePlacement()} disabled={changed} title={changed ? 'Save item changes before changing its schedule' : undefined}>Save schedule</button></fieldset>}
     {error && <div className="inline-error" role="alert">{error}</div>}
     {notice && <div role="status" className="task-detail-notice">{notice}</div>}
     <div className="task-detail-actions">
       <button className="button secondary small" onClick={() => void copy()} disabled={busy}><Copy size={14} /> Copy</button>
       {isTask && <button className="button secondary small" disabled={busy} onClick={async () => { if (changed && !window.confirm('Discard unsaved item changes?')) return; setBusy(true); try { resultValue(await window.captured.planner.setTaskCompleted({ id: task.id, completed: task.completedAt === null })); onChanged(); onClose() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not change task status.'); setBusy(false) } }}>{task.completedAt === null ? 'Complete' : 'Reopen'}</button>}
-      {isTask && <button className="button secondary small" onClick={() => void returnToInbox()} disabled={busy}><Archive size={14} /> Return to Inbox</button>}
+      {isTask && <button className="button secondary small" onClick={() => void returnToInbox()} disabled={busy}><Archive size={14} /> {showPlanning ? 'Return to captures' : 'Return to Inbox'}</button>}
       <button className="button secondary small danger-action" onClick={() => void trash()} disabled={busy}><Trash2 size={14} /> Trash</button>
       <span />
       <button className="button secondary small" onClick={() => { if (!changed || window.confirm('Discard unsaved item changes?')) onClose() }} disabled={busy}>Close</button>

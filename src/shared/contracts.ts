@@ -1,5 +1,17 @@
 import type { z } from 'zod'
 import { z as Z } from 'zod'
+import { validIntention, type TaskIntention, type Horizon } from './taskHorizons'
+
+export const TaskIntentionSchema = Z.object({ kind: Z.enum(['unplanned', 'day', 'week', 'later']), targetDate: Z.string().nullable(), position: Z.number().int().nonnegative().default(0) }).refine(validIntention, 'Choose a valid day or Monday week anchor.')
+export const TaskWorkspaceCreateSchema = Z.object({ body: Z.string().trim().min(1).max(50000), categoryId: Z.string().uuid().nullable(), subcategoryId: Z.string().uuid().nullable().default(null), tags: Z.array(Z.string().max(40)).max(20).default([]), intention: TaskIntentionSchema })
+export const TasksQuerySchema = Z.object({ today: Z.string(), query: Z.string().max(500).default(''), categoryId: Z.string().uuid().nullable().optional(), subcategoryId: Z.string().uuid().optional(), tags: Z.array(Z.string().max(40)).max(100).default([]), excludedTags: Z.array(Z.string().max(40)).max(100).default([]), completed: Z.boolean().default(false), horizon: Z.enum(['unplanned', 'today', 'tomorrow', 'week', 'next-week', 'later', 'upcoming']).optional(), cursor: Z.object({ position: Z.number().int().nonnegative(), id: Z.string(), sequence: Z.number().int(), today: Z.string() }).optional(), limit: Z.number().int().min(1).max(100).default(50) })
+export const TaskWorkspaceMoveSchema = Z.object({ id: Z.string().uuid(), expectedRevision: Z.number().int().nonnegative(), intention: TaskIntentionSchema, beforeId: Z.string().uuid().nullable().default(null), categoryId: Z.string().uuid().nullable().optional(), today: Z.string(), classify: Z.enum(['task', 'note']).optional(), tags: Z.array(Z.string().max(40)).max(20).optional() })
+export type TaskWorkspaceMove = z.infer<typeof TaskWorkspaceMoveSchema>
+export type TasksQuery = z.infer<typeof TasksQuerySchema>
+export type TaskWorkspaceItem = PlannerTask & { intention: TaskIntention; horizon: Horizon }
+export type TasksPage = { items: TaskWorkspaceItem[]; total: number; counts: Record<Horizon, number>; categoryCounts?: Record<string, number>; captureTotal?: number; nextCursor: z.infer<typeof TasksQuerySchema>['cursor'] | null }
+export type TaskWorkspaceUndo = { id: string; expectedRevision: number; kind: 'inbox' | 'task'; categoryId: string | null; subcategoryId: string | null; tags: string[]; intention: TaskIntention | null; beforeId?: string | null; today?: string; priorityPosition?: number }
+export const TaskWorkspaceUndoSchema = Z.object({ id: Z.string().uuid(), expectedRevision: Z.number().int().nonnegative(), kind: Z.enum(['inbox', 'task']), categoryId: Z.string().uuid().nullable(), subcategoryId: Z.string().uuid().nullable(), tags: Z.array(Z.string().max(40)).max(20), intention: TaskIntentionSchema.nullable(), beforeId: Z.string().uuid().nullable().optional(), today: Z.string().optional(), priorityPosition: Z.number().int().nonnegative().optional() })
 
 export const ImageRefSchema = Z.object({ id: Z.string().uuid(), mimeType: Z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']) })
 export type ImageRef = z.infer<typeof ImageRefSchema>
@@ -7,7 +19,7 @@ export type CaptureImage = ImageRef & { dataUrl: string }
 export const NoteSchema = Z.object({
   id: Z.string(), body: Z.string(), meetingId: Z.string().nullable(), createdAt: Z.number(), updatedAt: Z.number(),
   deletedAt: Z.number().nullable(), revision: Z.number(), kind: Z.enum(['inbox', 'note', 'task']).default('note'),
-  processedAt: Z.number().nullable().default(null), completedAt: Z.number().nullable().default(null), later: Z.boolean().default(false), categoryId: Z.string().nullable().default(null), subcategoryId: Z.string().nullable().default(null), tags: Z.array(Z.string()).default([]), images: Z.array(ImageRefSchema).default([]),
+  processedAt: Z.number().nullable().default(null), completedAt: Z.number().nullable().default(null), later: Z.boolean().default(false), categoryId: Z.string().nullable().default(null), subcategoryId: Z.string().nullable().default(null), tags: Z.array(Z.string()).default([]), images: Z.array(ImageRefSchema).default([]), intention: TaskIntentionSchema.optional(),
 })
 export const PlannerEventSchema = Z.object({ id: Z.string(), title: Z.string(), startAt: Z.number(), endAt: Z.number(), allDay: Z.boolean(), seriesId: Z.string().uuid().nullable().optional() })
 export const PlannerTaskSchema = NoteSchema.extend({ meetingTitle: Z.string().nullable(), plannedDate: Z.string().nullable(), plannedStartAt: Z.number().nullable().default(null), plannedEndAt: Z.number().nullable().default(null), position: Z.number(), priorityPosition: Z.number().int().nonnegative(), beforeEventId: Z.string().nullable(), ready: Z.boolean() })
@@ -71,7 +83,7 @@ export const NoteFilterSchema = Z.object({
   includeCompleted: Z.boolean().default(false),
   cursor: Z.object({ sortAt: Z.number(), id: Z.string(), priorityPosition: Z.number().int().nonnegative().optional(), kindRank: Z.number().int().min(0).max(2).optional() }).optional(), limit: Z.number().int().min(1).max(100).default(50),
 })
-export const CaptureSubmitSchema = Z.object({ requestId: Z.string().uuid(), generation: Z.number().int().nonnegative(), body: Z.string().max(100000), tags:Z.array(Z.string().max(40)).max(20).optional(), categoryId: Z.string().uuid().nullable().optional(), subcategoryId: Z.string().uuid().nullable().optional() })
+export const CaptureSubmitSchema = Z.object({ requestId: Z.string().uuid(), generation: Z.number().int().nonnegative(), body: Z.string().max(100000), tags:Z.array(Z.string().max(40)).max(20).optional(), categoryId: Z.string().uuid().nullable().optional(), subcategoryId: Z.string().uuid().nullable().optional(), captureKind: Z.enum(['inbox', 'task', 'note']).optional() })
 export const NoteUpdateSchema = Z.object({ id: Z.string().uuid(), expectedRevision: Z.number().int(), body: Z.string().max(100000) })
 export const IdsSchema = Z.array(Z.string().uuid()).min(1).max(500)
 export const InboxPageSchema = Z.object({ cursor: Z.object({ sortAt: Z.number().int(), id: Z.string().uuid() }).optional(), limit: Z.number().int().min(1).max(100).default(50) })
@@ -94,7 +106,7 @@ export type PlannerEventTiming = z.infer<typeof PlannerEventTimingSchema>
 export type Settings = z.infer<typeof SettingsSchema>
 export type SettingsUpdate = Partial<Pick<Settings, 'shortcut' | 'shortcutEnabled' | 'launchAtLogin' | 'theme' | 'monitor' | 'captureProtection' | 'protectionTestApp' | 'protectionTestDate' | 'closeToTray' | 'firstRunComplete' | 'calendarStartMinute' | 'calendarEndMinute'>>
 export type NoteFilter = z.infer<typeof NoteFilterSchema>
-export type CaptureState = { body: string; images: CaptureImage[]; generation: number; revision: number; shortcut: string; theme: Settings['theme']; available: boolean; tags?:string[]; categoryId: string | null; subcategoryId?: string | null }
+export type CaptureState = { body: string; images: CaptureImage[]; generation: number; revision: number; shortcut: string; theme: Settings['theme']; available: boolean; captureKind?: 'inbox' | 'task' | 'note'; tags?:string[]; categoryId: string | null; subcategoryId?: string | null }
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; code: string; message: string }
 export type NotePage = { items: (Note & { meetingTitle: string | null })[]; nextCursor: { sortAt: number; id: string; priorityPosition?: number; kindRank?: number } | null; total: number }
 export type InboxPage = { items: (Note & { meetingTitle: string | null })[]; nextCursor: { sortAt: number; id: string } | null; total: number }
@@ -106,6 +118,12 @@ export type MigrationReview = { noteId: string; reason: string; candidates: stri
 export type TagRecord = { id: string; name: string; categoryId: string | null; color: string; count: number }
 
 export type capturedApi = {
+  taskWorkspace: {
+    list(input: TasksQuery): Promise<ApiResult<TasksPage>>
+    move(input: TaskWorkspaceMove): Promise<ApiResult<TaskWorkspaceUndo>>
+    undo(input: TaskWorkspaceUndo): Promise<ApiResult<void>>
+    create(input: z.input<typeof TaskWorkspaceCreateSchema>): Promise<ApiResult<void>>
+  }
   updates: {
     getStatus(): Promise<ApiResult<{ status: 'idle' | 'checking' | 'available' | 'downloaded' | 'error'; version?: string; message?: string }>>
     check(): Promise<ApiResult<void>>
@@ -116,8 +134,8 @@ export type capturedApi = {
     getState(): Promise<ApiResult<CaptureState>>
     categories(): Promise<ApiResult<Category[]>>
     subcategories(): Promise<ApiResult<Subcategory[]>>
-    updateDraft(input: { body: string; generation: number; revision: number; categoryId: string | null; subcategoryId?: string | null; tags?:string[] }): Promise<ApiResult<{ revision: number }>>
-    flushBeforeQuit(input: { body: string; generation: number; revision: number; categoryId: string | null; subcategoryId?: string | null; tags?:string[] }): Promise<ApiResult<{ revision: number }>>
+    updateDraft(input: { body: string; generation: number; revision: number; categoryId: string | null; subcategoryId?: string | null; tags?:string[]; captureKind?: 'inbox' | 'task' | 'note' }): Promise<ApiResult<{ revision: number }>>
+    flushBeforeQuit(input: { body: string; generation: number; revision: number; categoryId: string | null; subcategoryId?: string | null; tags?:string[]; captureKind?: 'inbox' | 'task' | 'note' }): Promise<ApiResult<{ revision: number }>>
     submit(input: z.infer<typeof CaptureSubmitSchema>): Promise<ApiResult<{ id: string }>>
     addImage(input: { generation: number; dataUrl: string }): Promise<ApiResult<CaptureImage>>
     removeImage(input: { generation: number; id: string }): Promise<ApiResult<void>>

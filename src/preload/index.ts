@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { capturedApi } from '../shared/contracts'
 
 const api: Omit<capturedApi, 'capture'> = {
+  taskWorkspace: { list: input => ipcRenderer.invoke('tasks:list', input), move: input => ipcRenderer.invoke('tasks:move', input), undo: input => ipcRenderer.invoke('tasks:undo', input), create: input => ipcRenderer.invoke('tasks:create', input) },
   updates: {
     getStatus: () => ipcRenderer.invoke('updates:status'),
     check: () => ipcRenderer.invoke('updates:check'),

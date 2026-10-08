@@ -171,7 +171,7 @@ test('version 9 migrates without inventing task times and backups validate after
     const saved = migrated.listPlanner('2026-10-01', '2026-10-01').tasks[0]
     assert.equal(saved.plannedDate, '2026-10-01'); assert.equal(saved.beforeEventId, event.id)
     assert.equal(saved.plannedStartAt, null); assert.equal(saved.plannedEndAt, null)
-    assert.equal(migrated.db.prepare('SELECT max(version) AS version FROM schema_migrations').get().version, 13)
+    assert.equal(migrated.db.prepare('SELECT max(version) AS version FROM schema_migrations').get().version, 14)
     const backup = path.join(f.folder, 'backup.sqlite')
     await migrated.backupTo(backup)
     assert.equal(migrated.checkIntegrity(backup), undefined)

@@ -5,6 +5,7 @@ import type { CaptureState, Category, Subcategory } from '../../shared/contracts
 export function Capture() {
   const [state, setState] = useState<CaptureState>({ body: '', images: [], generation: 0, revision: 0, shortcut: 'Control+N', theme: 'system', available: false, categoryId: null })
   const [subcategories,setSubcategories]=useState<Subcategory[]>([])
+  const captureKind = useRef<'inbox' | 'task' | 'note'>('inbox')
   const captureTags=useRef<string[]>([])
   const subcategoryId=useRef<string|null>(null)
   const [categories, setCategories] = useState<Category[]>([])
@@ -46,6 +47,7 @@ export function Capture() {
       if (typeof next.body === 'string') setBody(next.body)
       if (typeof next.generation === 'number') generation.current = next.generation
       if (typeof next.revision === 'number') revision.current = next.revision
+      if(next.captureKind!==undefined)captureKind.current=next.captureKind
       if(next.tags!==undefined)captureTags.current=next.tags
       if(next.subcategoryId!==undefined)subcategoryId.current=next.subcategoryId
       if (next.categoryId !== undefined) categoryId.current = next.categoryId
@@ -82,7 +84,7 @@ export function Capture() {
   const persistDraft = useCallback(async (draft: string, selectedCategory = categoryId.current) => {
     if (!state.available || saving) return
     revision.current += 1
-    const result = await window.captured.capture.updateDraft({ body: draft, generation: generation.current, revision: revision.current, categoryId: selectedCategory,subcategoryId:subcategoryId.current,tags:captureTags.current })
+    const result = await window.captured.capture.updateDraft({ body: draft, generation: generation.current, revision: revision.current, categoryId: selectedCategory,subcategoryId:subcategoryId.current,tags:captureTags.current, captureKind:captureKind.current })
     if (result.ok) revision.current = Math.max(revision.current, result.value.revision)
   }, [saving, state.available])
 
@@ -105,7 +107,7 @@ export function Capture() {
     const unsubscribe = window.captured.capture.onQuitRequest(() => {
       clearTimeout(draftTimer.current)
       const draft = bodyRef.current
-      void window.captured.capture.flushBeforeQuit({ body: draft, generation: generation.current, revision: revision.current + 1, categoryId: categoryId.current,subcategoryId:subcategoryId.current,tags:captureTags.current }).then((result) => {
+      void window.captured.capture.flushBeforeQuit({ body: draft, generation: generation.current, revision: revision.current + 1, categoryId: categoryId.current,subcategoryId:subcategoryId.current,tags:captureTags.current, captureKind:captureKind.current }).then((result) => {
         if (result.ok) { revision.current = Math.max(revision.current, result.value.revision); window.captured.capture.respondToQuit(true, draft) }
         else window.captured.capture.respondToQuit(false, draft)
       }).catch(() => window.captured.capture.respondToQuit(false, draft))
@@ -134,7 +136,7 @@ export function Capture() {
     const id = requestIdRef.current ?? crypto.randomUUID()
     requestIdRef.current = id
     try {
-      const result = await window.captured.capture.submit({ requestId: id, generation: generation.current, body, categoryId: categoryId.current,subcategoryId:subcategoryId.current,tags:captureTags.current })
+      const result = await window.captured.capture.submit({ requestId: id, generation: generation.current, body, categoryId: categoryId.current,subcategoryId:subcategoryId.current,tags:captureTags.current, captureKind:captureKind.current })
       if (!result.ok) { setError(result.message); return }
       setBody('')
       setState((current) => ({ ...current, images: [] }))
@@ -142,8 +144,9 @@ export function Capture() {
       requestIdRef.current = null
       revision.current = 0
       generation.current += 1
+      captureKind.current='inbox'
       captureTags.current=[]
-      setState((current) => ({ ...current, categoryId: categoryId.current,subcategoryId:subcategoryId.current,tags:[] }))
+      setState((current) => ({ ...current, categoryId: categoryId.current,subcategoryId:subcategoryId.current,tags:[],captureKind:'inbox' }))
       try { await window.captured.capture.dismiss('saved') } catch { /* The capture is already saved. */ }
     } catch { setError('The capture could not be saved. Your text and images are still here. Try again.') }
     finally { savingLock.current = false; setSaving(false) }
@@ -227,6 +230,7 @@ export function Capture() {
           if (!(next instanceof Node && event.currentTarget.closest('.capture-card')?.contains(next))) void window.captured.capture.dismiss('blur')
         }}
       />
+      <label className="capture-category-control"><span>Save as</span><select aria-label="Capture type" value={state.captureKind ?? 'inbox'} disabled={saving} onChange={event => { captureKind.current=event.target.value as 'inbox' | 'task' | 'note';setState(current=>({...current,captureKind:captureKind.current}));void persistDraft(bodyRef.current) }}><option value="inbox">Capture · sort later</option><option value="task">Task</option><option value="note">Note</option></select></label>
       {categories.length > 0 && <label className="capture-category-control"><Folder size={13} /><span>Category</span><select aria-label="Capture category" disabled={saving} value={state.categoryId ?? ''} onChange={(event) => {
         const selected = event.target.value || null
         categoryId.current = selected;subcategoryId.current=null
@@ -243,7 +247,7 @@ export function Capture() {
       {state.available && !error && <footer className="capture-footer">
         <span className="capture-hint"><kbd>Shift ↵</kbd> new line <span className="capture-hint-divider">·</span> <kbd>Esc</kbd> close</span>
         {[...body].length > 47_500 && <span className="capture-count near-limit">{[...body].length.toLocaleString()} / 50,000</span>}
-        <button className="capture-submit" title="Save to Inbox (Enter)" onClick={() => void submit()} disabled={(!body.trim() && !state.images.length) || saving || imagePending || !state.available} aria-label="Save to Inbox"><span>{saving ? 'Saving…' : imagePending ? 'Pasting…' : 'Save'}</span><CornerDownLeft size={13} /></button>
+        <button className="capture-submit" title="Save capture (Enter)" onClick={() => void submit()} disabled={(!body.trim() && !state.images.length) || saving || imagePending || !state.available} aria-label="Save capture"><span>{saving ? 'Saving…' : imagePending ? 'Pasting…' : 'Save'}</span><CornerDownLeft size={13} /></button>
       </footer>}
       </div>
     </div>

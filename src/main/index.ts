@@ -1,3 +1,4 @@
+import { TasksQuerySchema, TaskWorkspaceMoveSchema, TaskWorkspaceUndoSchema, TaskWorkspaceCreateSchema } from '../shared/contracts'
 import { z as Z } from 'zod'
 import { ImageRefSchema } from '../shared/contracts'
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, Menu, powerMonitor, screen, shell, Tray, type Display } from 'electron'
@@ -323,20 +324,20 @@ function registerIpc() {
   roleHandler('capture:categories', 'capture', () => requireStore().taxonomy().categories)
   roleHandler('capture:subcategories', 'capture', () => requireStore().taxonomy().subcategories)
   roleHandler('capture:update-draft', 'capture', (_event, raw) => {
-    const input = raw as { body: string; generation: number; revision: number; categoryId?: string | null; subcategoryId?: string | null; tags?:string[] }
+    const input = raw as { body: string; generation: number; revision: number; categoryId?: string | null; subcategoryId?: string | null; tags?:string[]; captureKind?: 'inbox' | 'task' | 'note' }
     if (typeof input.body !== 'string' || [...input.body].length > 50_000 || input.body.length > 200_000 || !Number.isInteger(input.generation) || !Number.isInteger(input.revision) || (input.categoryId !== undefined && input.categoryId !== null && !/^[0-9a-f-]{36}$/i.test(input.categoryId))) throw new AppError('INVALID_INPUT', 'This draft is too large or invalid.')
-    const next = requireStore().updateDraft(input.body, input.generation, input.revision, input.categoryId ?? null, Z.string().uuid().nullable().optional().parse(input.subcategoryId), Z.array(TagNameSchema).max(20).optional().parse(input.tags))
+    const next = requireStore().updateDraft(input.body, input.generation, input.revision, input.categoryId ?? null, Z.string().uuid().nullable().optional().parse(input.subcategoryId), Z.array(TagNameSchema).max(20).optional().parse(input.tags), Z.enum(['inbox','task','note']).optional().parse(input.captureKind))
     rememberCaptureCategory(input.generation, input.revision)
     return { revision: next }
   })
   roleHandler('capture:flush-before-quit', 'capture', (_event, raw) => {
-    const input = raw as { body: string; generation: number; revision: number; categoryId?: string | null; subcategoryId?: string | null; tags?:string[] }
+    const input = raw as { body: string; generation: number; revision: number; categoryId?: string | null; subcategoryId?: string | null; tags?:string[]; captureKind?: 'inbox' | 'task' | 'note' }
     if (typeof input.body !== 'string' || [...input.body].length > 50_000 || input.body.length > 100_000 || !Number.isInteger(input.generation) || input.generation < 0 || !Number.isInteger(input.revision) || input.revision < 0 || (input.categoryId !== undefined && input.categoryId !== null && !/^[0-9a-f-]{36}$/i.test(input.categoryId))) throw new AppError('INVALID_INPUT', 'This draft is too large or invalid.')
-    return { revision: requireStore().updateDraft(input.body, input.generation, input.revision, input.categoryId ?? null, Z.string().uuid().nullable().optional().parse(input.subcategoryId), Z.array(TagNameSchema).max(20).optional().parse(input.tags)) }
+    return { revision: requireStore().updateDraft(input.body, input.generation, input.revision, input.categoryId ?? null, Z.string().uuid().nullable().optional().parse(input.subcategoryId), Z.array(TagNameSchema).max(20).optional().parse(input.tags), Z.enum(['inbox','task','note']).optional().parse(input.captureKind)) }
   })
   roleHandler('capture:submit', 'capture', (_event, raw) => {
     const input = CaptureSubmitSchema.parse(raw)
-    const id = requireStore().submitCapture(input.requestId, input.generation, input.body, input.categoryId ?? null, Z.string().uuid().nullable().optional().parse(input.subcategoryId), Z.array(TagNameSchema).max(20).optional().parse(input.tags))
+    const id = requireStore().submitCapture(input.requestId, input.generation, input.body, input.categoryId ?? null, Z.string().uuid().nullable().optional().parse(input.subcategoryId), Z.array(TagNameSchema).max(20).optional().parse(input.tags), Z.enum(['inbox','task','note']).optional().parse(input.captureKind))
     captureCategory = { categoryId: input.categoryId ?? null, subcategoryId: input.subcategoryId ?? null }
     broadcastTaxonomyChange()
     setImmediate(() => void makeAutomaticBackup())
@@ -403,6 +404,10 @@ function registerIpc() {
     if (response.response === 1) { requireStore().emptyTrash(); broadcastTaxonomyChange() }
   })
   roleHandler('notes:copy', 'notes', (_event, raw) => { const ids = IdsSchema.parse(raw); const value = requireStore().getDraftText(ids); clipboard.writeText(value); return value })
+  roleHandler('tasks:list', 'notes', (_event, raw) => requireStore().listWorkspace(TasksQuerySchema.parse(raw)))
+  roleHandler('tasks:move', 'notes', (_event, raw) => { const undo = requireStore().moveWorkspace(TaskWorkspaceMoveSchema.parse(raw)); broadcastTaxonomyChange(); return undo })
+  roleHandler('tasks:undo', 'notes', (_event, raw) => { requireStore().undoWorkspace(TaskWorkspaceUndoSchema.parse(raw)); broadcastTaxonomyChange() })
+  roleHandler('tasks:create', 'notes', (_event, raw) => { const input = TaskWorkspaceCreateSchema.parse(raw); requireStore().createWorkspaceTask(input.body, input.categoryId, input.intention, input.subcategoryId, input.tags); broadcastTaxonomyChange() })
   roleHandler('planner:inbox', 'notes', (_event, raw) => { const input = InboxPageSchema.parse(raw ?? {}); return requireStore().listInbox(input.cursor, input.limit) })
   roleHandler('planner:inbox-count', 'notes', () => requireStore().inboxCount())
   roleHandler('planner:unfile', 'notes', (_event, raw) => { const id = IdsSchema.parse([raw])[0]!; requireStore().unfilePlannerTask(id); broadcastChange() })
@@ -535,7 +540,8 @@ async function exportData(raw: unknown) {
     const task = taskMetadata.get(row.id)
     const effectivePlannedDate = plannedDate ?? task?.plannedDate ?? null
     const planState = kind !== 'task' ? '' : task?.plannedStartAt != null && task.plannedEndAt != null ? `Scheduled ${new Date(task.plannedStartAt).toLocaleString()} – ${new Date(task.plannedEndAt).toLocaleString()}` : effectivePlannedDate ? `Planned ${effectivePlannedDate}` : task?.ready ? 'Ready' : 'Backlog'
-    const metadata = [kind === 'task' ? `To-do${taskStatus === 'done' ? ' · Done' : ''}` : kind === 'inbox' ? 'Inbox' : 'Note', task?.categoryName ? `Category ${task.categoryName}` : '', task?.subcategoryName ? `Subcategory ${task.subcategoryName}`:'', planState, ...tags.map((tag) => `#${tag}`), dueDate ? `Due ${dueDate}` : ''].filter(Boolean).join(' · ')
+    const intentionState = task?.intention ? task.intention.kind === 'day' ? `Task plan ${task.intention.targetDate}` : task.intention.kind === 'week' ? `Task plan week of ${task.intention.targetDate}` : `Task plan ${task.intention.kind}` : ''
+    const metadata = [kind === 'task' ? `To-do${taskStatus === 'done' ? ' · Done' : ''}` : kind === 'inbox' ? 'Inbox' : 'Note', task?.categoryName ? `Category ${task.categoryName}` : '', task?.subcategoryName ? `Subcategory ${task.subcategoryName}`:'', intentionState, planState, ...tags.map((tag) => `#${tag}`), dueDate ? `Due ${dueDate}` : ''].filter(Boolean).join(' · ')
     const images = db.getNote(row.id)?.images ?? []
     const imageText = images.map((image, index) => `![Image ${index + 1}](${db.getItemImage(image.id)})`).join('\n\n')
     const body = [metadata, row.body, imageText].filter(Boolean).join('\n\n')

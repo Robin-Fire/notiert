@@ -98,13 +98,13 @@ app.whenReady().then(async () => {
     await wait(100)
   }
   await notes.webContents.executeJavaScript("[...document.querySelectorAll('.note-row-open')].find((item) => item.textContent.includes('Image capture')).click()")
-  await notes.webContents.executeJavaScript("document.querySelector('.detail-panel .image-section-toggle').click()")
+  await notes.webContents.executeJavaScript("(() => { const button=document.querySelector('.task-detail-dialog .image-section-toggle'); if(button?.getAttribute('aria-expanded')==='false')button.click(); })()")
   for (let attempt = 0; attempt < 30; attempt++) {
-    const rendered = await notes.webContents.executeJavaScript("Boolean(document.querySelector('.detail-panel .attachment-thumbnails img'))")
+    const rendered = await notes.webContents.executeJavaScript("Boolean(document.querySelector('.task-detail-dialog .attachment-thumbnails img'))")
     if (rendered) break
     await wait(100)
   }
-  const imageRendered = await notes.webContents.executeJavaScript("document.querySelector('.detail-panel .attachment-thumbnails img')?.getAttribute('src')?.startsWith('data:image/png;base64,') ?? false")
+  const imageRendered = await notes.webContents.executeJavaScript("document.querySelector('.task-detail-dialog .attachment-thumbnails img')?.getAttribute('src')?.startsWith('data:image/png;base64,') ?? false")
   if (!imageRendered) throw new Error('Saved image did not render in item details')
   process.stdout.write(`capture_saved=${count} categorized_capture_saved=${categorizedCount} visible_in_all_items=${visible} image_capture_saved=${imageCount} image_rendered=${imageRendered}\n`)
   app.exit(0)

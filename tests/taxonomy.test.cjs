@@ -91,7 +91,7 @@ test('v11 migration preserves all data and applies only unambiguous matching sub
     for (const id of [multiple,foreignOnly,unassigned,empty]) assert.equal(f.store.getNote(id).subcategoryId,null)
     for (const before of snapshot) {
       const after = f.store.getNote(before.id)
-      assert.deepEqual({ ...after, subcategoryId: null }, { ...before, subcategoryId: null })
+      assert.deepEqual({ ...after, subcategoryId: null, intention: undefined }, { ...before, subcategoryId: null, intention: undefined })
     }
     assert.deepEqual(f.store.db.prepare('SELECT * FROM note_tags ORDER BY note_id,tag_id').all(), links)
     assert.deepEqual(f.store.db.prepare('SELECT id,backlog_position,task_position FROM notes ORDER BY id').all(), priority)

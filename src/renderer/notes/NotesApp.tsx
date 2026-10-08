@@ -1,15 +1,14 @@
+import { horizonOf, horizonLabels } from '../../shared/taskHorizons'
 import { ColorPalette } from '../components/ColorPalette'
 import { TagFilter } from '../components/TagFilter'
 import { ItemDetailDialog } from '../components/ItemDetailDialog'
 import { TaxonomyNav } from '../components/TaxonomyNav'
 import { MigrationReviewPanel } from '../components/MigrationReviewPanel'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
-import { Archive, ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, CircleHelp, Clock3, Copy, Download, FileText, FolderKanban, FolderOpen, GripVertical, Hash, Info, Monitor, MoreHorizontal, Palette, Plus, Search, Settings as SettingsIcon, Shield, Sun, Trash2, Undo2, X, CalendarDays } from 'lucide-react'
+import { Archive, ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, CircleHelp, Copy, Download, FileText, FolderKanban, FolderOpen, GripVertical, Hash, Info, Monitor, MoreHorizontal, Palette, Plus, Search, Settings as SettingsIcon, Shield, Sun, Trash2, Undo2, X, CalendarDays } from 'lucide-react'
 import type { Category, Note, NoteFilter, NotePage, Settings, SettingsUpdate, Subcategory, TagRecord } from '../../shared/contracts'
 import { localDateBounds, toLocalISODate } from '../../shared/plannerDates'
-import { InboxView } from '../inbox/InboxView'
 import { CalendarSettings } from '../calenban/CalendarSettings'
-import { BacklogView } from '../backlog/BacklogView'
 import { collectTags, TagEditor } from '../components/TagEditor'
 import { ImageIndicator, ItemImages } from '../components/ItemImages'
 import { resultValue } from '../apiResult'
@@ -18,10 +17,10 @@ import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, v
 import { CSS } from '@dnd-kit/utilities'
 
 const CalendarView = lazy(() => import('../calenban/CalendarView').then((module) => ({ default: module.CalendarView })))
-const ReadyView = lazy(() => import('../ready/ReadyView').then((module) => ({ default: module.ReadyView })))
+const TasksView = lazy(() => import('../tasks/TasksView').then(module => ({ default: module.TasksView })))
 
 type NoteDetail = Note & { meetingTitle: string | null }
-type ViewName = 'all' | 'inbox' | 'calenban' | 'ready' | 'backlog' | 'later' | 'trash' | 'settings' | 'tag' | 'category' | 'review'
+type ViewName = 'tasks' | 'all' | 'inbox' | 'calenban' | 'ready' | 'backlog' | 'later' | 'trash' | 'settings' | 'tag' | 'category' | 'review'
 type ItemKind = Note['kind']
 const itemKinds: { value: ItemKind; label: string }[] = [{ value: 'inbox', label: 'Inbox' }, { value: 'note', label: 'Notes' }, { value: 'task', label: 'To-dos' }]
 const dateOptions = [{ value: 'all', label: 'All time' }, { value: 'today', label: 'Today' }, { value: 'last7', label: 'Last 7 days' }, { value: 'custom', label: 'Custom' }]
@@ -89,6 +88,7 @@ export function NotesApp() {
   activeDetailId.current = detailId
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
+  const [browserCaptureKind, setBrowserCaptureKind] = useState<'inbox' | 'task' | 'note'>('inbox')
   const [browserCaptureOpen, setBrowserCaptureOpen] = useState(false)
   const [browserCaptureText, setBrowserCaptureText] = useState('')
   const [browserCaptureTags,setBrowserCaptureTags]=useState<string[]>([])
@@ -202,7 +202,7 @@ export function NotesApp() {
 
   async function submitBrowserCapture() {
     if (!browserCaptureText.trim()) return
-    try { resultValue(await window.captured.capture.submit({ requestId: crypto.randomUUID(), generation: 0, body: browserCaptureText, categoryId: browserCaptureCategoryId,subcategoryId:browserCaptureSubcategoryId,tags:collectTags(browserCaptureTags,browserCaptureTagDraft) })); setBrowserCaptureText(''); setBrowserCaptureTags([]);setBrowserCaptureTagDraft(''); setBrowserCaptureOpen(false); nav('inbox') }
+    try { resultValue(await window.captured.capture.submit({ requestId: crypto.randomUUID(), generation: 0, body: browserCaptureText, captureKind: browserCaptureKind, categoryId: browserCaptureCategoryId,subcategoryId:browserCaptureSubcategoryId,tags:collectTags(browserCaptureTags,browserCaptureTagDraft) })); setBrowserCaptureText(''); setBrowserCaptureTags([]);setBrowserCaptureTagDraft(''); setBrowserCaptureKind('inbox'); setBrowserCaptureOpen(false); nav('inbox') }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Capture could not be saved.') }
   }
 
@@ -301,7 +301,7 @@ export function NotesApp() {
       {selectionMode ? <input className="row-select" type="checkbox" aria-label="Select item" checked={selected.includes(note.id)} onChange={() => toggleSelected(note.id)} /> : note.kind === 'task' && <input className="note-completion-toggle" type="checkbox" aria-label={`${note.completedAt != null ? 'Reopen' : 'Mark as done'} to-do: ${note.body.trim() ? excerpt(note.body).slice(0, 80) : 'without a title'}`} checked={note.completedAt != null} onChange={(event) => void setTaskCompleted(note.id, event.target.checked)} />}
       <button className="note-row-open" aria-label={`Open ${note.kind === 'note' ? 'note' : note.kind === 'task' ? 'to-do' : 'inbox item'} ${note.body.trim() ? excerpt(note.body).slice(0, 80) : note.images.length ? 'Image capture' : 'Empty item'}`} onClick={() => requestEditorLeave(() => void openNote(note.id))} onFocus={() => setFocusedId(note.id)}>
         <span className="note-preview">{note.body.trim() ? excerpt(note.body) : note.images.length ? 'Image capture' : 'Empty item'}</span>
-        <span className="note-meta"><time>{formatTime(view === 'trash' ? note.deletedAt ?? note.createdAt : note.createdAt)}</time><span className="note-kind-chip">{kindLabel(note.kind)}</span>{note.completedAt != null && <span className="note-completed-chip">Done</span>}{note.later && <span className="note-completed-chip later-chip">Later</span>}{note.subcategoryId&&<span className="subcategory-label">{(view==='category'?'':(categories.find(item=>item.id===note.categoryId)?.name??'')+' / ')+subcategories.find(item=>item.id===note.subcategoryId)?.name}</span>}<ImageIndicator count={note.images.length} />{note.tags.map((tag) => <span className="note-tag-chip" key={tag} style={{ color: tagRecords.find((record) => record.name.toLocaleLowerCase() === tag.toLocaleLowerCase())?.color }}>{tag}</span>)}</span>
+        <span className="note-meta"><time>{formatTime(view === 'trash' ? note.deletedAt ?? note.createdAt : note.createdAt)}</time><span className="note-kind-chip">{kindLabel(note.kind)}</span>{note.completedAt != null && <span className="note-completed-chip">Done</span>}{note.kind === 'task' && note.intention && <span className="note-completed-chip">{horizonLabels[horizonOf(note.intention, toLocalISODate(new Date()))]}</span>}{note.subcategoryId&&<span className="subcategory-label">{(view==='category'?'':(categories.find(item=>item.id===note.categoryId)?.name??'')+' / ')+subcategories.find(item=>item.id===note.subcategoryId)?.name}</span>}<ImageIndicator count={note.images.length} />{note.tags.map((tag) => <span className="note-tag-chip" key={tag} style={{ color: tagRecords.find((record) => record.name.toLocaleLowerCase() === tag.toLocaleLowerCase())?.color }}>{tag}</span>)}</span>
       </button>
     </article>
 
@@ -359,11 +359,8 @@ export function NotesApp() {
       <button type="button" className="sidebar-capture" aria-label="Capture" title="Capture a thought" onClick={() => window.captured.windows.openCapture()}><Plus size={16} /><span>Capture</span><kbd>{settings?.shortcut.replace('Control', 'Ctrl') ?? 'Ctrl+N'}</kbd></button>
       <div className="side-label">WORKSPACE</div>
       <nav className="side-nav" aria-label="Main navigation">
-        <button className={view === 'inbox' ? 'active' : ''} onClick={() => nav('inbox')}><Archive size={16} /><span>Inbox</span><span className="side-count">{inboxCount || ''}</span></button>
+        <button className={['tasks','inbox','backlog','ready','later'].includes(view) ? 'active' : ''} onClick={() => nav('tasks')}><FolderKanban size={16} /><span>Tasks</span><span className="side-count" title="New captures">{inboxCount || ''}</span></button>
         <button className={view === 'calenban' ? 'active' : ''} onClick={() => nav('calenban')}><CalendarDays size={16} /><span>Calendar</span></button>
-        <button className={view === 'backlog' ? 'active' : ''} onClick={() => nav('backlog')}><FolderKanban size={16} /><span>Backlog</span></button>
-        <button className={view === 'ready' ? 'active' : ''} onClick={() => nav('ready')}><CheckCircle2 size={16} /><span>Ready</span></button>
-        <button className={view === 'later' ? 'active' : ''} onClick={() => nav('later')}><Clock3 size={16} /><span>Later</span></button>
         <button className={view === 'all' ? 'active' : ''} onClick={() => nav('all')}><FileText size={16} /><span>All items</span><span className="side-count">{view === 'all' ? total : ''}</span></button>
       </nav>
       <TaxonomyNav categories={categories} subcategories={subcategories} tags={tagRecords} activeCategory={view==='category'?selectedCategoryId:null} activeSubcategory={view==='category'?selectedSubcategoryId:null} activeTag={view==='tag'?selectedTagId:null} onChanged={()=>{void loadTags();void loadNotes()}} onError={setError}
@@ -382,11 +379,8 @@ export function NotesApp() {
       {upgradeNotice&&view!=='review'&&<div className="taxonomy-upgrade-notice">Your existing tags were preserved. {reviewCount} items need a subcategory review. <button onClick={()=>nav('review')}>Review assignments</button><button aria-label="Dismiss taxonomy upgrade notice" onClick={()=>{void window.captured.notes.acknowledgeMigration().then(result=>{if(result.ok)setUpgradeNotice(false)})}}>Dismiss</button></div>}
       {view === 'settings' ? <SettingsPanel settings={settings} displays={displays} saveSettings={saveSettings} onBackup={async () => { try { resultValue(await window.captured.data.backup()); setToast('Backup created') } catch (reason) { setError(reason instanceof Error ? reason.message : 'Backup failed.') } }} onRestore={async () => { try { resultValue(await window.captured.data.restore()); setToast('Backup restored') } catch (reason) { setError(reason instanceof Error ? reason.message : 'Restore failed.') } }} firstRun={firstRun} onFinish={finishFirstRun} onTrayOnly={continueTrayOnly} recordingShortcut={recordingShortcut} setRecordingShortcut={setRecordingShortcut} onShortcutKey={onShortcutKey} />
       : view === 'review' ? <MigrationReviewPanel categories={categories} subcategories={subcategories} onChanged={()=>{void loadTags();void loadNotes()}} onOpen={(id,deleted)=>requestEditorLeave(()=>{setView(deleted?'trash':'all');clearFilters();void openNote(id)})}/>
-      : view === 'inbox' ? <InboxView />
+      : ['tasks','inbox','backlog','ready','later'].includes(view) ? <Suspense fallback={<div className="backlog-page" role="status">Loading tasks…</div>}><TasksView categories={categories} subcategories={subcategories} tags={tagRecords} taxonomyReady={taxonomyLoaded} expandCaptures={view === 'inbox'} /></Suspense>
       : view === 'calenban' ? <Suspense fallback={<div className="calenban-page" role="status">Loading calendar…</div>}><CalendarView settings={settings} /></Suspense>
-      : view === 'backlog' ? <BacklogView categories={categories} subcategories={subcategories} tags={tagRecords} taxonomyReady={taxonomyLoaded} />
-      : view === 'ready' ? <Suspense fallback={<div className="backlog-page" role="status">Loading Ready…</div>}><ReadyView categories={categories} subcategories={subcategories} taxonomyReady={taxonomyLoaded} /></Suspense>
-      : view === 'later' ? <BacklogView laterOnly categories={categories} subcategories={subcategories} tags={tagRecords} taxonomyReady={taxonomyLoaded} />
       : <>
         <header className="main-header">
           <div className="title-stack"><div className="eyebrow">{view === 'trash' ? 'ARCHIVE' : view === 'tag' || view === 'category' ? 'CATEGORY / TAG' : 'YOUR NOTES & TO-DOS'}</div><h1>{view === 'trash' ? 'Trash' : view === 'tag' ? selectedTag?.name ?? 'Tag' : view === 'category' ? `${selectedCategory?.name??'Category'}${selectedSubcategoryId?' / '+(subcategories.find(item=>item.id===selectedSubcategoryId)?.name??'Subcategory'):noSubcategory?' / No subcategory':''}` : 'All items'} <span className="title-count">{total.toLocaleString()}</span></h1></div>
@@ -434,8 +428,8 @@ export function NotesApp() {
       </>}
     </main>
     {toast && <div className="toast" role="status"><Check size={15} />{toast}</div>}
-    {browserCaptureOpen && <div className="modal-backdrop"><form className="dialog-card browser-capture-dialog" role="dialog" aria-modal="true" aria-labelledby="browser-capture-title" onSubmit={(event) => { event.preventDefault(); void submitBrowserCapture() }}><div className="event-dialog-kicker">QUICK CAPTURE</div><h2 id="browser-capture-title">Capture a thought</h2><textarea autoFocus aria-label="Capture text" placeholder="What’s on your mind?" value={browserCaptureText} onChange={(event) => setBrowserCaptureText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setBrowserCaptureOpen(false) }} /><label className="browser-capture-category">Category <select aria-label="Capture category" value={browserCaptureCategoryId ?? ''} onChange={(event) => {setBrowserCaptureCategoryId(event.target.value || null);setBrowserCaptureSubcategoryId(null)}}><option value="">Unassigned</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>Subcategory<select aria-label="Capture subcategory" disabled={!browserCaptureCategoryId} value={browserCaptureSubcategoryId??''} onChange={event=>setBrowserCaptureSubcategoryId(event.target.value||null)}><option value="">No subcategory</option>{subcategories.filter(sub=>sub.categoryId===browserCaptureCategoryId).map(sub=><option key={sub.id} value={sub.id}>{sub.name}</option>)}</select></label><TagEditor tags={browserCaptureTags} draft={browserCaptureTagDraft} onTagsChange={setBrowserCaptureTags} onDraftChange={setBrowserCaptureTagDraft} suggestions={availableTags}/>
-<div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setBrowserCaptureOpen(false)}>Cancel</button><button type="submit" className="button primary" disabled={!browserCaptureText.trim()}>Save to Inbox</button></div></form></div>}
+    {browserCaptureOpen && <div className="modal-backdrop"><form className="dialog-card browser-capture-dialog" role="dialog" aria-modal="true" aria-labelledby="browser-capture-title" onSubmit={(event) => { event.preventDefault(); void submitBrowserCapture() }}><div className="event-dialog-kicker">QUICK CAPTURE</div><h2 id="browser-capture-title">Capture a thought</h2><textarea autoFocus aria-label="Capture text" placeholder="What’s on your mind?" value={browserCaptureText} onChange={(event) => setBrowserCaptureText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setBrowserCaptureOpen(false) }} /><label>Save as<select aria-label="Capture type" value={browserCaptureKind} onChange={event=>setBrowserCaptureKind(event.target.value as typeof browserCaptureKind)}><option value="inbox">Capture · sort later</option><option value="task">Task</option><option value="note">Note</option></select></label><label className="browser-capture-category">Category <select aria-label="Capture category" value={browserCaptureCategoryId ?? ''} onChange={(event) => {setBrowserCaptureCategoryId(event.target.value || null);setBrowserCaptureSubcategoryId(null)}}><option value="">Unassigned</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>Subcategory<select aria-label="Capture subcategory" disabled={!browserCaptureCategoryId} value={browserCaptureSubcategoryId??''} onChange={event=>setBrowserCaptureSubcategoryId(event.target.value||null)}><option value="">No subcategory</option>{subcategories.filter(sub=>sub.categoryId===browserCaptureCategoryId).map(sub=><option key={sub.id} value={sub.id}>{sub.name}</option>)}</select></label><TagEditor tags={browserCaptureTags} draft={browserCaptureTagDraft} onTagsChange={setBrowserCaptureTags} onDraftChange={setBrowserCaptureTagDraft} suggestions={availableTags}/>
+<div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setBrowserCaptureOpen(false)}>Cancel</button><button type="submit" className="button primary" disabled={!browserCaptureText.trim()}>{browserCaptureKind === 'inbox' ? 'Save capture' : browserCaptureKind === 'task' ? 'Save task' : 'Save note'}</button></div></form></div>}
     {editItem && <ItemDetailDialog key={editItem.id} task={editItem} suggestions={availableTags} onClose={() => setEditItem(null)} onChanged={() => { setEditItem(null); setToast('Changes saved'); void loadNotes(); if (detailId) void openNote(detailId) }} />}
   </div>
 }

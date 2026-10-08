@@ -21,8 +21,11 @@ app.whenReady().then(async () => {
     await wait(100)
   }
   if(!window)throw Error('Notes window did not load')
-  window.setSize(1180,800)
-  const evaluate=code=>window.webContents.executeJavaScript(code)
+  window.setSize(1400,800)
+  window.webContents.setBackgroundThrottling(false)
+  const evaluate=async code=>{try{return await window.webContents.executeJavaScript(code)}catch(error){throw Error(`${code}: ${error.message}`)}}
+  const until=async code=>{for(let i=0;i<80;i++){if(await evaluate(code))return;await wait(100)}throw Error(`Timed out: ${code}: ${await evaluate("document.querySelector('main')?.textContent")}`)}
+  const expandUnplanned=async()=>{await until(`Boolean(document.querySelector('.tasks-page'))`);await evaluate(`document.querySelector('.tasks-board > [data-horizon="unplanned"].is-collapsed .tasks-column-heading button')?.click()`)}
   const errors=[]
   window.webContents.on('console-message',event=>{if(event.level==='error')errors.push(event.message)})
   const seeded=await evaluate(`(async()=>{
@@ -71,16 +74,20 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate(`document.querySelector('.task-schedule-fields select').value`),'backlog')
   await screenshot('item-edit-all-light.png')
   await close()
-  await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim()==='Backlog').click()`)
+  await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Tasks')).click()`)
   await wait(300)
-  await evaluate(`document.querySelector('.backlog-task-title').click()`)
+  await expandUnplanned()
+  await until(`Boolean(document.querySelector('.tasks-card-body'))`)
+  await evaluate(`document.querySelector('.tasks-card-body').click()`)
   await checkImages()
   await screenshot('item-edit-backlog-light.png')
-  await evaluate(`[...document.querySelectorAll('.task-detail-actions button')].find(button=>button.textContent.trim()==='Return to Inbox').click()`)
+  await evaluate(`[...document.querySelectorAll('.task-detail-actions button')].find(button=>button.textContent.trim()==='Return to captures').click()`)
   await wait(200)
-  await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Inbox')).click()`)
+  await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Tasks')).click()`)
   await wait(300)
-  await evaluate(`document.querySelector('.inbox-card-body').click()`)
+  await expandUnplanned()
+  await until(`Boolean(document.querySelector('.tasks-card-body'))`)
+  await evaluate(`document.querySelector('.tasks-card-body').click()`)
   await checkImages()
   assert.equal(await evaluate(`document.querySelector('h2#task-detail-title').textContent`),'Edit inbox item')
   assert.equal(await evaluate(`document.querySelector('.task-schedule-fields')===null`),true)
@@ -89,7 +96,7 @@ app.whenReady().then(async () => {
   await wait(100)
   await evaluate(`[...document.querySelectorAll('.task-detail-actions button')].find(button=>button.textContent.trim()==='Save').click()`)
   await wait(200)
-  assert.equal(await evaluate(`document.querySelector('.inbox-page')!==null && document.querySelector('.task-detail-dialog')===null`),true)
+  assert.equal(await evaluate(`document.querySelector('.tasks-page')!==null && document.querySelector('.task-detail-dialog')===null`),true)
   saved=await evaluate(`window.captured.notes.get(${JSON.stringify(seeded.task.id)})`)
   assert.equal(saved.value.body,'Edited in Inbox');assert.equal(saved.value.images.length,1)
   assert.equal(errors.length,0,errors.join('\n'))

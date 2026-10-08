@@ -2,6 +2,7 @@
 // Never use this helper on an application profile.
 module.exports = function legacyTaxonomy(store, assignments = []) {
   store.db.exec(`
+    DROP TRIGGER task_intention_insert; DROP TRIGGER task_intention_classify; DROP TRIGGER task_intention_unfile; DROP TABLE task_intentions; ALTER TABLE drafts DROP COLUMN capture_kind;
     DROP TRIGGER notes_subcategory_insert; DROP TRIGGER notes_subcategory_update;
     DROP TRIGGER drafts_subcategory_insert; DROP TRIGGER drafts_subcategory_update;
     DROP TRIGGER subcategory_parent_update; DROP TRIGGER category_clear_assignments;

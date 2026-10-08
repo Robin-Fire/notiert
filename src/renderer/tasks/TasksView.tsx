@@ -1,0 +1,210 @@
+import './tasks.css'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { closestCenter, pointerWithin, DndContext, DragOverlay, KeyboardSensor, PointerSensor, useDroppable, useSensor, useSensors, type DragEndEvent, type CollisionDetection } from '@dnd-kit/core'
+import { SortableContext, useSortable, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { Archive, CalendarDays, ChevronDown, Columns3, FileText, FolderKanban, GripVertical, Plus, Search, Undo2, X } from 'lucide-react'
+import type { Category, Subcategory, TagRecord, TasksPage, TasksQuery, TaskWorkspaceItem, TaskWorkspaceUndo } from '../../shared/contracts'
+import { horizons, horizonLabels, horizonOf, intentionFor, isCarriedOver, type Horizon, type TaskIntention } from '../../shared/taskHorizons'
+import { toLocalISODate } from '../../shared/plannerDates'
+import { resultValue } from '../apiResult'
+import { ItemDetailDialog } from '../components/ItemDetailDialog'
+import { ImageIndicator } from '../components/ItemImages'
+import { collectTags, TagEditor } from '../components/TagEditor'
+import { CategoryPicker } from '../components/CategoryPicker'
+import { TagFilter, type TagFilterValue } from '../components/TagFilter'
+
+const taskCollision: CollisionDetection = args => {
+  const hits = pointerWithin(args)
+  if (!hits.length) return closestCenter(args)
+  const cards = hits.filter(hit => !String(hit.id).startsWith('section:') && !String(hit.id).startsWith('column:'))
+  return cards.length ? cards : hits.filter(hit => String(hit.id).startsWith('section:')).length ? hits.filter(hit => String(hit.id).startsWith('section:')) : hits
+}
+
+type Layout = 'time' | 'category'
+type Destination = { horizon: Horizon; categoryId?: string | null; beforeId?: string | null }
+const emptyCounts = Object.fromEntries(horizons.map(h => [h, 0])) as TasksPage['counts']
+function preference<T>(key: string, fallback: T): T { try { return JSON.parse(localStorage.getItem(key) ?? 'null') ?? fallback } catch { return fallback } }
+function remember(key: string, value: unknown) { try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* Preferences are optional. */ } }
+function captureTags(item: TaskWorkspaceItem) {
+  if (item.kind !== 'inbox') return item.tags
+  const draft = preference<{ tags?: string[]; draft?: string }>(`inbox-tags:${item.id}`, {})
+  return Array.isArray(draft.tags) && draft.tags.every(tag => typeof tag === 'string') ? collectTags(draft.tags, typeof draft.draft === 'string' ? draft.draft : '') : item.tags
+}
+
+export function TasksView({ categories, subcategories, tags, taxonomyReady, expandCaptures = false }: { categories: Category[]; subcategories: Subcategory[]; tags: TagRecord[]; taxonomyReady: boolean; expandCaptures?: boolean }) {
+  const [layout, setLayout] = useState<Layout>(() => preference<Layout>('tasks-layout-v1', 'time') === 'category' ? 'category' : 'time')
+  const [collapsed, setCollapsed] = useState<string[]>(() => preference('tasks-collapsed-v1', []))
+  const [compact, setCompact] = useState(() => window.innerWidth < 1250)
+  const [expandedCompact, setExpandedCompact] = useState<string[]>([])
+  const [capturesOpen, setCapturesOpen] = useState(() => expandCaptures || preference<boolean>('tasks-captures-v1', true))
+  const [today, setToday] = useState(() => toLocalISODate(new Date()))
+  const [query, setQuery] = useState(''), [search, setSearch] = useState('')
+  const [category, setCategory] = useState('all'), [subcategory, setSubcategory] = useState('')
+  const [tagFilter, setTagFilter] = useState<TagFilterValue>({ included: [], excluded: [] })
+  const [completed, setCompleted] = useState(false)
+  const [pages, setPages] = useState<Partial<Record<Horizon, TasksPage>>>({})
+  const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState('')
+  const [detail, setDetail] = useState<TaskWorkspaceItem | null>(null)
+  const [undo, setUndo] = useState<TaskWorkspaceUndo | null>(null)
+  const [notice, setNotice] = useState('')
+  const [active, setActive] = useState<TaskWorkspaceItem | null>(null)
+  const [create, setCreate] = useState<Destination | null>(null)
+  const [chooseDate, setChooseDate] = useState<TaskWorkspaceItem | null>(null)
+  const lock = useRef(false), request = useRef(0), board = useRef<HTMLDivElement>(null)
+  const filters = useMemo<TasksQuery>(() => ({ today, query: search, ...(category === 'all' ? {} : { categoryId: category === 'unassigned' ? null : category }), ...(subcategory ? { subcategoryId: subcategory } : {}), tags: tagFilter.included, excludedTags: tagFilter.excluded, completed, limit: 50 }), [today, search, category, subcategory, tagFilter, completed])
+  useEffect(() => { const timer = setTimeout(() => setSearch(query.trim()), 150); return () => clearTimeout(timer) }, [query])
+  const refresh = useCallback(async (clearError = true) => {
+    const current = ++request.current
+    setLoading(true)
+    try {
+      const results = await Promise.all(horizons.map(async horizon => [horizon, resultValue(await window.captured.taskWorkspace.list({ ...filters, horizon }))] as const))
+      if (current !== request.current) return
+      setPages(Object.fromEntries(results)); if (clearError) setError('')
+    } catch (reason) { if (current === request.current) setError(reason instanceof Error ? reason.message : 'Tasks could not be loaded.') }
+    finally { if (current === request.current) setLoading(false) }
+  }, [filters])
+  const latestRefresh = useRef(refresh)
+  latestRefresh.current = refresh
+  useEffect(() => { void refresh(); const unsubscribe = window.captured.planner.onChanged(() => { if (!lock.current) void refresh() }); return () => { request.current++; unsubscribe() } }, [refresh])
+  useEffect(() => {
+    const wake = () => { const day = toLocalISODate(new Date()); setToday(day); if (day === today) void refresh() }
+    const midnight = new Date(); midnight.setHours(24, 0, 0, 10)
+    const timer = setTimeout(wake, Math.max(10, midnight.getTime() - Date.now()))
+    window.addEventListener('focus', wake)
+    const visible = () => { if (document.visibilityState === 'visible') wake() }
+    document.addEventListener('visibilitychange', visible)
+    return () => { clearTimeout(timer); window.removeEventListener('focus', wake); document.removeEventListener('visibilitychange', visible) }
+  }, [today, refresh])
+  useEffect(() => { const resize = () => setCompact(window.innerWidth < 1250); window.addEventListener('resize', resize); return () => window.removeEventListener('resize', resize) }, [])
+  useEffect(() => { if (expandCaptures) { setCapturesOpen(true); setExpandedCompact(current => current.includes('unplanned') ? current : [...current, 'unplanned']) } }, [expandCaptures])
+  const counts = pages.unplanned?.counts ?? emptyCounts
+  const items = useMemo(() => horizons.flatMap(h => pages[h]?.items ?? []), [pages])
+  const captures = items.filter(item => item.kind === 'inbox')
+  const taskItems = items.filter(item => item.kind === 'task')
+  const total = Object.values(counts).reduce((a, b) => a + b, 0)
+  const visibleHorizons = horizons.filter(h => h !== 'upcoming' || counts.upcoming > 0)
+  const categoryMap = useMemo(() => new Map(categories.map(item => [item.id, item.name])), [categories])
+  const subcategoryMap = useMemo(() => new Map(subcategories.map(item => [item.id, item])), [subcategories])
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }))
+
+  async function mutate(action: () => Promise<void>) {
+    if (lock.current) return
+    lock.current = true; setBusy(true); setError('')
+    try { await action() } catch (reason) { setError(reason instanceof Error ? reason.message : 'The change could not be saved.'); setNotice('') }
+    finally { lock.current = false; setBusy(false); await latestRefresh.current(false) }
+  }
+  function move(item: TaskWorkspaceItem, destination: Destination, classify?: 'task' | 'note', specific?: TaskIntention) {
+    if (destination.horizon === 'upcoming' && !specific) { setChooseDate(item); return }
+    void mutate(async () => {
+      const intention = specific ?? (item.kind === 'task' && destination.horizon === item.horizon ? item.intention : intentionFor(destination.horizon as Exclude<Horizon, 'upcoming'>, today))
+      const snapshot = resultValue(await window.captured.taskWorkspace.move({ id: item.id, expectedRevision: item.revision, intention, beforeId: destination.beforeId ?? null, categoryId: destination.categoryId, today, classify, tags: captureTags(item) }))
+      setUndo(snapshot); setNotice(classify === 'note' ? 'Filed as a note.' : `Moved to ${horizonLabels[horizonOf(intention, today)]}.`)
+      if (item.kind === 'inbox') { try { localStorage.removeItem(`inbox-tags:${item.id}`) } catch { /* Saved successfully. */ } }
+    })
+  }
+  async function loadMore(horizon: Horizon) {
+    const cursor = pages[horizon]?.nextCursor
+    if (!cursor || busy || loading) return
+    const current = request.current
+    setLoading(true)
+    try {
+      const page = resultValue(await window.captured.taskWorkspace.list({ ...filters, horizon, cursor }))
+      if (current === request.current) setPages(previous => ({ ...previous, [horizon]: { ...page, items: [...(previous[horizon]?.items ?? []), ...page.items] } }))
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'More tasks could not be loaded.'); void refresh() }
+    finally { if (current === request.current) setLoading(false) }
+  }
+  function drop(event: DragEndEvent) {
+    setActive(null)
+    if (!event.over || event.active.id === event.over.id) return
+    const item = items.find(item => item.id === event.active.id)
+    if (!item) return
+    const target = event.over.data.current as Destination & { item?: TaskWorkspaceItem } | undefined
+    if (!target) return
+    let beforeId = target.item?.kind === 'task' ? target.item.id : null
+    if (target.item?.kind === 'task') {
+      const group = items.filter(card => card.horizon === target.horizon && (target.categoryId === undefined || card.categoryId === target.categoryId))
+      if (group.findIndex(card => card.id === item.id) < group.findIndex(card => card.id === target.item!.id) && item.horizon === target.horizon) beforeId = group[group.findIndex(card => card.id === target.item!.id) + 1]?.id ?? null
+    }
+    move(item, { ...target, beforeId }, undefined, target.horizon === 'upcoming' ? target.item?.intention : undefined)
+  }
+  function isCollapsed(key: string) { return collapsed.includes(key) || compact && ['unplanned', 'later'].includes(key) && !expandedCompact.includes(key) }
+  function toggleCollapse(key: string) { if (compact && ['unplanned', 'later'].includes(key) && !collapsed.includes(key)) { setExpandedCompact(current => current.includes(key) ? current.filter(item => item !== key) : [...current, key]); return } setCollapsed(current => { const next = current.includes(key) ? current.filter(item => item !== key) : [...current, key]; remember('tasks-collapsed-v1', next); return next }) }
+  function toggleCaptures() { setCapturesOpen(current => { remember('tasks-captures-v1', !current); return !current }) }
+  function card(item: TaskWorkspaceItem, categoryId?: string | null) {
+    return <TaskCard key={item.id} item={item} categoryName={categoryMap.get(item.categoryId ?? '') ?? 'Unassigned'} subcategory={subcategoryMap.get(item.subcategoryId ?? '')} today={today} busy={busy} categoryId={categoryId} onOpen={() => setDetail(item)} onMove={horizon => horizon === 'date' ? setChooseDate(item) : move(item, { horizon, categoryId })} onNote={() => move(item, { horizon: 'unplanned' }, 'note')} onComplete={() => void mutate(async () => { resultValue(await window.captured.planner.setTaskCompleted({ id: item.id, completed: !completed })); setUndo(null); setNotice(completed ? 'Task reopened.' : 'Task completed.') })} />
+  }
+  function section(horizon: Horizon, group: TaskWorkspaceItem[], categoryId?: string | null) {
+    return <TaskSection key={horizon} horizon={horizon} categoryId={categoryId} dragging={!!active} count={group.length} onAdd={() => setCreate({ horizon, categoryId })}><SortableContext items={group.map(item => item.id)} strategy={verticalListSortingStrategy}>{group.map(item => card(item, categoryId))}</SortableContext></TaskSection>
+  }
+  const capturePanel = <div className="tasks-captures"><button type="button" className="tasks-capture-toggle" onClick={toggleCaptures} aria-expanded={capturesOpen}><Archive size={14} /><b>New captures</b><span>{pages.unplanned?.captureTotal ?? captures.length}</span><ChevronDown size={14} className={capturesOpen ? '' : 'is-closed'} /></button>{capturesOpen && <div className="tasks-capture-list"><SortableContext items={captures.map(item => item.id)} strategy={verticalListSortingStrategy}>{captures.map(item => card(item))}</SortableContext>{!captures.length && <p className="tasks-empty">New captures land here. Choose a horizon or file a note.</p>}</div>}</div>
+
+  return <section className="tasks-page" aria-label="Tasks workspace" aria-busy={busy}>
+    <header className="tasks-heading"><div><span className="eyebrow">YOUR WORK, AT A GLANCE</span><h1>Tasks <span className="title-count">{total}</span></h1><p>Choose when. Keep the whole week in view.</p></div><button type="button" className="button primary small" disabled={busy || !taxonomyReady} onClick={() => setCreate({ horizon: 'unplanned' })}><Plus size={14} /> Add task</button></header>
+    <div className="tasks-toolbar"><label className="search-box"><Search size={14} /><input aria-label="Search tasks" placeholder="Search tasks or tags…" value={query} onChange={event => setQuery(event.target.value)} />{query && <button aria-label="Clear task search" onClick={() => setQuery('')}><X size={13} /></button>}</label><select aria-label="Filter tasks by category" value={category} onChange={event => { setCategory(event.target.value); setSubcategory('') }}><option value="all">All categories</option><option value="unassigned">Unassigned</option>{categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select>{category !== 'all' && category !== 'unassigned' && <select aria-label="Filter tasks by subcategory" value={subcategory} onChange={event => setSubcategory(event.target.value)}><option value="">All subcategories</option>{subcategories.filter(sub => sub.categoryId === category).map(sub => <option key={sub.id} value={sub.id}>{sub.name}</option>)}</select>}<TagFilter category="Tasks" tags={tags} value={tagFilter} onChange={setTagFilter} /><div className="planner-view-switch tasks-layout-switch" aria-label="Task layout"><button type="button" aria-pressed={layout === 'time'} onClick={() => { setLayout('time'); remember('tasks-layout-v1', 'time') }}><Columns3 size={13} /> By time</button><button type="button" aria-pressed={layout === 'category'} onClick={() => { setLayout('category'); remember('tasks-layout-v1', 'category') }}><FolderKanban size={13} /> By category</button></div><button type="button" className="tasks-done-filter" aria-pressed={completed} onClick={() => setCompleted(value => !value)}>{completed ? 'Show open tasks' : 'Completed'}</button></div>
+    <nav className="tasks-horizon-summary" aria-label="Planning overview">{visibleHorizons.map(horizon => <button type="button" key={horizon} onClick={() => { if (layout === 'time' && isCollapsed(horizon)) toggleCollapse(horizon); board.current?.querySelector(`[data-horizon="${horizon}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }) }}><span>{horizonLabels[horizon]}</span><b>{counts[horizon]}</b></button>)}</nav>
+    {error && <div className="inline-error" role="alert">{error}<button type="button" onClick={() => void refresh()}>Refresh</button></div>}
+    {notice && <div className="tasks-notice" role="status"><span>{notice}</span>{undo && <button type="button" disabled={busy} onClick={() => void mutate(async () => { resultValue(await window.captured.taskWorkspace.undo(undo)); setUndo(null); setNotice('Change undone.') })}><Undo2 size={13} /> Undo</button>}<button type="button" aria-label="Dismiss task notice" onClick={() => setNotice('')}><X size={13} /></button></div>}
+    {!taxonomyReady || loading && !items.length && !Object.keys(pages).length ? <div className="loading-state"><span className="spinner" /> Loading tasks…</div> : <DndContext sensors={sensors} collisionDetection={taskCollision} onDragStart={event => setActive(items.find(item => item.id === event.active.id) ?? null)} onDragCancel={() => setActive(null)} onDragEnd={drop}>
+      {layout === 'category' && !completed && capturePanel}
+      <div ref={board} className={`tasks-board tasks-board-${layout}`}>
+        {layout === 'time' ? visibleHorizons.map(horizon => <HorizonColumn key={horizon} horizon={horizon} collapsed={isCollapsed(horizon)}><header className="tasks-column-heading"><button type="button" onClick={() => toggleCollapse(horizon)} aria-expanded={!isCollapsed(horizon)}><b>{horizonLabels[horizon]}</b><span>{counts[horizon]}</span></button>{!isCollapsed(horizon) && horizon !== 'upcoming' && <button type="button" aria-label={`Add task to ${horizonLabels[horizon]}`} onClick={() => setCreate({ horizon })}><Plus size={14} /></button>}</header>{!isCollapsed(horizon) && <div className="tasks-column-content">{horizon === 'unplanned' && !completed && capturePanel}{section(horizon, taskItems.filter(item => item.horizon === horizon))}{pages[horizon]?.nextCursor && <button type="button" className="load-more" disabled={loading || busy} onClick={() => void loadMore(horizon)}>Load more · {counts[horizon] - (pages[horizon]?.items.length ?? 0)} remaining</button>}</div>}</HorizonColumn>) : [...categories, { id: 'unassigned', name: 'Unassigned' }].filter(group => (category === 'all' || category === group.id) && (!!active || category === group.id || (pages.unplanned?.categoryCounts?.[group.id] ?? taskItems.filter(item => (item.categoryId ?? 'unassigned') === group.id).length) > 0)).map(group => {
+          const categoryId = group.id === 'unassigned' ? null : group.id
+          return <div key={group.id} className="tasks-column tasks-category-column"><header className="tasks-column-heading"><FolderKanban size={14} /><b>{group.name}</b><span>{pages.unplanned?.categoryCounts?.[group.id] ?? taskItems.filter(item => item.categoryId === categoryId).length}</span><button type="button" aria-label={`Add task to ${group.name}`} onClick={() => setCreate({ horizon: 'unplanned', categoryId })}><Plus size={14} /></button></header><div className="tasks-column-content">{visibleHorizons.map(horizon => section(horizon, taskItems.filter(item => item.categoryId === categoryId && item.horizon === horizon), categoryId))}</div></div>
+        })}
+      </div>
+      {layout === 'category' && horizons.some(h => pages[h]?.nextCursor) && <div className="tasks-more">{horizons.filter(h => pages[h]?.nextCursor).map(h => <button type="button" className="load-more" disabled={loading || busy} key={h} onClick={() => void loadMore(h)}>Load more {horizonLabels[h]} · {counts[h] - (pages[h]?.items.length ?? 0)} remaining</button>)}</div>}
+      <DragOverlay>{active && <div className="tasks-drag-preview"><b>{active.body.split('\n')[0] || 'Image capture'}</b><span>{categoryMap.get(active.categoryId ?? '') ?? 'Unassigned'}</span></div>}</DragOverlay>
+    </DndContext>}
+    {detail && <ItemDetailDialog key={detail.id} task={detail} showPlanning={detail.kind === 'task'} initialTags={captureTags(detail)} suggestions={tags.map(tag => tag.name)} onClose={() => setDetail(null)} onChanged={() => { if (detail.kind === 'inbox') { try { localStorage.removeItem(`inbox-tags:${detail.id}`) } catch { /* Already saved. */ } } setDetail(null); void refresh() }} />}
+    {create && <CreateTaskDialog error={error} categories={categories} subcategories={subcategories} tags={tags} destination={{ ...create, categoryId: create.categoryId === undefined ? category === 'all' || category === 'unassigned' ? null : category : create.categoryId }} today={today} onClose={() => setCreate(null)} onSave={async (body, categoryId, intention, subcategoryId, tags) => { await mutate(async () => { resultValue(await window.captured.taskWorkspace.create({ body, categoryId, intention, subcategoryId, tags })); setCreate(null); setUndo(null); setNotice('Task added.') }) }} />}
+    {chooseDate && <DateDialog item={chooseDate} today={today} onClose={() => setChooseDate(null)} onSave={intention => { const item = chooseDate; setChooseDate(null); move(item, { horizon: 'upcoming' }, undefined, intention) }} />}
+  </section>
+}
+
+function HorizonColumn({ horizon, collapsed, children }: { horizon: Horizon; collapsed: boolean; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `column:${horizon}`, data: { horizon } })
+  return <div ref={setNodeRef} data-horizon={horizon} className={`tasks-column ${horizon === 'today' ? 'is-today' : ''} ${collapsed ? 'is-collapsed' : ''} ${isOver ? 'is-over' : ''}`}>{children}</div>
+}
+
+function TaskSection({ horizon, categoryId, count, children, dragging, onAdd }: { horizon: Horizon; categoryId?: string | null; count: number; children: React.ReactNode; dragging: boolean; onAdd: () => void }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `section:${categoryId === undefined ? 'all' : categoryId ?? 'unassigned'}:${horizon}`, data: { horizon, categoryId }, disabled: horizon === 'upcoming' && count === 0 })
+  return <section ref={setNodeRef} data-horizon={horizon} className={`tasks-section ${isOver ? 'is-over' : ''} ${!count ? 'is-empty' : ''} ${dragging ? 'is-dragging' : ''}`} aria-label={`${horizonLabels[horizon]} tasks`}><div className="tasks-section-heading"><span>{horizonLabels[horizon]}</span><span>{count}</span>{horizon !== 'upcoming' && <button type="button" aria-label={`Add ${horizonLabels[horizon]} task`} onClick={onAdd}><Plus size={12} /></button>}</div>{children}{!count && <span className="tasks-empty">{dragging ? 'Drop here' : 'Nothing planned'}</span>}</section>
+}
+
+function TaskCard({ item, categoryName, subcategory, today, busy, categoryId, onOpen, onMove, onNote, onComplete }: { item: TaskWorkspaceItem; categoryName: string; subcategory?: Subcategory; today: string; busy: boolean; categoryId?: string | null; onOpen: () => void; onMove: (horizon: Exclude<Horizon, 'upcoming'> | 'date') => void; onNote: () => void; onComplete: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id, data: { horizon: item.horizon, categoryId, item }, disabled: busy || item.completedAt !== null })
+  const capture = item.kind === 'inbox'
+  return <article ref={setNodeRef} data-task-id={item.id} style={{ transform: CSS.Transform.toString(transform), transition }} className={`tasks-card ${capture ? 'is-capture' : ''} ${isDragging ? 'is-dragging' : ''}`}>
+    <div className="tasks-card-heading"><button type="button" className="tasks-drag-handle" aria-label={`Move ${item.body.split('\n')[0] || 'capture'}`} disabled={busy || item.completedAt !== null} {...attributes} {...listeners}><GripVertical size={13} /></button>{!capture && <input type="checkbox" aria-label={`${item.completedAt ? 'Reopen' : 'Complete'} ${item.body.split('\n')[0] || 'task'}`} checked={item.completedAt !== null} disabled={busy} onChange={onComplete} />}<button type="button" className="tasks-card-body" disabled={busy} onClick={onOpen}>{item.body.trim() || (item.images.length ? 'Image capture' : 'Untitled task')}</button></div>
+    <div className="tasks-card-meta"><span className="tasks-category-label">{categoryName}</span>{subcategory && <span style={{ color: subcategory.color }}>{subcategory.name}</span>}<ImageIndicator count={item.images.length} /></div>
+    {!!item.tags.length && <div className="tasks-card-tags">{item.tags.map(tag => <span key={tag}>#{tag}</span>)}</div>}
+    {isCarriedOver(item.intention, today) && <small className="tasks-carried">Carried over · {item.intention.targetDate}</small>}
+    {!isCarriedOver(item.intention, today) && item.intention.targetDate && item.horizon !== 'today' && item.horizon !== 'tomorrow' && <small className="tasks-target">{item.intention.kind === 'week' ? 'Week of ' : ''}{item.intention.targetDate}</small>}
+    {item.plannedStartAt !== null && <small className="tasks-scheduled"><CalendarDays size={11} /> Scheduled {new Date(item.plannedStartAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>}
+    {item.completedAt === null && <div className="tasks-card-actions">{capture && <button type="button" disabled={busy} onClick={onNote}><FileText size={12} /> Note</button>}<select aria-label={`Move to for ${item.body.split('\n')[0] || 'capture'}`} value="" disabled={busy} onChange={event => onMove(event.target.value as Exclude<Horizon, 'upcoming'> | 'date')}><option value="" disabled>{capture ? 'Make task…' : 'Move to…'}</option>{horizons.filter(h => h !== 'upcoming').map(h => <option key={h} value={h}>{horizonLabels[h]}</option>)}<option value="date">Choose date / week…</option></select></div>}
+  </article>
+}
+
+function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null), previous = useRef(document.activeElement)
+  useEffect(() => {
+    const background: { element: HTMLElement; inert: boolean }[] = []
+    let layer = ref.current?.parentElement
+    while (layer && layer !== document.body) { for (const sibling of Array.from(layer.parentElement?.children ?? [])) { if (sibling instanceof HTMLElement && sibling !== layer) { background.push({ element: sibling, inert: sibling.inert }); sibling.inert = true } } layer = layer.parentElement }
+    ref.current?.querySelector<HTMLElement>('textarea,input,select,button')?.focus()
+    return () => { background.forEach(({ element, inert }) => { element.inert = inert }); if (previous.current instanceof HTMLElement) previous.current.focus() }
+  }, [])
+  return <div className="modal-backdrop"><div ref={ref} className="dialog-card tasks-dialog" role="dialog" aria-modal="true" aria-label={title} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); onClose() } if (event.key === 'Tab') { const controls = [...(ref.current?.querySelectorAll<HTMLElement>('input:not(:disabled),select:not(:disabled),textarea:not(:disabled),button:not(:disabled)') ?? [])]; if (event.shiftKey && document.activeElement === controls[0]) { event.preventDefault(); controls.at(-1)?.focus() } else if (!event.shiftKey && document.activeElement === controls.at(-1)) { event.preventDefault(); controls[0]?.focus() } } }}><h2>{title}</h2>{children}</div></div>
+}
+function CreateTaskDialog({ error, categories, subcategories, tags, destination, today, onClose, onSave }: { error: string; categories: Category[]; subcategories: Subcategory[]; tags: TagRecord[]; destination: Destination; today: string; onClose: () => void; onSave: (body: string, categoryId: string | null, intention: TaskIntention, subcategoryId: string | null, tags: string[]) => Promise<void> }) {
+  const [body, setBody] = useState(''), [category, setCategory] = useState(destination.categoryId ?? '')
+  const [subcategoryId, setSubcategoryId] = useState<string | null>(null), [labels, setLabels] = useState<string[]>([]), [tagDraft, setTagDraft] = useState('')
+  const [horizon, setHorizon] = useState<Horizon>(destination.horizon === 'upcoming' ? 'unplanned' : destination.horizon)
+  const [busy, setBusy] = useState(false)
+  return <Modal title="Add task" onClose={() => { if (!busy) onClose() }}><form onSubmit={event => { event.preventDefault(); if (busy) return; setBusy(true); void onSave(body, category || null, intentionFor(horizon as Exclude<Horizon, 'upcoming'>, today), subcategoryId, collectTags(labels, tagDraft)).finally(() => setBusy(false)) }}><label>Task<textarea required aria-label="Task text" maxLength={50000} value={body} disabled={busy} onChange={event => setBody(event.target.value)} /></label><CategoryPicker categories={categories} subcategories={subcategories} categoryId={category || null} subcategoryId={subcategoryId} disabled={busy} onChange={(selected, sub) => { setCategory(selected ?? ''); setSubcategoryId(sub) }} /><TagEditor tags={labels} draft={tagDraft} onTagsChange={setLabels} onDraftChange={setTagDraft} suggestions={tags.map(tag => tag.name)} disabled={busy} /><label>When<select aria-label="Task horizon" value={horizon} disabled={busy} onChange={event => setHorizon(event.target.value as Horizon)}>{horizons.filter(h => h !== 'upcoming').map(h => <option key={h} value={h}>{horizonLabels[h]}</option>)}</select></label><div>{error && <div className="inline-error" role="alert">{error}</div>}</div><div className="dialog-actions"><button type="button" className="button secondary" disabled={busy} onClick={onClose}>Cancel</button><button type="submit" className="button primary" disabled={!body.trim() || busy}>{busy ? 'Adding…' : 'Add task'}</button></div></form></Modal>
+}
+function DateDialog({ item, today, onClose, onSave }: { item: TaskWorkspaceItem; today: string; onClose: () => void; onSave: (intention: TaskIntention) => void }) {
+  const [kind, setKind] = useState<'day' | 'week'>(item.intention.kind === 'week' ? 'week' : 'day'), [date, setDate] = useState(item.intention.targetDate ?? today)
+  return <Modal title="Choose when" onClose={onClose}><form onSubmit={event => { event.preventDefault(); const selected = kind === 'week' ? intentionFor('week', date).targetDate : date; onSave({ kind, targetDate: selected, position: 0 }) }}><label>Plan for<select aria-label="Plan precision" value={kind} onChange={event => setKind(event.target.value as 'day' | 'week')}><option value="day">A day</option><option value="week">A week</option></select></label><label>{kind === 'week' ? 'Any day in the chosen week' : 'Date'}<input required aria-label="Planning date" type="date" value={date} onChange={event => setDate(event.target.value)} /></label><p>This changes your task plan. Calendar scheduling stays separate.</p><div className="dialog-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button type="submit" className="button primary" disabled={!date}>Save plan</button></div></form></Modal>
+}
