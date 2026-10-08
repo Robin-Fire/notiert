@@ -104,3 +104,15 @@
 .backlog-tag-popup { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-card); border-radius: 5px; }
 .backlog-tag-popup [data-slot=combobox-item] { font-size: 12px; padding-top: 7px; padding-bottom: 7px; }
 .backlog-tag-popup [data-slot=combobox-item][data-highlighted] { background: var(--blue-soft); color: var(--text); }
+
+/* Keep Backlog's original category panels and compact row styling. */
+.tasks-backlog-page { padding: 0; }
+.tasks-backlog-page .tasks-heading { padding: 22px 27px 19px; margin: 0; border-bottom: 1px solid var(--border); }
+.tasks-backlog-page .tasks-heading h1 { font-size: 21px; margin: 8px 0 5px; }
+.tasks-backlog-page .tasks-toolbar { padding: 12px 27px; margin: 0; border-bottom: 1px solid var(--border); }
+.tasks-backlog-page .tasks-toolbar .search-box { max-width: 390px; }
+.tasks-backlog-groups { display: block; padding: 16px 27px 40px; }
+.tasks-backlog-page .backlog-task.is-dragging { visibility: hidden; }
+.backlog-plan-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.backlog-task-main .backlog-tag-picker { max-width: 400px; }
+@media (max-width: 760px) { .tasks-backlog-groups { padding-right: 12px; padding-left: 12px; } .backlog-plan-actions { margin-left: 35px; } }
