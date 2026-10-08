@@ -49,6 +49,13 @@ app.whenReady().then(async () => {
     try { await preview.loadFile(file); await wait(400); fs.writeFileSync(path.join(output, name), (await preview.webContents.capturePage()).toPNG()) } finally { preview.destroy() }
   }
   await screenshot('tasks-time-light.png')
+  win.setSize(2560,1100);await wait(250)
+  for (const [layout,shot] of [['By time','tasks-time-wide.png'],['By category','tasks-category-wide.png']]) {
+    await click(layout)
+    assert.equal(await evaluate(`(()=>{const board=document.querySelector('.tasks-board').getBoundingClientRect();const columns=[...document.querySelectorAll('.tasks-board > .tasks-column')];const last=columns.at(-1).getBoundingClientRect();return Math.abs(board.right-last.right)<2&&columns.every(column=>column.getBoundingClientRect().left>=board.left)})()`),true,`${layout} uses the full wide screen`)
+    await screenshot(shot,2560,1100)
+  }
+  win.setSize(1400,850);await wait(250);await click('By time')
   const ids = () => evaluate(`[...document.querySelectorAll('.tasks-card')].map(card=>card.dataset.taskId).sort()`)
   const original = await ids()
   await click('By category'); assert.deepEqual(await ids(), original)

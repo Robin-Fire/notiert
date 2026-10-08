@@ -9,7 +9,7 @@
 .tasks-done-filter { background: transparent; color: var(--text-muted); border: 0; font-size: var(--type-secondary); padding: 5px; }
 .tasks-done-filter[aria-pressed=true] { color: var(--blue); }
 .tasks-board { display: flex; gap: 10px; flex: 1 0 auto; min-height: 360px; min-width: 0; overflow: visible; padding-bottom: 6px; align-items: stretch; }
-.tasks-column { display: flex; flex-direction: column; flex: 1 0 165px; min-width: 165px; max-width: 330px; border: 1px solid var(--border); border-radius: 7px; background: color-mix(in srgb, var(--surface-raised) 45%, var(--surface)); overflow: hidden; }
+.tasks-column { display: flex; flex-direction: column; flex: 1 0 165px; min-width: 165px; border: 1px solid var(--border); border-radius: 7px; background: color-mix(in srgb, var(--surface-raised) 45%, var(--surface)); overflow: hidden; }
 .tasks-column.is-today { border-top: 2px solid var(--blue); }
 .tasks-category-column { flex-basis: 235px; min-width: 235px; }
 .tasks-column.is-collapsed { flex: 0 0 39px; min-width: 39px; }
