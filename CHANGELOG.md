@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.1.13 - 2026-10-08
+
+- Refine Tasks table and Backlog rows, inline tag picking, quick planning, and wide-screen Kanban columns.
+- Remove repeated table column headers and the Today column's blue top border.
+- Match drag previews to rows, show drop areas and insertion indicators, and reveal empty Backlog categories while dragging.
+- Preserve captures when dragging between Backlog categories, fix cross-category insertion, and cancel drops outside valid targets.
+
 ## 0.1.12 - 2026-10-08
 
 - Organize planned tasks in Today, Tomorrow, Next week, and Later, with category and grouped table views.

@@ -66,12 +66,21 @@ app.whenReady().then(async () => {
   const rect = selector => evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(${JSON.stringify(selector.includes("tasks-drag-handle"))} ? r.top+r.height/2 : Math.max(180,Math.min(innerHeight-50,r.top+r.height/2)))}})()`)
   win.focus(); await wait(300)
   async function drag(source, destination) {
+    const sourceWidth=await evaluate(`document.querySelector(${JSON.stringify(source)}).closest('[data-task-id]').getBoundingClientRect().width`)
+    const rowLayout=await evaluate(`Boolean(document.querySelector('.tasks-backlog-page, .tasks-table-page'))`)
     const start=await rect(source)
     win.webContents.sendInputEvent({ type: 'mouseMove', ...start }); win.webContents.sendInputEvent({ type: 'mouseDown', ...start, button: 'left', clickCount: 1 })
     await wait(250)
     win.webContents.sendInputEvent({type:'mouseMove',x:start.x+10,y:start.y,button:'left'});await wait(250)
+    assert.equal(await evaluate(`Boolean(document.querySelector('.tasks-drop-target'))`),true,'Dragging reveals drop targets')
+    if(rowLayout){
+      assert.equal(await evaluate(`Boolean(document.querySelector('.tasks-drag-row'))`),true,'Rows use row previews')
+      const previewWidth=await evaluate(`document.querySelector('.tasks-drag-row').getBoundingClientRect().width`)
+      assert.ok(Math.abs(previewWidth-sourceWidth)<2,`Preview keeps the source row width: ${previewWidth} vs ${sourceWidth}`)
+    }
     const end=await rect(destination)
     for (let step=1;step<=20;step++){win.webContents.sendInputEvent({type:'mouseMove',x:Math.round(start.x+(end.x-start.x)*step/20),y:Math.round(start.y+(end.y-start.y)*step/20),button:'left'});await wait(25)}
+    if(rowLayout){await screenshot(await evaluate(`document.querySelector('.tasks-backlog-page') ? 'backlog-drag-active.png' : 'tasks-table-drag-active.png'`))}
     await wait(150);win.webContents.sendInputEvent({type:'mouseUp',...end,button:'left',clickCount:1});await wait(20);assert.equal(await evaluate(`Boolean(document.querySelector('.tasks-drag-preview'))`),false,'Drop removes overlay immediately without a return animation');await wait(230)
   }
   // Backlog quick planning and Undo.
@@ -79,6 +88,15 @@ app.whenReady().then(async () => {
   await until(`Boolean(document.querySelector('[data-task-id="${seeded.capture.id}"]'))`,'Backlog capture')
   assert.equal(await evaluate(`document.querySelector('.backlog-group-toggle b').textContent`),'Unassigned','Unassigned is the first Backlog category')
   await screenshot('backlog-light.png')
+  const originalCaptureCategory=(await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.categoryId
+  await drag(`[data-task-id="${seeded.capture.id}"] .backlog-drag-handle`, `[data-category-id="${seeded.personal.id}"] .tasks-drop-target`)
+  await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Personal')`,'capture category drop')
+  const recategorized=(await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value
+  assert.equal(recategorized.categoryId,seeded.personal.id)
+  assert.equal(recategorized.kind,'inbox','Category drop preserves capture kind')
+  await click('Undo');await until(`document.querySelector('.tasks-notice')?.textContent.includes('Change undone')`,'capture category Undo')
+  assert.equal((await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.categoryId,originalCaptureCategory)
+
   assert.equal(await evaluate(`(()=>{const row=document.querySelector('[data-task-id="${seeded.capture.id}"]');const title=row.querySelector('.backlog-task-title').getBoundingClientRect();const picker=row.querySelector('.backlog-tag-picker').getBoundingClientRect();return Math.abs(title.y-picker.y)<35&&picker.x>title.x})()`),true,'Tag picker sits inline next to its task')
   win.setSize(850,850);await wait(250);await screenshot('backlog-inline-tags-narrow.png', 850, 850)
   assert.equal(await evaluate(`document.querySelector('.tasks-page').scrollWidth<=document.querySelector('.tasks-page').clientWidth`),true,'Narrow Backlog has no horizontal overflow')
@@ -120,6 +138,9 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate(`document.querySelector('.tasks-page').scrollWidth<=document.querySelector('.tasks-page').clientWidth`),true,'Table fits narrow windows')
   win.setSize(1400,850);await evaluate(`window.captured.settings.update({theme:'light'})`);await wait(200)
   assert.deepEqual(await evaluate(`[...document.querySelectorAll('.tasks-table [data-task-id]')].map(row=>row.dataset.taskId).sort()`),original)
+  const beforeCancelledDrop=(await evaluate(`window.captured.notes.get('${task.id}')`)).value.revision
+  await drag(`[data-task-id="${task.id}"] .tasks-drag-handle`,'.tasks-heading')
+  assert.equal((await evaluate(`window.captured.notes.get('${task.id}')`)).value.revision,beforeCancelledDrop,'Release outside a dropzone does not move the task')
   await drag(`[data-task-id="${task.id}"] .tasks-drag-handle`,'.tasks-table tbody[data-horizon="tomorrow"]')
   await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Tomorrow')`,'table native horizon move')
   assert.equal((await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Send the revised proposal'})`)).value.items[0].horizon,'tomorrow')
