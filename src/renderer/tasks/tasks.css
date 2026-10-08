@@ -78,22 +78,23 @@
 .tasks-backlog-group .tasks-card-meta, .tasks-backlog-group .tasks-card-tags { grid-column: 1; margin-left: 32px; margin-top: 2px; }
 .tasks-backlog-group .tasks-card-actions { grid-column: 2; grid-row: 1 / span 3; margin: 0; flex-wrap: wrap; }
 .tasks-backlog-group .tasks-card-actions button { padding: 5px 8px; }
-.tasks-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--type-secondary); }
-.tasks-table > thead th { text-align: left; font-size: var(--type-caption); color: var(--text-muted); font-weight: 500; padding: 8px 12px; border-bottom: 1px solid var(--border); }
-.tasks-table > thead th:first-child { width: 55%; }
-.tasks-table > thead th:nth-child(2) { width: 23%; }
-.tasks-table td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
-.tasks-table-group-heading th { padding: 20px 12px 10px; text-align: left; font-size: 14px; font-weight: 600; }
-.tasks-table-count { margin-left: 8px; color: var(--text-muted); font: var(--type-caption) var(--font-mono); }
-.tasks-table-group-heading button { float: right; border: 0; background: transparent; color: var(--text); padding: 0; }
-.tasks-table-task { display: flex; align-items: flex-start; gap: 7px; }
-.tasks-table-task input { margin-top: 3px; accent-color: var(--blue); }
+.tasks-table-groups { padding: 16px 27px 40px; }
+.tasks-table-panel { overflow: hidden; }
+.tasks-table-panel.is-over { border-color: var(--blue); }
+.tasks-group-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--type-body); }
+.tasks-group-table th { text-align: left; font-size: var(--type-caption); color: var(--text-muted); font-weight: 500; padding: 8px 12px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.tasks-group-table th:first-child { width: 55%; }
+.tasks-group-table th:nth-child(2) { width: 23%; }
+.tasks-group-table td { height: 55px; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; overflow-wrap: anywhere; }
+.tasks-group-table tbody tr:last-child td { border-bottom: 0; }
+.tasks-table-task { display: flex; align-items: center; gap: 10px; }
+.tasks-table-task .backlog-task-title { width: auto; min-width: 0; flex: 1; }
 .tasks-table-subcategory { display: block; margin-top: 4px; font-size: var(--type-caption); color: var(--text-muted); }
-.tasks-table-tags span { margin-right: 8px; font-size: var(--type-caption); color: var(--text-muted); }
+.tasks-table-tags .tasks-table-tag { display: inline-block; margin: 2px 4px 2px 0; padding: 2px 6px; border-radius: 3px; background: var(--surface-raised); color: var(--text-secondary); font-size: var(--type-caption); }
 .tasks-table tbody.is-over { background: var(--blue-soft); }
 .tasks-table tr.is-dragging { visibility: hidden; }
 .tasks-table-empty td { height: 38px; }
-@media (max-width: 800px) { .tasks-backlog-group .tasks-card { grid-template-columns: 1fr; } .tasks-backlog-group .tasks-card-actions { grid-column: 1; grid-row: auto; justify-content: flex-start; margin-left: 32px; } .tasks-table > thead th:first-child { width: 45%; } }
+@media (max-width: 800px) { .tasks-backlog-group .tasks-card { grid-template-columns: 1fr; } .tasks-backlog-group .tasks-card-actions { grid-column: 1; grid-row: auto; justify-content: flex-start; margin-left: 32px; } .tasks-group-table th:first-child { width: 45%; } }
 
 /* Preserve ReUI's chip sizing and focus styles; inherit the app theme. */
 .backlog-tag-picker [data-slot=combobox-chips] { border-color: var(--border); color: var(--text); }
@@ -105,11 +106,11 @@
 .backlog-tag-popup [data-slot=combobox-item][data-highlighted] { background: var(--blue-soft); color: var(--text); }
 
 /* Keep Backlog's original category panels and compact row styling. */
-.tasks-backlog-page { padding: 0; }
-.tasks-backlog-page .tasks-heading { padding: 22px 27px 19px; margin: 0; border-bottom: 1px solid var(--border); }
-.tasks-backlog-page .tasks-heading h1 { font-size: 21px; margin: 8px 0 5px; }
-.tasks-backlog-page .tasks-toolbar { padding: 12px 27px; margin: 0; border-bottom: 1px solid var(--border); }
-.tasks-backlog-page .tasks-toolbar .search-box { max-width: 390px; }
+.tasks-backlog-page, .tasks-table-page { padding: 0; }
+:is(.tasks-backlog-page, .tasks-table-page) .tasks-heading { padding: 22px 27px 19px; margin: 0; border-bottom: 1px solid var(--border); }
+:is(.tasks-backlog-page, .tasks-table-page) .tasks-heading h1 { font-size: 21px; margin: 8px 0 5px; }
+:is(.tasks-backlog-page, .tasks-table-page) .tasks-toolbar { padding: 12px 27px; margin: 0; border-bottom: 1px solid var(--border); }
+:is(.tasks-backlog-page, .tasks-table-page) .tasks-toolbar .search-box { max-width: 390px; }
 .tasks-backlog-groups { display: block; padding: 16px 27px 40px; }
 .tasks-backlog-page .backlog-task.is-dragging { visibility: hidden; }
 .backlog-plan-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -117,3 +118,5 @@
 @media (max-width: 760px) { .tasks-backlog-groups { padding-right: 12px; padding-left: 12px; } .backlog-plan-actions { margin-left: 35px; } }
 
 @media (max-width: 1000px) { .backlog-task { flex-wrap: wrap; } .backlog-task-main { flex-basis: calc(100% - 70px); } .backlog-task > .backlog-tag-picker { margin-left: 35px; flex-grow: 1; } }
+
+@media (max-width: 760px) { .tasks-table-groups { padding-right: 12px; padding-left: 12px; } .tasks-table-task { gap: 5px; } .tasks-group-table td { padding: 9px 6px; } }
