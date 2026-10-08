@@ -41,7 +41,7 @@ app.whenReady().then(async () => {
   const capture=await captureWindow.webContents.executeJavaScript(`(async()=>{const state=await window.captured.capture.getState();const saved=await window.captured.capture.submit({requestId:crypto.randomUUID(),generation:state.value.generation,body:'Idea from the client call',categoryId:'${seeded.work.id}'});await window.captured.capture.dismiss('saved');return saved})()`)
   assert.equal(capture.ok,true,capture.message);seeded.capture=capture.value
   await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Tasks')).click()`)
-  await until(`document.querySelectorAll('.tasks-card').length===10`, 'all workspace cards')
+  await until(`document.querySelectorAll('.tasks-card').length===8`, 'all workspace cards')
   async function screenshot(name, width = 1400, height = 850) {
     const html = await evaluate(`(()=>{const clone=document.documentElement.cloneNode(true);document.querySelectorAll('select').forEach((select,index)=>{const copy=clone.querySelectorAll('select')[index];for(const option of copy.options)option.toggleAttribute('selected',option.value===select.value)});return clone.outerHTML})()`), file = path.join(profile, 'tasks-snapshot.html'), base = pathToFileURL(path.resolve(__dirname, '../out/renderer/index.html')).href
     fs.writeFileSync(file, html.replace('<head>', `<head><base href="${base}">`))
@@ -56,7 +56,7 @@ app.whenReady().then(async () => {
   await click('By time')
   // Drag an unscheduled task into another horizon.
   const task = (await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Send the revised proposal'})`)).value.items[0]
-  const rect = selector => evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(Math.max(270,Math.min(innerHeight-50,r.top+r.height/2)))}})()`)
+  const rect = selector => evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(${JSON.stringify(selector.includes("tasks-drag-handle"))} ? r.top+r.height/2 : Math.max(180,Math.min(innerHeight-50,r.top+r.height/2)))}})()`)
   win.focus(); await wait(300)
   async function drag(source, destination) {
     const start=await rect(source)
@@ -67,12 +67,25 @@ app.whenReady().then(async () => {
     for (let step=1;step<=20;step++){win.webContents.sendInputEvent({type:'mouseMove',x:Math.round(start.x+(end.x-start.x)*step/20),y:Math.round(start.y+(end.y-start.y)*step/20),button:'left'});await wait(25)}
     await wait(150);win.webContents.sendInputEvent({type:'mouseUp',...end,button:'left',clickCount:1});await wait(20);assert.equal(await evaluate(`Boolean(document.querySelector('.tasks-drag-preview'))`),false,'Drop removes overlay immediately without a return animation');await wait(230)
   }
-  // Sort a capture in one action and exercise Undo.
-  await drag(`[data-task-id="${seeded.capture.id}"] .tasks-drag-handle`,'.tasks-board > [data-horizon="tomorrow"] .tasks-section')
+  // Backlog quick planning and Undo.
+  await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Backlog')).click()`)
+  await until(`Boolean(document.querySelector('[data-task-id="${seeded.capture.id}"]'))`,'Backlog capture')
+  await screenshot('backlog-light.png')
+  await evaluate(`[...document.querySelectorAll('[data-task-id="${seeded.capture.id}"] button')].find(button=>button.textContent.trim()==='Tomorrow').click()`)
   await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Tomorrow')`, 'capture classification')
   assert.equal((await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.kind, 'task')
   await click('Undo'); await until(`document.querySelector('.tasks-notice')?.textContent.includes('Change undone')`, 'capture undo')
   assert.equal((await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.kind, 'inbox')
+  await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim()==='Tasks').click()`)
+  await until(`Boolean(document.querySelector('.tasks-board'))`)
+  await click('Table');await until(`Boolean(document.querySelector('.tasks-table'))`)
+  await screenshot('tasks-table-light.png')
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.tasks-table [data-task-id]')].map(row=>row.dataset.taskId).sort()`),original)
+  await drag(`[data-task-id="${task.id}"] .tasks-drag-handle`,'.tasks-table tbody[data-horizon="tomorrow"]')
+  await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Tomorrow')`,'table native horizon move')
+  assert.equal((await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Send the revised proposal'})`)).value.items[0].horizon,'tomorrow')
+  await click('Undo');await until(`document.querySelector('.tasks-notice')?.textContent.includes('Change undone')`,'table Undo')
+  await click('By time')
   await drag(`[data-task-id="${task.id}"] .tasks-drag-handle`,'.tasks-board > [data-horizon="tomorrow"] .tasks-section')
   await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Tomorrow')`, 'pointer horizon move')
   const moved = (await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Send the revised proposal'})`)).value.items[0]

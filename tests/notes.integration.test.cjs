@@ -53,7 +53,7 @@ function setup({ taxonomy, calendarHours = {}, notesApi = {} } = {}) {
   const get = async (id) => ({ ok: true, value: id === captureId ? makeNote(captureId, 'Captured thought', 'inbox') : makeNote(noteId, 'Existing note', 'note') })
   const api = {
     taskWorkspace: {
-      list: async input => { const captures = (await api.planner.inbox()).value.items.map(item => ({ ...item, completedAt: null, plannedDate: null, plannedStartAt: null, plannedEndAt: null, position: 0, priorityPosition: 0, beforeEventId: null, ready: false, intention: { kind: 'unplanned', targetDate: null, position: 0 }, horizon: 'unplanned' })); const counts = { unplanned: captures.length, today: 0, tomorrow: 0, week: 0, 'next-week': 0, later: 0, upcoming: 0 }; return { ok: true, value: { items: input.horizon === 'unplanned' ? captures : [], counts, total: input.horizon === 'unplanned' ? captures.length : 0, nextCursor: null } } },
+      list: async input => { const captures = (input.scope === 'planned' ? [] : (await api.planner.inbox()).value.items).map(item => ({ ...item, completedAt: null, plannedDate: null, plannedStartAt: null, plannedEndAt: null, position: 0, priorityPosition: 0, beforeEventId: null, ready: false, intention: { kind: 'unplanned', targetDate: null, position: 0 }, horizon: 'unplanned' })); const counts = { unplanned: captures.length, today: 0, tomorrow: 0, week: 0, 'next-week': 0, later: 0, upcoming: 0 }; return { ok: true, value: { items: input.horizon === 'unplanned' ? captures : [], counts, total: input.horizon === 'unplanned' ? captures.length : 0, nextCursor: null } } },
       move: async () => ({ ok: true, value: {} }), undo: async () => ({ ok: true, value: undefined }), create: async () => ({ ok: true, value: undefined }),
     },
     updates: { getStatus: async () => ({ ok: true, value: { status: 'idle' } }), check: async () => ({ ok: true, value: undefined }), install: async () => ({ ok: true, value: undefined }), onChanged: () => () => {} },
@@ -191,7 +191,7 @@ test('sidebar Capture opens the browser preview editor and saves to Inbox', asyn
     fireEvent.change(screen.getByRole('textbox', { name: 'Capture text' }), { target: { value: 'New thought' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save capture' }))
     await waitFor(() => assert.equal(submitted.body, 'New thought'))
-    await screen.findByRole('heading', { name: /Tasks/ })
+    await screen.findByRole('heading', { name: /Backlog/ })
   } finally { app.unmount() }
 })
 
@@ -206,7 +206,7 @@ test('browser capture saves the chosen category to Inbox', async () => {
     fireEvent.change(category, { target: { value: '11111111-1111-4111-8111-111111111111' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Capture text' }), { target: { value: 'Categorized browser capture' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save capture' }))
-    await screen.findByRole('heading', { name: /Tasks/ })
+    await screen.findByRole('heading', { name: /Backlog/ })
     const inbox = await window.captured.planner.inbox()
     assert.equal(inbox.value.items.find((item) => item.body === 'Categorized browser capture').categoryId, '11111111-1111-4111-8111-111111111111')
   } finally { app.unmount() }
@@ -255,12 +255,12 @@ test('sidebar category and tag deletion requires confirmation and returns to a v
 test('opening an Inbox capture opens the shared editor without leaving Inbox', async () => {
   const app = setup()
   try {
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', { name: /^Tasks/ }))
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', { name: /^Backlog/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Captured thought' }))
     await screen.findByRole('dialog', { name: 'Edit inbox item' })
     assert.equal(screen.getByRole('textbox', { name: 'Edit item' }).value, 'Captured thought')
     assert.ok(screen.getByRole('dialog', { name: 'Edit inbox item' }))
-    assert.ok(screen.getByRole('heading', { name: /Tasks/ }))
+    assert.ok(screen.getByRole('heading', { name: /Backlog/ }))
   } finally { app.unmount() }
 })
 
@@ -290,7 +290,7 @@ test('global note shortcuts do not intercept Enter in Inbox or Calenban controls
   const originalGet = app.api.notes.get
   app.api.notes.get = async (id) => { getCalls.push(id); return originalGet(id) }
   try {
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', { name: /^Tasks/ }))
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', { name: /^Backlog/ }))
     const fileButton = await screen.findByRole('button', { name: 'Move Captured thought' })
     fireEvent.keyDown(fileButton, { key: 'Enter' })
     assert.deepEqual(getCalls, [])
@@ -684,6 +684,7 @@ function browserWorkspace() {
 }
 const workspaceToday = () => new Date().toLocaleDateString('sv-SE')
 const planFor = (kind, targetDate = null) => ({ kind, targetDate, position: 0 })
+const backlogNav = () => fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', { name: /^Backlog/ }))
 const tasksNav = () => fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', { name: /^Tasks/ }))
 
 test('Tasks shows horizons together with drag handles and category layout has the same cards', async () => {
@@ -695,14 +696,14 @@ test('Tasks shows horizons together with drag handles and category layout has th
     tasksNav()
     await screen.findByRole('button', { name: 'Plan today' })
     assert.ok(screen.getByRole('button', { name: 'Plan later' }))
-    assert.ok(screen.getByRole('button', { name: 'Plan undecided' }))
+    assert.equal(screen.queryByRole('button', { name: 'Plan undecided' }), null)
     assert.equal(document.querySelector('.tasks-card select'), null)
     assert.equal(document.querySelector('[data-horizon="week"]'), null)
     const original = [...document.querySelectorAll('.tasks-card')].map(card => card.dataset.taskId).sort()
     fireEvent.click(screen.getByRole('button', { name: 'By category' }))
     assert.deepEqual([...document.querySelectorAll('.tasks-card')].map(card => card.dataset.taskId).sort(), original)
     assert.equal(document.querySelector('.tasks-category-column .tasks-column-heading b').textContent, work.name)
-    assert.equal(within(screen.getByRole('navigation', { name: 'Main navigation' })).queryByRole('button', { name: 'Backlog', exact: true }), null)
+    assert.ok(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', { name: /^Backlog/ }))
     assert.equal(screen.queryByRole('button', { name: 'Ready', exact: true }), null)
   } finally { app.unmount() }
 })
@@ -713,7 +714,7 @@ test('integrated captures file as reference notes, retain draft tags/images, and
   localStorage.setItem(`inbox-tags:${saved.value.id}`, JSON.stringify({ tags: ['waiting'], draft: 'Draft label' }))
   const app = render(React.createElement(NotesApp))
   try {
-    tasksNav()
+    backlogNav()
     await screen.findByRole('button', { name: 'Sort this capture' })
     let item
     const card = screen.getByRole('button', { name: 'Sort this capture' }).closest('article')
@@ -726,7 +727,7 @@ test('integrated captures file as reference notes, retain draft tags/images, and
     await screen.findByRole('button', { name: 'Sort this capture' })
     fireEvent.click(screen.getByRole('button', { name: 'Sort this capture' }))
     await screen.findByRole('dialog', { name: 'Edit inbox item' })
-    assert.ok(screen.getByRole('heading', { name: /^Tasks/ }))
+    assert.ok(screen.getByRole('heading', { name: /^Backlog/ }))
   } finally { app.unmount() }
 })
 
@@ -796,24 +797,37 @@ test('Tasks filters all pages in storage, loads remaining cards, and keeps filte
 })
 
 
-test('empty Backlog is hidden and pending captures keep it visible', async () => {
-  const app = setup()
+
+
+test('Backlog keeps captures and undecided tasks separate from Tasks; planning buttons and grouped table share data', async () => {
+  browserWorkspace()
+  await window.captured.taskWorkspace.create({ body: 'Backlog candidate', categoryId: null, intention: planFor('unplanned') })
+  await window.captured.taskWorkspace.create({ body: 'Table later', categoryId: null, intention: planFor('later') })
+  const app = render(React.createElement(NotesApp))
   try {
-    const inbox = app.api.planner.inbox
-    app.api.planner.inbox = async () => ({ ok: true, value: { items: [], total: 0, nextCursor: null } })
     tasksNav()
-    await screen.findByRole('heading', { name: /Tasks/ })
-    await waitFor(() => assert.equal(document.querySelector('.tasks-page').getAttribute('aria-busy'), 'false'))
-    assert.equal(document.querySelector('.tasks-board > [data-horizon="unplanned"]'), null)
-    assert.equal(screen.queryByText('New captures'), null)
-    app.api.planner.inbox = inbox
-    app.unmount()
-    const reopened = setup()
-    try {
-      tasksNav()
-      await screen.findByRole('button', { name: 'Captured thought' })
-      assert.ok(document.querySelector('.tasks-board > [data-horizon="unplanned"]'))
-      assert.ok(screen.getByRole('button', { name: /^Backlog/ }))
-    } finally { reopened.unmount() }
+    await screen.findByRole('button', { name: 'Table later' })
+    assert.ok(screen.queryByRole('button', { name: 'Backlog candidate' }) === null)
+    backlogNav()
+    const card = (await screen.findByRole('button', { name: 'Backlog candidate' })).closest('article')
+    for (const label of ['Today', 'Tomorrow', 'Next week']) assert.ok(within(card).getByRole('button', { name: label, exact: true }))
+    fireEvent.click(within(card).getByRole('button', { name: 'Tomorrow', exact: true }))
+    await screen.findByText('Moved to Tomorrow.')
+    await waitFor(() => assert.ok(screen.queryByRole('button', { name: 'Backlog candidate' }) === null))
+    fireEvent.click(screen.getByRole('button', { name: 'Undo', exact: true }))
+    await screen.findByRole('button', { name: 'Backlog candidate' })
+    fireEvent.click(within(screen.getByRole('button', { name: 'Backlog candidate' }).closest('article')).getByRole('button', { name: 'Today', exact: true }))
+    await screen.findByText('Moved to Today.')
+    tasksNav()
+    await screen.findByRole('button', { name: 'Backlog candidate' })
+    const ids = [...document.querySelectorAll('[data-task-id]')].map(row => row.dataset.taskId).sort()
+    fireEvent.click(screen.getByRole('button', { name: 'Table', exact: true }))
+    assert.ok(screen.getByRole('table'))
+    assert.deepEqual([...document.querySelectorAll('[data-task-id]')].map(row => row.dataset.taskId).sort(), ids)
+    for (const horizon of ['today', 'tomorrow', 'next-week', 'later']) assert.ok(document.querySelector(`tbody[data-horizon="${horizon}"]`))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Complete Backlog candidate' }))
+    await waitFor(() => assert.ok(screen.queryByRole('button', { name: 'Backlog candidate' }) === null))
+    fireEvent.click(screen.getByRole('button', { name: 'By time', exact: true }))
+    assert.equal(document.querySelector('.tasks-table'), null)
   } finally { app.unmount() }
 })

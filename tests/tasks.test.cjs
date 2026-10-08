@@ -217,3 +217,27 @@ test('schema 14 defers the removed This week bucket to Later once and preserves 
     assert.equal(upgraded.getNote(current.id).revision, revision)
   } finally { upgraded?.close(); f.close() }
 })
+
+
+test('Backlog and planned scopes filter before counts and pagination', () => {
+  const f = fixture()
+  try {
+    const backlog = make(f.store, 'Undecided')
+    const capture = f.store.submitCapture(crypto.randomUUID(), 0, 'Capture')
+    const planned = make(f.store, 'Planned')
+    move(f.store, planned, 'tomorrow')
+    const waiting = list(f.store, { scope: 'backlog', limit: 1 })
+    assert.equal(waiting.total, 2)
+    assert.equal(waiting.counts.unplanned, 2)
+    assert.equal(waiting.categoryCounts.unassigned, 2)
+    assert.equal(waiting.counts.tomorrow, 0)
+    assert.ok(waiting.nextCursor)
+    const next = list(f.store, { scope: 'backlog', limit: 1, cursor: waiting.nextCursor })
+    assert.deepEqual(new Set([...waiting.items, ...next.items].map(item => item.id)), new Set([backlog.id, capture]))
+    const active = list(f.store, { scope: 'planned' })
+    assert.equal(active.total, 1)
+    assert.equal(active.items[0].id, planned.id)
+    assert.equal(active.captureTotal, 0)
+    assert.equal(active.counts.unplanned, 0)
+  } finally { f.close() }
+})

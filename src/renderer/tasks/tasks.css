@@ -67,3 +67,30 @@
 
 .tasks-column.is-over { border-color: var(--blue); }
 @media (max-width: 1250px) { .tasks-board-time .tasks-column:not(.is-collapsed) { min-width: 155px; flex-basis: 155px; } }
+
+.tasks-backlog-groups { display: flex; flex-direction: column; gap: 24px; }
+.tasks-backlog-group > header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--border); padding: 0 0 10px; }
+.tasks-backlog-group h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.tasks-backlog-group > header span { font: var(--type-caption) var(--font-mono); color: var(--text-muted); }
+.tasks-backlog-group > header button { margin-left: auto; border: 0; background: transparent; color: var(--text); }
+.tasks-backlog-group .tasks-card { display: grid; grid-template-columns: minmax(200px, 1fr) auto; align-items: center; gap: 4px 14px; padding: 12px; }
+.tasks-backlog-group .tasks-card-heading { grid-column: 1; grid-row: 1; }
+.tasks-backlog-group .tasks-card-meta, .tasks-backlog-group .tasks-card-tags { grid-column: 1; margin-left: 32px; margin-top: 2px; }
+.tasks-backlog-group .tasks-card-actions { grid-column: 2; grid-row: 1 / span 3; margin: 0; flex-wrap: wrap; }
+.tasks-backlog-group .tasks-card-actions button { padding: 5px 8px; }
+.tasks-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--type-secondary); }
+.tasks-table > thead th { text-align: left; font-size: var(--type-caption); color: var(--text-muted); font-weight: 500; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.tasks-table > thead th:first-child { width: 55%; }
+.tasks-table > thead th:nth-child(2) { width: 23%; }
+.tasks-table td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+.tasks-table-group-heading th { padding: 20px 12px 10px; text-align: left; font-size: 14px; font-weight: 600; }
+.tasks-table-count { margin-left: 8px; color: var(--text-muted); font: var(--type-caption) var(--font-mono); }
+.tasks-table-group-heading button { float: right; border: 0; background: transparent; color: var(--text); padding: 0; }
+.tasks-table-task { display: flex; align-items: flex-start; gap: 7px; }
+.tasks-table-task input { margin-top: 3px; accent-color: var(--blue); }
+.tasks-table-subcategory { display: block; margin-top: 4px; font-size: var(--type-caption); color: var(--text-muted); }
+.tasks-table-tags span { margin-right: 8px; font-size: var(--type-caption); color: var(--text-muted); }
+.tasks-table tbody.is-over { background: var(--blue-soft); }
+.tasks-table tr.is-dragging { visibility: hidden; }
+.tasks-table-empty td { height: 38px; }
+@media (max-width: 800px) { .tasks-backlog-group .tasks-card { grid-template-columns: 1fr; } .tasks-backlog-group .tasks-card-actions { grid-column: 1; grid-row: auto; justify-content: flex-start; margin-left: 32px; } .tasks-table > thead th:first-child { width: 45%; } }

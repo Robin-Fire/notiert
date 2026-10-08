@@ -314,6 +314,8 @@ export class Store {
     const bucket = `CASE WHEN n.kind='inbox' OR coalesce(i.kind,'unplanned')='unplanned' THEN 'unplanned' WHEN i.kind='later' THEN 'later' WHEN i.kind='week' THEN CASE WHEN i.target_date<'${monday}' THEN 'today' WHEN i.target_date='${monday}' THEN 'today' WHEN i.target_date='${next}' THEN 'next-week' ELSE 'upcoming' END WHEN i.target_date<='${input.today}' THEN 'today' WHEN i.target_date='${tomorrow}' THEN 'tomorrow' WHEN i.target_date<'${next}' THEN 'upcoming' WHEN i.target_date<'${after}' THEN 'next-week' ELSE 'upcoming' END`
     const where = ["n.deleted_at IS NULL", input.completed ? "n.kind='task' AND n.task_status='done'" : "(n.kind='inbox' OR (n.kind='task' AND n.task_status='open'))"]
     const params: (string | number | null)[] = []
+    if (input.scope === 'planned') where.push("n.kind='task' AND coalesce(i.kind,'unplanned')<>'unplanned'")
+    if (input.scope === 'backlog') where.push("(n.kind='inbox' OR coalesce(i.kind,'unplanned')='unplanned')")
     if (input.categoryId !== undefined) { where.push('n.project_id IS ?'); params.push(input.categoryId) }
     if (input.subcategoryId) { where.push('n.subcategory_id=?'); params.push(input.subcategoryId) }
     if (input.query) { where.push("(n.body LIKE ? ESCAPE '\\' OR EXISTS(SELECT 1 FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id AND t.name LIKE ? ESCAPE '\\'))"); const pattern = `%${input.query.replace(/[\\%_]/g, '\\$&')}%`; params.push(pattern, pattern) }
@@ -324,7 +326,7 @@ export class Store {
     for (const row of this.db.prepare(`SELECT ${bucket} AS horizon,count(*) AS total ${from} GROUP BY horizon`).all(...params) as { horizon: keyof typeof counts; total: number }[]) counts[row.horizon] = row.total
     const categoryCounts: Record<string, number> = {}
     let captureTotal = 0
-    for (const row of this.db.prepare(`SELECT n.project_id AS categoryId,n.kind,count(*) AS total ${from} GROUP BY n.project_id,n.kind`).all(...params) as { categoryId: string | null; kind: string; total: number }[]) { if (row.kind === 'inbox') captureTotal += row.total; else categoryCounts[row.categoryId ?? 'unassigned'] = row.total }
+    for (const row of this.db.prepare(`SELECT n.project_id AS categoryId,n.kind,count(*) AS total ${from} GROUP BY n.project_id,n.kind`).all(...params) as { categoryId: string | null; kind: string; total: number }[]) { if (row.kind === 'inbox') captureTotal += row.total; if (row.kind !== 'inbox' || input.scope === 'backlog') { const key = row.categoryId ?? 'unassigned'; categoryCounts[key] = (categoryCounts[key] ?? 0) + row.total } }
     const pageWhere = [...where], pageParams = [...params]
     if (input.horizon) { pageWhere.push(`(${bucket})=?`); pageParams.push(input.horizon) }
     if (input.cursor) { pageWhere.push('(coalesce(i.position,0)>? OR (coalesce(i.position,0)=? AND n.id>?))'); pageParams.push(input.cursor.position, input.cursor.position, input.cursor.id) }

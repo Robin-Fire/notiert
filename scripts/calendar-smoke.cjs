@@ -66,7 +66,7 @@ app.whenReady().then(async () => {
   }
   const backlogTask = await evaluate(`window.captured.planner.createTask({body:'Backlog to Ready regression',placement:{kind:'backlog'}})`)
   assert.equal(backlogTask.ok, true)
-  await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Tasks')).click()`)
+  await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Backlog')).click()`)
   await until(`Boolean(document.querySelector('.tasks-page'))`, 'Tasks workspace')
   await evaluate(`document.querySelector('.tasks-board > [data-horizon="unplanned"].is-collapsed .tasks-column-heading button')?.click()`)
   await until(`Boolean([...document.querySelectorAll('.tasks-card-body')].find(row=>row.textContent.includes('Backlog to Ready regression')))`, 'Tasks card')

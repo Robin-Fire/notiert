@@ -235,3 +235,12 @@ This week has been removed from both layouts, the overview, and creation choices
 Follow-up verification includes native dragging after scrolling a long page, no column scroll containers, immediate overlay removal after drops, and schema 14-to-15 migration/reopening. Calendar drag/resize and scheduling smoke checks continue to pass.
 
 Final checks for the refinements: all 91 tests passed; type checking, production build, Tasks native drag/scroll smoke, and Calendar smoke passed.
+
+
+## 13. Separate Backlog and grouped Table view
+
+Per the updated direction, Backlog is again a separate navigation destination with stacked category groups, captures and unplanned tasks, and Today/Tomorrow/Next week buttons. Planning a capture classifies it as a task atomically and supports Undo. Legacy Inbox navigation and capture submission lead to Backlog. Tasks contains planned work only and retains both boards, adding a grouped Table layout with editing, completion, drag/reorder, pagination and shared filters. Existing dates outside the named groups remain visible under Upcoming.
+
+Queries apply planned/backlog scope before counts and pagination so both pages have accurate totals. Calendar stays unchanged. Both pages reuse the intention API and shared editor; the old scheduling-based Backlog API is retained for compatibility rather than used for the new page.
+
+Verification: 93 tests passed; type checking, build, native board/table drag with Undo and page scrolling, Backlog planning, capture, taxonomy, shared editor and Calendar smoke checks passed. Backlog category counts include captures across all pages. Screenshots are available locally as `tests/.visual/backlog-light.png` and `tests/.visual/tasks-table-light.png`.
