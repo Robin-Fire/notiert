@@ -86,3 +86,5 @@ See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and [resources/licenses](re
 Tasks scrolls as one page. Planned tasks move by dragging their grip; Backlog also has quick planning buttons. The columns have no individual scrollbars. The removed This week bucket is deferred to Later during schema 15 migration, without changing calendar placements.
 
 Backlog items have a searchable ReUI multi-select tag picker. Select existing tags, remove chips, or choose Create for a new name; tags save directly without classifying captures.
+
+Dropdowns throughout capture, tasks, category pickers, and settings use the shared ReUI select, with searchable tag selection handled by the Backlog tag picker. Calendar scheduling behavior is unchanged.

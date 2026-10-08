@@ -71,7 +71,7 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate(`Boolean(document.querySelector('.task-detail-dialog'))`),false)
   await evaluate(`[...document.querySelectorAll('.note-row-open')].find(button=>button.textContent.includes('Screenshot context')).click()`)
   await checkImages()
-  assert.equal(await evaluate(`document.querySelector('.task-schedule-fields select').value`),'backlog')
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Task placement"]').value`),'backlog')
   await screenshot('item-edit-all-light.png')
   await close()
   await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Backlog')).click()`)

@@ -1,3 +1,4 @@
+const selectOption = require('./select-option.cjs')
 const { app, BrowserWindow } = require('electron')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
@@ -72,7 +73,7 @@ app.whenReady().then(async () => {
   await until(`Boolean([...document.querySelectorAll('.tasks-card-body')].find(row=>row.textContent.includes('Backlog to Ready regression')))`, 'Tasks card')
   await evaluate(`[...document.querySelectorAll('.tasks-card-body')].find(row=>row.textContent.includes('Backlog to Ready regression')).click()`)
   await until(`Boolean(document.querySelector('.task-detail-dialog'))`, 'Task details')
-  await evaluate(`(() => {const select=[...document.querySelectorAll('.task-schedule-fields select')].find(select=>[...select.options].some(option=>option.value==='ready')); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'ready');select.dispatchEvent(new Event('change',{bubbles:true}));})()`)
+  await selectOption(evaluate, '[aria-label="Task placement"]', 'ready')
   await evaluate(`[...document.querySelectorAll('.task-schedule-fields button')].find(button=>button.textContent.trim()==='Save schedule').click()`)
   await wait(300)
   await clickText('Calendar', '.side-nav button')

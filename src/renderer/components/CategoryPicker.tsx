@@ -1,3 +1,4 @@
+import { AppSelect } from './AppSelect'
 import type { Category, Subcategory } from '../../shared/contracts'
 import { useState } from 'react'
 import { Check, ChevronDown, Folder } from 'lucide-react'
@@ -20,7 +21,7 @@ export function CategoryPicker({ categories, subcategories, categoryId, subcateg
     </Popover>
   }
   return <div className="category-picker">
-    <label>Category<select aria-label="Item category" disabled={disabled} value={categoryId??''} onChange={event=>onChange(event.target.value||null,null)}><option value="">Unassigned</option>{categories.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-    <label>Subcategory<select aria-label="Item subcategory" disabled={disabled||!categoryId} value={subcategoryId??''} onChange={event=>onChange(categoryId,event.target.value||null)}><option value="">No subcategory</option>{subcategories.filter(item=>item.categoryId===categoryId).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <label>Category<AppSelect aria-label="Item category" disabled={disabled} value={categoryId??''} onChange={event=>onChange(event.target.value||null,null)}><option value="">Unassigned</option>{categories.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</AppSelect></label>
+    <label>Subcategory<AppSelect aria-label="Item subcategory" disabled={disabled||!categoryId} value={subcategoryId??''} onChange={event=>onChange(categoryId,event.target.value||null)}><option value="">No subcategory</option>{subcategories.filter(item=>item.categoryId===categoryId).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</AppSelect></label>
   </div>
 }

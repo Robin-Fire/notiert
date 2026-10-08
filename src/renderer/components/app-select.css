@@ -1,0 +1,8 @@
+.app-select { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 5px; font-size: var(--type-secondary); min-width: 0; max-width: 100%; padding: 5px 8px; }
+.app-select [data-slot=select-value] { overflow: hidden; text-overflow: ellipsis; }
+.app-select-popup { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; box-shadow: var(--shadow-card); }
+.app-select-popup [data-slot=select-item] { font-size: var(--type-secondary); padding-top: 7px; padding-bottom: 7px; }
+.app-select-popup [data-slot=select-item][data-highlighted] { background: var(--blue-soft); color: var(--text); }
+.app-select-popup [data-slot^=select-scroll] { background: var(--surface); }
+.capture-category-control .app-select { flex: 1; height: 25px; padding: 2px 5px; font-size: 11px; background: transparent; }
+.category-picker label .app-select, .tasks-dialog label .app-select, .task-schedule-fields label .app-select { width: 100%; }

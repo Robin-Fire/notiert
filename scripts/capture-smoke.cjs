@@ -1,3 +1,4 @@
+const selectOption = require('./select-option.cjs')
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
 const os = require('node:os')
@@ -33,16 +34,7 @@ app.whenReady().then(async () => {
     if (await capture.webContents.executeJavaScript("Boolean(document.querySelector('.capture-input'))")) break
     await wait(100)
   }
-  let categoryAvailable = false
-  for (let attempt = 0; attempt < 50 && !categoryAvailable; attempt++) {
-    categoryAvailable = await capture.webContents.executeJavaScript(`(() => { const select = document.querySelector('[aria-label="Capture category"]'); return Boolean(select && [...select.options].some((option) => option.value === ${JSON.stringify(categoryId)})); })()`)
-    if (!categoryAvailable) await wait(100)
-  }
-  if (!categoryAvailable) {
-    const categoryState = await capture.webContents.executeJavaScript("Promise.all([window.captured.capture.getState(), window.captured.capture.categories()])")
-    throw new Error(`Capture category selector did not load the new category: ${JSON.stringify({ categoryId, categoryState })}`)
-  }
-  await capture.webContents.executeJavaScript(`(() => { const select = document.querySelector('[aria-label="Capture category"]'); select.value = ${JSON.stringify(categoryId)}; select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
+  await selectOption(code=>capture.webContents.executeJavaScript(code), '[aria-label="Capture category"]', categoryId)
   await capture.webContents.executeJavaScript("document.querySelector('.capture-input').focus()")
   capture.webContents.insertText('Capture smoke test')
   await wait(400)
