@@ -849,7 +849,7 @@ test('Backlog ReUI tag picker selects, creates and removes tags without classify
     let input = await screen.findByRole('combobox', { name: 'Tags for Pick capture tags' })
     const group = input.closest('.backlog-group')
     assert.ok(group, 'Backlog uses the original category panel')
-    assert.ok(input.closest('.backlog-task-main'), 'Picker belongs to a compact Backlog row')
+    assert.equal(input.closest('.backlog-tag-picker').parentElement, input.closest('.backlog-task'), 'Picker sits inline beside the task title')
     const toggle = group.querySelector('.backlog-group-toggle')
     fireEvent.click(toggle)
     assert.equal(toggle.getAttribute('aria-expanded'), 'false')
