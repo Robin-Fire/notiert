@@ -1,3 +1,4 @@
+const selectOption = require('./select-option.cjs')
 const { app, BrowserWindow } = require('electron')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
@@ -25,12 +26,12 @@ app.whenReady().then(async () => {
   win.webContents.on('console-message', event => { if (event.level === 'error') errors.push(event.message) })
   const seeded = await evaluate(`(async()=>{
     const unwrap=result=>{if(!result.ok)throw Error(result.message);return result.value};
-    const work=unwrap(await window.captured.notes.createCategory('Work')),personal=unwrap(await window.captured.notes.createCategory('Personal'));
+    const work=unwrap(await window.captured.items.createCategory('Work')),personal=unwrap(await window.captured.items.createCategory('Personal'));
     const iso=date=>date.toLocaleDateString('sv-SE'),today=iso(new Date()),tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
     const monday=new Date();monday.setDate(monday.getDate()-((monday.getDay()+6)%7));const next=new Date(monday);next.setDate(next.getDate()+7);
     const create=async(body,categoryId,kind,targetDate=null)=>unwrap(await window.captured.taskWorkspace.create({body,categoryId,tags:['Planning'],intention:{kind,targetDate,position:0}}));
-    await create('Send the revised proposal',work.id,'day',today);await create('Review customer feedback',work.id,'day',today);await create('Prepare the release checklist',work.id,'day',today);
-    await create('Book an appointment',personal.id,'day',iso(tomorrow));await create('Update the team handbook',work.id,'week',iso(monday));await create('Plan the next iteration',work.id,'week',iso(next));await create('Organize the photo library',personal.id,'later');await create('Decide where this belongs',null,'unplanned');
+    await create('Send the revised proposal',work.id,'now');await create('Review customer feedback',work.id,'now');await create('Prepare the release checklist',work.id,'now');
+    await create('Book an appointment',personal.id,'next');await create('Update the team handbook',work.id,'soon');await create('Plan the next iteration',work.id,'soon');await create('Organize the photo library',personal.id,'later');await create('Decide where this belongs',null,'unplanned');
     const date=new Date();date.setHours(10,0,0,0);const scheduled=unwrap(await window.captured.planner.createTask({body:'Scheduled review',categoryId:work.id,placement:{kind:'timed',startAt:date.getTime(),endAt:date.getTime()+3600000}}));
     return {work,personal,scheduled,today};
   })()`)
@@ -41,31 +42,70 @@ app.whenReady().then(async () => {
   const capture=await captureWindow.webContents.executeJavaScript(`(async()=>{const state=await window.captured.capture.getState();const saved=await window.captured.capture.submit({requestId:crypto.randomUUID(),generation:state.value.generation,body:'Idea from the client call',categoryId:'${seeded.work.id}'});await window.captured.capture.dismiss('saved');return saved})()`)
   assert.equal(capture.ok,true,capture.message);seeded.capture=capture.value
   await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Tasks')).click()`)
-  await until(`document.querySelectorAll('.tasks-card').length===8`, 'all workspace cards')
+  await until(`document.querySelectorAll('.tasks-page [data-task-id]').length===10`, 'all workspace cards')
   async function screenshot(name, width = 1400, height = 850) {
-    const html = await evaluate(`(()=>{const clone=document.documentElement.cloneNode(true);document.querySelectorAll('select').forEach((select,index)=>{const copy=clone.querySelectorAll('select')[index];for(const option of copy.options)option.toggleAttribute('selected',option.value===select.value)});document.querySelectorAll('input').forEach((input,index)=>clone.querySelectorAll('input')[index].setAttribute('value',input.value));return clone.outerHTML})()`), file = path.join(profile, 'tasks-snapshot.html'), base = pathToFileURL(path.resolve(__dirname, '../out/renderer/index.html')).href
+    const html = await evaluate(`(()=>{const clone=document.documentElement.cloneNode(true);document.querySelectorAll('select').forEach((select,index)=>{const copy=clone.querySelectorAll('select')[index];for(const option of copy.options)option.toggleAttribute('selected',option.value===select.value)});document.querySelectorAll('input').forEach((input,index)=>{const copy=clone.querySelectorAll('input')[index];copy.setAttribute('value',input.value);copy.toggleAttribute('checked',input.checked)});return clone.outerHTML})()`), file = path.join(profile, 'tasks-snapshot.html'), base = pathToFileURL(path.resolve(__dirname, '../out/renderer/index.html')).href
     fs.writeFileSync(file, html.replace('<head>', `<head><base href="${base}">`))
     const preview = new BrowserWindow({ width, height, show: false, webPreferences: { offscreen: true, javascript: false } })
     try { await preview.loadFile(file); await wait(400); fs.writeFileSync(path.join(output, name), (await preview.webContents.capturePage()).toPNG()) } finally { preview.destroy() }
   }
   await screenshot('tasks-time-light.png')
+  await evaluate(`(()=>{const input=document.querySelector('[aria-label="Search tasks"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'no matching task');input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+  await until(`Boolean(document.querySelector('.tasks-empty-state'))`,'filtered empty state')
+  await screenshot('tasks-filter-empty-light.png')
+  await click('Clear filters')
+  await until(`document.querySelectorAll('.tasks-card').length===10`,'filter recovery')
   win.setSize(2560,1100);await wait(250)
-  for (const [layout,shot] of [['By time','tasks-time-wide.png'],['By category','tasks-category-wide.png']]) {
+  for (const [layout,shot] of [['By priority','tasks-time-wide.png']]) {
     await click(layout)
     assert.equal(await evaluate(`(()=>{const board=document.querySelector('.tasks-board').getBoundingClientRect();const columns=[...document.querySelectorAll('.tasks-board > .tasks-column')];const last=columns.at(-1).getBoundingClientRect();return Math.abs(board.right-last.right)<2&&columns.every(column=>column.getBoundingClientRect().left>=board.left)})()`),true,`${layout} uses the full wide screen`)
     await screenshot(shot,2560,1100)
   }
-  win.setSize(1400,850);await wait(250);await click('By time')
-  const ids = () => evaluate(`[...document.querySelectorAll('.tasks-card')].map(card=>card.dataset.taskId).sort()`)
+  win.setSize(1400,850);await wait(250);await click('By priority')
+  const ids = () => evaluate(`[...document.querySelectorAll('.tasks-page [data-task-id]')].map(card=>card.dataset.taskId).sort()`)
   const original = await ids()
-  await click('By category'); assert.deepEqual(await ids(), original)
-  await screenshot('tasks-category-light.png')
-  await click('By time')
+  await click('Table'); assert.deepEqual(await ids(), original)
+  await screenshot('tasks-table-overview.png')
+  await click('By priority')
+  await evaluate(`document.querySelector('[data-task-id="${seeded.scheduled.id}"] .tasks-card-body').click()`)
+  await until(`Boolean(document.querySelector('.task-detail-dialog'))`,'unified task details')
+  await selectOption(evaluate, '[aria-label="Task priority"]', 'next')
+  await screenshot('task-details-unified-light.png')
+  assert.equal(await evaluate(`(()=>{const rect=document.querySelector('.task-detail-actions').getBoundingClientRect();return rect.top>=0&&rect.bottom<=innerHeight})()`),true,'Editor actions stay visible while fields scroll')
+  assert.equal(await evaluate(`document.querySelectorAll('.task-detail-dialog .task-schedule-fields button:not([data-slot])').length`),0,'One Save action replaces separate planning and scheduling buttons')
+  await click('Save', '.task-detail-actions button')
+  await until(`!document.querySelector('.task-detail-dialog')`,'unified Save closes details')
+  assert.equal((await evaluate(`window.captured.items.get('${seeded.scheduled.id}')`)).value.plannedStartAt,seeded.scheduled.plannedStartAt,'Plan-only Save keeps the time block')
+  if (process.argv.includes('--editor-only')) {
+    await evaluate(`window.captured.settings.update({theme:'dark'})`)
+    await evaluate(`document.querySelector('[data-task-id="${seeded.scheduled.id}"] .tasks-card-body').click()`)
+    await until(`Boolean(document.querySelector('.task-detail-dialog'))`,'dark editor')
+    await screenshot('task-details-unified-dark.png')
+    win.setSize(900,700);await wait(200)
+    await screenshot('task-details-unified-narrow.png',900,700)
+    assert.equal(await evaluate(`(()=>{const rect=document.querySelector('.task-detail-actions').getBoundingClientRect();return rect.top>=0&&rect.bottom<=innerHeight})()`),true,'Editor actions stay visible in narrow windows')
+    await click('Close', '.task-detail-actions button')
+    await until(`!document.querySelector('.task-detail-dialog') && document.querySelector('.tasks-page')?.getAttribute('aria-busy')==='false'`,'editor cleanup')
+    await wait(200)
+    process.stdout.write('unified_editor_save=ok light_dark_narrow_footer=ok\n')
+    app.exit(0);return
+  }
+  const completionTarget = (await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Scheduled review'})`)).value.items[0]
+  await evaluate(`document.querySelector('[data-task-id="${completionTarget.id}"] input[type="checkbox"]').click()`)
+  await until(`document.querySelector('.tasks-notice')?.textContent.includes('Task completed')`,'completion notice')
+  await evaluate(`(()=>{const input=document.querySelector('[aria-label="Search tasks"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Scheduled review');input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+  await until(`document.querySelector('.tasks-search-results .task-search-status')?.textContent==='Completed'`,'completed task in ordinary search')
+  await screenshot('tasks-completed-search-light.png')
+  await click('Clear filters')
+  await click('Undo')
+  await until(`Boolean(document.querySelector('[data-task-id="${completionTarget.id}"]'))`,'completion Undo')
+  assert.equal((await evaluate(`window.captured.items.get('${completionTarget.id}')`)).value.plannedStartAt, completionTarget.plannedStartAt)
   // Drag an unscheduled task into another horizon.
   const task = (await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Send the revised proposal'})`)).value.items[0]
   const rect = selector => evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(${JSON.stringify(selector.includes("tasks-drag-handle"))} ? r.top+r.height/2 : Math.max(180,Math.min(innerHeight-50,r.top+r.height/2)))}})()`)
   win.focus(); await wait(300)
   async function drag(source, destination) {
+    await evaluate(`document.querySelector(${JSON.stringify(source)}).scrollIntoView({block:'nearest'})`);await wait(150)
     const sourceWidth=await evaluate(`document.querySelector(${JSON.stringify(source)}).closest('[data-task-id]').getBoundingClientRect().width`)
     const rowLayout=await evaluate(`Boolean(document.querySelector('.tasks-backlog-page, .tasks-table-page'))`)
     const start=await rect(source)
@@ -78,57 +118,50 @@ app.whenReady().then(async () => {
       const previewWidth=await evaluate(`document.querySelector('.tasks-drag-row').getBoundingClientRect().width`)
       assert.ok(Math.abs(previewWidth-sourceWidth)<2,`Preview keeps the source row width: ${previewWidth} vs ${sourceWidth}`)
     }
-    const end=await rect(destination)
+    await evaluate(`document.querySelector(${JSON.stringify(destination)}).scrollIntoView({block:'nearest'})`);await wait(200)
+    let end=await rect(destination)
     for (let step=1;step<=20;step++){win.webContents.sendInputEvent({type:'mouseMove',x:Math.round(start.x+(end.x-start.x)*step/20),y:Math.round(start.y+(end.y-start.y)*step/20),button:'left'});await wait(25)}
     if(rowLayout){await screenshot(await evaluate(`document.querySelector('.tasks-backlog-page') ? 'backlog-drag-active.png' : 'tasks-table-drag-active.png'`))}
-    await wait(150);win.webContents.sendInputEvent({type:'mouseUp',...end,button:'left',clickCount:1});await wait(20);assert.equal(await evaluate(`Boolean(document.querySelector('.tasks-drag-preview'))`),false,'Drop removes overlay immediately without a return animation');await wait(230)
+    for(let correction=0;correction<4;correction++){end=await rect(destination);win.webContents.sendInputEvent({type:'mouseMove',...end,button:'left'});await wait(50)}
+    end=await rect(destination);win.webContents.sendInputEvent({type:'mouseUp',...end,button:'left',clickCount:1});await wait(20);assert.equal(await evaluate(`Boolean(document.querySelector('.tasks-drag-preview'))`),false,'Drop removes overlay immediately without a return animation');await wait(230)
   }
-  // Backlog quick planning and Undo.
-  await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Backlog')).click()`)
-  await until(`Boolean(document.querySelector('[data-task-id="${seeded.capture.id}"]'))`,'Backlog capture')
-  assert.equal(await evaluate(`document.querySelector('.backlog-group-toggle b').textContent`),'Unassigned','Unassigned is the first Backlog category')
-  await screenshot('backlog-light.png')
-  const originalCaptureCategory=(await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.categoryId
-  await drag(`[data-task-id="${seeded.capture.id}"] .backlog-drag-handle`, `[data-category-id="${seeded.personal.id}"] .tasks-drop-target`)
-  await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Personal')`,'capture category drop')
-  const recategorized=(await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value
-  assert.equal(recategorized.categoryId,seeded.personal.id)
-  assert.equal(recategorized.kind,'inbox','Category drop preserves capture kind')
-  await click('Undo');await until(`document.querySelector('.tasks-notice')?.textContent.includes('Change undone')`,'capture category Undo')
-  assert.equal((await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.categoryId,originalCaptureCategory)
-
-  assert.equal(await evaluate(`(()=>{const row=document.querySelector('[data-task-id="${seeded.capture.id}"]');const title=row.querySelector('.backlog-task-title').getBoundingClientRect();const picker=row.querySelector('.backlog-tag-picker').getBoundingClientRect();return Math.abs(title.y-picker.y)<35&&picker.x>title.x})()`),true,'Tag picker sits inline next to its task')
-  win.setSize(850,850);await wait(250);await screenshot('backlog-inline-tags-narrow.png', 850, 850)
-  assert.equal(await evaluate(`document.querySelector('.tasks-page').scrollWidth<=document.querySelector('.tasks-page').clientWidth`),true,'Narrow Backlog has no horizontal overflow')
-  win.setSize(1400,850);await wait(250)
+  // Captures and priorities share one page; bulk selection is available here.
+  await until(`Boolean(document.querySelector('[data-task-id="${seeded.capture.id}"]'))`, 'Unsorted capture')
+  assert.equal(await evaluate(`document.querySelectorAll('.tasks-board > .tasks-column').length`), 5)
+  assert.equal(await evaluate(`[...document.querySelectorAll('.side-nav button')].some(button=>button.textContent.trim()==='Backlog')`), false)
+  await screenshot('tasks-priorities-light.png')
+  await click('Select items')
+  await evaluate(`document.querySelector('[aria-label="Select Idea from the client call"]').click()`)
+  await screenshot('tasks-priority-selection-light.png')
+  await click('Cancel selection')
   await evaluate(`document.querySelector('[data-task-id="${seeded.capture.id}"] [role="combobox"]').focus()`)
   win.webContents.insertText('Planning');await until(`Boolean([...document.querySelectorAll('[role="option"]')].find(option=>option.textContent.trim()==='Planning'))`,'existing tag option')
   await evaluate(`[...document.querySelectorAll('[role="option"]')].find(option=>option.textContent.trim()==='Planning').click()`)
   await until(`document.querySelector('.tasks-page').getAttribute('aria-busy')==='false'`)
-  assert.deepEqual((await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.tags,['Planning'])
+  assert.deepEqual((await evaluate(`window.captured.items.get('${seeded.capture.id}')`)).value.tags,['Planning'])
   await evaluate(`document.querySelector('[data-task-id="${seeded.capture.id}"] [role="combobox"]').focus()`)
   win.webContents.insertText('Fresh backlog tag');await until(`Boolean([...document.querySelectorAll('[role="option"]')].find(option=>option.textContent.includes('Create')))`,'creatable tag option')
   await screenshot('backlog-tag-picker-light.png')
   await evaluate(`[...document.querySelectorAll('[role="option"]')].find(option=>option.textContent.includes('Create')).click()`)
   await until(`document.querySelector('.tasks-page').getAttribute('aria-busy')==='false'`)
-  const tagged=(await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value
-  assert.equal(tagged.kind,'inbox');assert.deepEqual(new Set(tagged.tags),new Set(['Planning','Fresh backlog tag']))
+  const tagged=(await evaluate(`window.captured.items.get('${seeded.capture.id}')`)).value
+  assert.equal(tagged.kind,'task');assert.deepEqual(new Set(tagged.tags),new Set(['Planning','Fresh backlog tag']))
   await evaluate(`(()=>{const chip=[...document.querySelectorAll('[data-task-id="${seeded.capture.id}"] [data-slot="combobox-chip"]')].find(chip=>chip.textContent==='Planning');chip.querySelector('[data-slot="combobox-chip-remove"]').click()})()`)
   await until(`document.querySelector('.tasks-page').getAttribute('aria-busy')==='false'`)
-  assert.deepEqual((await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.tags,['Fresh backlog tag'])
+  assert.deepEqual((await evaluate(`window.captured.items.get('${seeded.capture.id}')`)).value.tags,['Fresh backlog tag'])
 
   await evaluate(`[...document.querySelectorAll('[data-task-id="${seeded.capture.id}"] button')].find(button=>button.textContent.trim()==='Later').click()`)
   await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Later')`,'Backlog defer to Later')
-  await until(`!document.querySelector('[data-task-id="${seeded.capture.id}"]')`,'Deferred item leaves Backlog')
+  await until(`Boolean(document.querySelector('[data-horizon="later"] [data-task-id="${seeded.capture.id}"]'))`,'Deferred task stays on the unified page')
   const deferred=(await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',scope:'planned',horizon:'later'})`)).value.items.find(item=>item.id===seeded.capture.id)
   assert.equal(deferred.intention.kind,'later')
   await click('Undo');await until(`Boolean(document.querySelector('[data-task-id="${seeded.capture.id}"]'))`,'Undo Later returns capture')
-  assert.equal((await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.kind,'inbox')
-  await evaluate(`[...document.querySelectorAll('[data-task-id="${seeded.capture.id}"] button')].find(button=>button.textContent.trim()==='Tomorrow').click()`)
-  await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Tomorrow')`, 'capture classification')
-  assert.equal((await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.kind, 'task')
+  assert.equal((await evaluate(`window.captured.items.get('${seeded.capture.id}')`)).value.kind,'task')
+  await evaluate(`[...document.querySelectorAll('[data-task-id="${seeded.capture.id}"] button')].find(button=>button.textContent.trim()==='Next').click()`)
+  await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Next')`, 'capture classification')
+  assert.equal((await evaluate(`window.captured.items.get('${seeded.capture.id}')`)).value.kind, 'task')
   await click('Undo'); await until(`document.querySelector('.tasks-notice')?.textContent.includes('Change undone')`, 'capture undo')
-  assert.equal((await evaluate(`window.captured.notes.get('${seeded.capture.id}')`)).value.kind, 'inbox')
+  assert.equal((await evaluate(`window.captured.items.get('${seeded.capture.id}')`)).value.kind, 'task')
   await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim()==='Tasks').click()`)
   await until(`Boolean(document.querySelector('.tasks-board'))`)
   await click('Table');await until(`Boolean(document.querySelector('.tasks-table'))`)
@@ -138,36 +171,32 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate(`document.querySelector('.tasks-page').scrollWidth<=document.querySelector('.tasks-page').clientWidth`),true,'Table fits narrow windows')
   win.setSize(1400,850);await evaluate(`window.captured.settings.update({theme:'light'})`);await wait(200)
   assert.deepEqual(await evaluate(`[...document.querySelectorAll('.tasks-table [data-task-id]')].map(row=>row.dataset.taskId).sort()`),original)
-  const beforeCancelledDrop=(await evaluate(`window.captured.notes.get('${task.id}')`)).value.revision
+  win.setSize(1400,1800);await wait(200)
+  const beforeCancelledDrop=(await evaluate(`window.captured.items.get('${task.id}')`)).value.revision
   await drag(`[data-task-id="${task.id}"] .tasks-drag-handle`,'.tasks-heading')
-  assert.equal((await evaluate(`window.captured.notes.get('${task.id}')`)).value.revision,beforeCancelledDrop,'Release outside a dropzone does not move the task')
-  await drag(`[data-task-id="${task.id}"] .tasks-drag-handle`,'.tasks-table tbody[data-horizon="tomorrow"]')
-  await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Tomorrow')`,'table native horizon move')
-  assert.equal((await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Send the revised proposal'})`)).value.items[0].horizon,'tomorrow')
+  assert.equal((await evaluate(`window.captured.items.get('${task.id}')`)).value.revision,beforeCancelledDrop,'Release outside a dropzone does not move the task')
+  await drag(`[data-task-id="${task.id}"] .tasks-drag-handle`,'.tasks-table tbody[data-horizon="next"]')
+  await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Next')`,'table native horizon move')
+  assert.equal((await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Send the revised proposal'})`)).value.items[0].horizon,'next')
   await click('Undo');await until(`document.querySelector('.tasks-notice')?.textContent.includes('Change undone')`,'table Undo')
-  await click('By time')
-  await drag(`[data-task-id="${task.id}"] .tasks-drag-handle`,'.tasks-board > [data-horizon="tomorrow"] .tasks-section')
-  await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Tomorrow')`, 'pointer horizon move')
+  win.setSize(1400,850);await wait(200)
+  await click('By priority')
+  await drag(`[data-task-id="${task.id}"] .tasks-drag-handle`,'.tasks-board > [data-horizon="next"] .tasks-section')
+  await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Next')`, 'pointer horizon move')
   const moved = (await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Send the revised proposal'})`)).value.items[0]
-  assert.equal(moved.horizon, 'tomorrow'); assert.equal(moved.categoryId, seeded.work.id)
+  assert.equal(moved.horizon, 'next'); assert.equal(moved.categoryId, seeded.work.id)
   await until(`document.querySelector('.tasks-page')?.getAttribute('aria-busy')==='false'`)
   const release=(await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Prepare the release checklist'})`)).value.items[0]
   const feedback=(await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Review customer feedback'})`)).value.items[0]
   await drag(`[data-task-id="${release.id}"] .tasks-drag-handle`,`[data-task-id="${feedback.id}"] .tasks-card-body`)
-  await until(`document.querySelector('.tasks-board > [data-horizon="today"] .tasks-card')?.dataset.taskId==='${release.id}'`, 'same horizon reorder')
-  await click('By category')
-  await drag(`[data-task-id="${feedback.id}"] .tasks-drag-handle`,'.tasks-category-column:nth-child(2) .tasks-card-body')
-  await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Tomorrow')`, 'category and horizon move')
-  const cross=(await evaluate(`window.captured.notes.get('${feedback.id}')`)).value
-  assert.equal(cross.categoryId,seeded.personal.id)
-  await click('By time')
+  await until(`document.querySelector('.tasks-board > [data-horizon="now"] .tasks-card')?.dataset.taskId==='${release.id}'`, 'same horizon reorder')
   const before = [seeded.scheduled.plannedDate, seeded.scheduled.plannedStartAt, seeded.scheduled.plannedEndAt]
-  await evaluate(`(async()=>{const task=(await window.captured.notes.get('${seeded.scheduled.id}')).value;return window.captured.taskWorkspace.move({id:task.id,expectedRevision:task.revision,today:'${seeded.today}',intention:{kind:'later',targetDate:null,position:0}})})()`)
-  const scheduled = (await evaluate(`window.captured.notes.get('${seeded.scheduled.id}')`)).value
+  await evaluate(`(async()=>{const task=(await window.captured.items.get('${seeded.scheduled.id}')).value;return window.captured.taskWorkspace.move({id:task.id,expectedRevision:task.revision,today:'${seeded.today}',intention:{kind:'later',targetDate:null,position:0}})})()`)
+  const scheduled = (await evaluate(`window.captured.items.get('${seeded.scheduled.id}')`)).value
   assert.deepEqual([scheduled.plannedDate, scheduled.plannedStartAt, scheduled.plannedEndAt], before)
   await evaluate(`window.captured.settings.update({theme:'dark'})`); await wait(200); await screenshot('tasks-time-dark.png')
   win.setSize(1050, 750); await wait(200); await screenshot('tasks-time-narrow.png', 1050, 750)
-  const near=await evaluate(`(()=>{const board=document.querySelector('.tasks-board').getBoundingClientRect();return ['today','tomorrow','next-week'].every(h=>{const rect=document.querySelector('.tasks-board > [data-horizon="'+h+'"]').getBoundingClientRect();return rect.left>=board.left&&rect.right<=board.right})})()`);assert.equal(near,true,'Near-term columns fit together in the narrow window')
+  const near=await evaluate(`(()=>{const board=document.querySelector('.tasks-board').getBoundingClientRect();return ['now','next','soon'].every(h=>{const rect=document.querySelector('.tasks-board > [data-horizon="'+h+'"]').getBoundingClientRect();return rect.left>=board.left&&rect.right<=board.right})})()`);assert.equal(near,true,'Near-term columns fit together in the narrow window')
   await drag(`[data-task-id="${task.id}"] .tasks-drag-handle`,'.tasks-board > [data-horizon="later"]')
   await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Later')`,'drop on collapsed Later')
   assert.equal(await evaluate(`document.querySelectorAll('.tasks-card select').length`),0,'Cards move only by dragging')
@@ -178,12 +207,12 @@ app.whenReady().then(async () => {
   assert.equal(scroll.scrollable,true,'Whole page grows and scrolls');assert.equal(scroll.columns,true,'No column scroll containers')
   await evaluate(`document.querySelector('[data-task-id="${bottom.id}"]').scrollIntoView({block:'center'})`);await wait(150)
   assert.equal(await evaluate(`document.querySelector('.tasks-page').scrollTop>0`),true,'Page scrolls to lower cards')
-  await drag(`[data-task-id="${bottom.id}"] .tasks-drag-handle`,'.tasks-board > [data-horizon="tomorrow"]')
-  await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Tomorrow')`,'drag after whole-page scroll')
-  assert.equal((await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Scroll check 11'})`)).value.items[0].horizon,'tomorrow')
+  await drag(`[data-task-id="${bottom.id}"] .tasks-drag-handle`,'.tasks-board > [data-horizon="next"]')
+  await until(`document.querySelector('.tasks-notice')?.textContent.includes('Moved to Next')`,'drag after whole-page scroll')
+  assert.equal((await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Scroll check 11'})`)).value.items[0].horizon,'next')
   await click('Calendar', '.side-nav button'); await until(`document.querySelector('[data-slot="event-calendar-day-column"]')`, 'unchanged Calendar grid')
   assert.equal(errors.length, 0, errors.join('\n'))
-  process.stdout.write('tasks_layouts=ok capture_sort_undo=ok pointer_move_reorder_category_collapsed=ok calendar_isolation=ok visual_light_dark_narrow=ok\n')
+  process.stdout.write('tasks_layouts=ok capture_priority_undo=ok pointer_move_reorder_collapsed=ok calendar_isolation=ok visual_light_dark_narrow=ok\n')
   app.exit(0)
 }).catch(error => { process.stderr.write(`${error.stack ?? error}\n`); app.exit(1) })
 app.on('quit', () => { const target = path.resolve(profile); if (path.dirname(target) === tempRoot && path.basename(target).startsWith('captured-tasks-smoke-')) { try { fs.rmSync(target, { recursive: true, force: true }) } catch {} } })

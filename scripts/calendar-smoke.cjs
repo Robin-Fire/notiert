@@ -51,7 +51,7 @@ app.whenReady().then(async () => {
   const errors = []
   window.webContents.on('console-message', (event) => { if (event.level === 'error') errors.push(event.message) })
   const seeded = await evaluate(`(async () => {
-    const date = new Date(); date.setHours(9,0,0,0);
+    const date = new Date(); while ([0,6].includes(date.getDay())) date.setDate(date.getDate()+1); date.setHours(9,0,0,0);
     const meeting = await window.captured.planner.createEvent({title:'Design sync',startAt:date.getTime(),endAt:date.getTime()+3600000,allDay:false});
     date.setHours(11,0,0,0);
     const task = await window.captured.planner.createTask({body:'Prepare review',tags:['Planning'],categoryId:null,placement:{kind:'timed',startAt:date.getTime(),endAt:date.getTime()+3600000}});
@@ -67,14 +67,14 @@ app.whenReady().then(async () => {
   }
   const backlogTask = await evaluate(`window.captured.planner.createTask({body:'Backlog to Ready regression',placement:{kind:'backlog'}})`)
   assert.equal(backlogTask.ok, true)
-  await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Backlog')).click()`)
+  await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Tasks')).click()`)
   await until(`Boolean(document.querySelector('.tasks-page'))`, 'Tasks workspace')
   await evaluate(`document.querySelector('.tasks-board > [data-horizon="unplanned"].is-collapsed .tasks-column-heading button')?.click()`)
-  await until(`Boolean([...document.querySelectorAll('.tasks-card-body')].find(row=>row.textContent.includes('Backlog to Ready regression')))`, 'Tasks card')
-  await evaluate(`[...document.querySelectorAll('.tasks-card-body')].find(row=>row.textContent.includes('Backlog to Ready regression')).click()`)
+  await until(`Boolean([...document.querySelectorAll('.tasks-card-body, .backlog-task-title')].find(row=>row.textContent.includes('Backlog to Ready regression')))`, 'Tasks card')
+  await evaluate(`[...document.querySelectorAll('.tasks-card-body, .backlog-task-title')].find(row=>row.textContent.includes('Backlog to Ready regression')).click()`)
   await until(`Boolean(document.querySelector('.task-detail-dialog'))`, 'Task details')
   await selectOption(evaluate, '[aria-label="Task placement"]', 'ready')
-  await evaluate(`[...document.querySelectorAll('.task-schedule-fields button')].find(button=>button.textContent.trim()==='Save schedule').click()`)
+  await evaluate(`[...document.querySelectorAll('.task-detail-actions button')].find(button=>button.textContent.trim()==='Save').click()`)
   await wait(300)
   await clickText('Calendar', '.side-nav button')
   await until(`Boolean(document.querySelector('.calendar-ready')?.textContent.includes('Backlog to Ready regression')) && Boolean(document.querySelector('[data-slot="event-calendar-day-column"]'))`, 'Calendar grid and Ready task')

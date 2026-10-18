@@ -16,26 +16,166 @@ const day = date => ({ kind: 'day', targetDate: date, position: 0 })
 const week = date => ({ kind: 'week', targetDate: date, position: 0 })
 function fixture() {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'captured-tasks-test-')), file = path.join(folder, 'notes.sqlite'), store = new Store(file)
-  return { store, file, folder, close() { if (store.db.open) store.close(); fs.rmSync(folder, { recursive: true, force: true }) } }
+  return { store, file, folder, close() { if (this.store.db.open) this.store.close(); fs.rmSync(folder, { recursive: true, force: true }) } }
 }
 const list = (store, extra = {}) => store.listWorkspace({ today, ...extra })
 const make = (store, body, categoryId = null) => store.createPlannerTask({ body, categoryId, tags: [], placement: { kind: 'backlog' } })
-function move(store, task, horizon, extra = {}) { return store.moveWorkspace({ id: task.id, expectedRevision: store.getNote(task.id).revision, intention: intentionFor(horizon, today), beforeId: null, today, ...extra }) }
+function move(store, task, horizon, extra = {}) { return store.moveWorkspace({ id: task.id, expectedRevision: store.getItem(task.id).revision, intention: intentionFor(horizon, today), beforeId: null, today, ...extra }) }
 const placement = task => [task.plannedDate, task.plannedStartAt, task.plannedEndAt, task.ready, task.later, task.position, task.priorityPosition, task.beforeEventId]
 
-test('horizons handle week boundaries, past work, year boundaries and future plans without overlap', () => {
-  assert.equal(horizonOf(day('2026-10-07'), today), 'today')
-  assert.equal(isCarriedOver(day('2026-10-07'), today), true)
-  assert.equal(horizonOf(day('2026-10-09'), today), 'tomorrow')
-  assert.equal(horizonOf(day('2026-10-11'), today), 'upcoming')
-  assert.equal(horizonOf(day('2026-10-12'), today), 'next-week')
-  assert.equal(horizonOf(day('2026-10-19'), today), 'upcoming')
-  assert.equal(horizonOf(day('2026-10-12'), '2026-10-11'), 'tomorrow')
-  assert.equal(horizonOf(week('2026-10-05'), '2026-10-11'), 'today')
-  assert.equal(horizonOf(week('2026-10-05'), '2026-10-12'), 'today')
-  assert.deepEqual(intentionFor('tomorrow', '2026-12-31'), day('2027-01-01'))
-  assert.equal(intentionFor('next-week', '2026-12-31').targetDate, '2027-01-04')
-  assert.deepEqual(intentionFor('tomorrow', '2026-10-25'), day('2026-10-26'))
+test('search includes open and completed tasks across horizons with counts and pagination before filtering', () => {
+  const f = fixture()
+  try {
+    for (let index = 0; index < 56; index++) {
+      const task = make(f.store, `Reference record ${String(index).padStart(2, '0')}\nDetailed saved information`, null)
+      f.store.setItemTags(task.id, ['reference'])
+      if (index % 3 === 0) move(f.store, task, 'now')
+      if (index % 2 === 0) f.store.setTaskCompleted(task.id, true)
+    }
+    const removed = make(f.store, 'Reference record removed')
+    f.store.trash([removed.id])
+    const page = list(f.store, { scope: 'all', query: 'saved information', tags: ['reference'], limit: 50 })
+    assert.equal(page.total, 56)
+    assert.equal(page.items.length, 50)
+    assert.ok(page.items.some(item => item.completedAt !== null))
+    assert.ok(page.items.some(item => item.completedAt === null))
+    const next = list(f.store, { scope: 'all', query: 'saved information', tags: ['reference'], limit: 50, cursor: page.nextCursor })
+    assert.equal(next.items.length, 6)
+    assert.equal(new Set([...page.items, ...next.items].map(item => item.id)).size, 56)
+    assert.equal(list(f.store, { query: 'Reference record', completed: true }).total, 28)
+    assert.equal(list(f.store, { scope: 'all' }).total, 28)
+    const overview = f.store.workspaceOverview({ today, query: 'saved information', scope: 'all' })
+    assert.deepEqual(Object.keys(overview), ['unplanned'])
+    assert.equal(overview.unplanned.total, 56)
+  } finally { f.close() }
+})
+
+test('schema 17 preserves former notes as completed tasks and captures as Backlog tasks', () => {
+  const f = fixture()
+  try {
+    const category = f.store.createCategory('Reference')
+    const image = f.store.addDraftImage(0, 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ioAAAAASUVORK5CYII=')
+    const reference = f.store.submitCapture(crypto.randomUUID(), 0, 'Saved reference content', category.id, null, ['archive'], 'note')
+    const capture = f.store.submitCapture(crypto.randomUUID(), 1, 'Unplanned old capture', null, null, [], 'inbox')
+    const active = make(f.store, 'Existing task')
+    const originalTask = f.store.getItem(active.id)
+    const before = f.store.getItem(reference)
+    f.store.db.prepare('DELETE FROM schema_migrations WHERE version>=17').run()
+    f.store.close(); f.store = new Store(f.file)
+    const migrated = f.store.getItem(reference)
+    assert.equal(migrated.kind, 'task')
+    assert.ok(migrated.completedAt !== null)
+    assert.equal(migrated.body, before.body)
+    assert.equal(migrated.categoryId, category.id)
+    assert.deepEqual(migrated.tags, ['archive'])
+    assert.equal(migrated.images[0].id, image.id)
+    assert.equal(migrated.createdAt, before.createdAt)
+    assert.equal(migrated.intention.kind, 'unplanned')
+    assert.equal(list(f.store, { query: 'Saved reference content' }).items[0].id, reference)
+    assert.equal(f.store.getItem(capture).kind, 'task')
+    assert.equal(f.store.getItem(capture).completedAt, null)
+    assert.deepEqual(f.store.getItem(active.id), { ...originalTask, revision: originalTask.revision + 1 })
+    assert.equal(f.store.getCaptureDraft().captureKind, 'task')
+    assert.ok(fs.readdirSync(path.join(f.folder, 'backups')).some(name => name.startsWith('pre-migration-')))
+    const revision = migrated.revision
+    f.store.close(); f.store = new Store(f.file)
+    assert.equal(f.store.getItem(reference).revision, revision)
+  } finally { if (f.store.db.open) f.store.close(); f.close() }
+})
+
+test('one save commits text, tags, plan and schedule together and rolls back failed planning', () => {
+  const f = fixture()
+  try {
+    const task = make(f.store, 'Original task')
+    const startAt = new Date('2026-10-09T10:00').getTime(), endAt = startAt + 3600000
+    const sequence = f.store.changeSequence
+    assert.throws(() => f.store.saveItem({ id: task.id, expectedRevision: task.revision, body: 'Must roll back', tags: ['temporary'], plan: { today: 'invalid', intention: day('2026-10-09') } }), /valid local date/)
+    assert.equal(f.store.changeSequence, sequence)
+    assert.equal(f.store.getItem(task.id).body, 'Original task')
+    assert.deepEqual(f.store.getItem(task.id).tags, [])
+    assert.equal(list(f.store, { query: 'Must roll back' }).total, 0)
+    const updated = f.store.saveItem({ id: task.id, expectedRevision: task.revision, body: 'Updated task', tags: ['planned'], plan: { today, intention: day('2026-10-09') }, placement: { kind: 'timed', startAt, endAt } })
+    assert.equal(f.store.changeSequence, sequence + 1)
+    assert.equal(updated.body, 'Updated task')
+    assert.deepEqual(updated.tags, ['planned'])
+    const saved = list(f.store, { horizon: 'next' }).items[0]
+    assert.equal(saved.plannedStartAt, startAt)
+    assert.equal(saved.plannedEndAt, endAt)
+    assert.throws(() => f.store.saveItem({ id: task.id, expectedRevision: task.revision, body: 'Stale edit', tags: [] }), /changed elsewhere/)
+    assert.equal(f.store.getItem(task.id).body, 'Updated task')
+  } finally { f.close() }
+})
+
+test('completion undo restores plan and calendar placement and refuses to overwrite later edits', () => {
+  const f = fixture()
+  try {
+    for (const plan of [{ kind: 'ready' }, { kind: 'later' }, { kind: 'timed', startAt: new Date('2026-10-08T10:00').getTime(), endAt: new Date('2026-10-08T11:00').getTime() }]) {
+      const task = f.store.createPlannerTask({ body: 'Complete me', tags: [], placement: plan })
+      move(f.store, task, 'now')
+      const before = list(f.store, { horizon: 'now' }).items.find(item => item.id === task.id)
+      const undo = f.store.completeWorkspace({ id: task.id, expectedRevision: before.revision, completed: true })
+      assert.ok(f.store.getItem(task.id).completedAt !== null)
+      f.store.undoCompletion(undo)
+      const restored = list(f.store, { horizon: 'now' }).items.find(item => item.id === task.id)
+      assert.deepEqual(placement(restored), placement(before))
+      assert.deepEqual(restored.intention, before.intention)
+      const secondUndo = f.store.completeWorkspace({ id: task.id, expectedRevision: restored.revision, completed: true })
+      const current = f.store.getItem(task.id)
+      f.store.updateItem(task.id, current.revision, 'Edited later', [])
+      assert.throws(() => f.store.undoCompletion(secondUndo), /Undo is no longer available/)
+      assert.equal(f.store.getItem(task.id).body, 'Edited later')
+      assert.ok(f.store.getItem(task.id).completedAt !== null)
+    }
+  } finally { f.close() }
+})
+
+test('workspace overview returns consistent counts and independent horizon pagination', () => {
+  const f = fixture()
+  try {
+    for (let i = 0; i < 3; i++) move(f.store, make(f.store, `Today ${i}`), 'now')
+    move(f.store, make(f.store, 'Tomorrow'), 'next')
+    const pages = f.store.workspaceOverview({ today, scope: 'planned', limit: 2 })
+    assert.equal(pages.now.items.length, 2)
+    assert.equal(pages.now.total, 3)
+    assert.deepEqual(pages.now.counts, pages.next.counts)
+    assert.equal(pages.next.items.length, 1)
+    assert.equal(list(f.store, { horizon: 'now', limit: 2, cursor: pages.now.nextCursor }).items.length, 1)
+    assert.deepEqual(Object.keys(f.store.workspaceOverview({ today, scope: 'backlog' })), ['unplanned'])
+  } finally { f.close() }
+})
+
+test('bulk planning classifies captures atomically and rolls back invalid destinations', () => {
+  const f = fixture()
+  try {
+    const task = make(f.store, 'Bulk task')
+    const id = f.store.submitCapture(crypto.randomUUID(), 0, 'Bulk capture', undefined, undefined, undefined, 'inbox')
+    const capture = f.store.getItem(id)
+    const inputs = [task, capture].map(item => ({ id: item.id, expectedRevision: item.revision, intention: day(today), today, beforeId: null }))
+    const sequence = f.store.changeSequence
+    assert.throws(() => f.store.moveWorkspaceMany([inputs[0], { ...inputs[1], beforeId: crypto.randomUUID() }]), /destination changed/)
+    assert.equal(f.store.changeSequence, sequence)
+    assert.equal(f.store.getItem(task.id).intention.kind, 'unplanned')
+    assert.equal(f.store.getItem(id).kind, 'inbox')
+    f.store.moveWorkspaceMany(inputs)
+    assert.equal(f.store.changeSequence, sequence + 1)
+    assert.equal(list(f.store, { horizon: 'now' }).items.length, 2)
+    assert.equal(f.store.getItem(id).kind, 'task')
+  } finally { f.close() }
+})
+
+test('priorities stay fixed across days, weeks, year boundaries and daylight saving changes', () => {
+  for (const bucket of ['unplanned', 'now', 'next', 'soon', 'later']) {
+    const intention = intentionFor(bucket, today)
+    assert.equal(intention.kind, bucket)
+    assert.equal(intention.targetDate, null)
+    assert.equal(validIntention(intention), true)
+    for (const date of ['2026-10-08', '2026-10-25', '2026-12-31', '2027-01-04']) {
+      assert.equal(horizonOf(intention, date), bucket)
+      assert.equal(isCarriedOver(intention, date), false)
+    }
+  }
+  assert.equal(validIntention({ kind: 'now', targetDate: today, position: 0 }), false)
+  assert.equal(validIntention({ kind: 'soon', targetDate: null, position: -1 }), false)
   assert.equal(validIntention(day('2028-02-29')), true)
   assert.equal(validIntention(day('2026-02-29')), false)
   assert.equal(validIntention(week('2026-10-06')), false)
@@ -46,16 +186,16 @@ test('moving intentions does not alter calendar placement and calendar reconcili
   try {
     const task = f.store.createPlannerTask({ body: 'Timed task', tags: ['Planning'], placement: { kind: 'timed', startAt: new Date('2026-10-06T09:00').getTime(), endAt: new Date('2026-10-06T10:00').getTime() } })
     const original = placement(task)
-    move(f.store, task, 'next-week')
+    move(f.store, task, 'soon')
     const moved = f.store.listPlanner('2026-10-06', '2026-10-06').tasks.find(item => item.id === task.id)
     assert.deepEqual(placement(moved), original)
-    const intention = f.store.getNote(task.id).intention
+    const intention = f.store.getItem(task.id).intention
     f.store.reconcileReadyTasks(today)
-    assert.deepEqual(f.store.getNote(task.id).intention, intention)
-    const current = f.store.getNote(task.id)
+    assert.deepEqual(f.store.getItem(task.id).intention, intention)
+    const current = f.store.getItem(task.id)
     f.store.schedulePlannerTask({ id: task.id, expectedRevision: current.revision, placement: { kind: 'later' } })
-    assert.deepEqual(f.store.getNote(task.id).intention, intention)
-    assert.equal(list(f.store, { horizon: 'next-week' }).items[0].id, task.id)
+    assert.deepEqual(f.store.getItem(task.id).intention, intention)
+    assert.equal(list(f.store, { horizon: 'soon' }).items[0].id, task.id)
   } finally { f.close() }
 })
 
@@ -64,20 +204,17 @@ test('capture classification and horizon assignment are atomic, retain images/ta
   try {
     const category = f.store.createCategory('Work')
     const image = f.store.addDraftImage(0, 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ioAAAAASUVORK5CYII=')
-    const id = f.store.submitCapture(crypto.randomUUID(), 0, 'Capture', category.id, null, ['waiting'])
-    const capture = f.store.getNote(id)
-    assert.throws(() => f.store.moveWorkspace({ id, expectedRevision: capture.revision, intention: intentionFor('today', today), today, beforeId: crypto.randomUUID() }), /destination changed/)
-    assert.equal(f.store.getNote(id).kind, 'inbox')
-    const undo = move(f.store, capture, 'today')
-    const task = list(f.store, { horizon: 'today' }).items[0]
+    const id = f.store.submitCapture(crypto.randomUUID(), 0, 'Capture', category.id, null, ['waiting'], 'inbox')
+    const capture = f.store.getItem(id)
+    assert.throws(() => f.store.moveWorkspace({ id, expectedRevision: capture.revision, intention: intentionFor('now', today), today, beforeId: crypto.randomUUID() }), /destination changed/)
+    assert.equal(f.store.getItem(id).kind, 'inbox')
+    const undo = move(f.store, capture, 'now')
+    const task = list(f.store, { horizon: 'now' }).items[0]
     assert.equal(task.categoryId, category.id); assert.equal(task.images[0].id, image.id); assert.deepEqual(task.tags, ['waiting'])
     f.store.undoWorkspace(undo)
-    assert.equal(f.store.getNote(id).kind, 'inbox'); assert.equal(f.store.getNote(id).intention, undefined)
+    assert.equal(f.store.getItem(id).kind, 'inbox'); assert.equal(f.store.getItem(id).intention, undefined)
     assert.equal(list(f.store, { horizon: 'unplanned' }).total, 1)
-    const noteUndo = move(f.store, f.store.getNote(id), 'unplanned', { classify: 'note' })
-    assert.equal(list(f.store).total, 0)
-    f.store.undoWorkspace(noteUndo)
-    assert.equal(list(f.store).total, 1)
+    assert.throws(() => move(f.store, f.store.getItem(id), 'unplanned', { classify: 'note' }))
   } finally { f.close() }
 })
 
@@ -108,18 +245,18 @@ test('category changes clear incompatible subcategories, completion/reopening re
   try {
     const category = f.store.createCategory('Work'), other = f.store.createCategory('Personal'), sub = f.store.createSubcategory('Planning', category.id)
     const task = f.store.createPlannerTask({ body: 'Review', categoryId: category.id, subcategoryId: sub.id, tags: [], placement: { kind: 'backlog' } })
-    const undo = move(f.store, task, 'tomorrow', { categoryId: other.id })
-    assert.equal(f.store.getNote(task.id).subcategoryId, null)
+    const undo = move(f.store, task, 'next', { categoryId: other.id })
+    assert.equal(f.store.getItem(task.id).subcategoryId, null)
     f.store.undoWorkspace(undo)
-    assert.equal(f.store.getNote(task.id).subcategoryId, sub.id)
-    move(f.store, task, 'next-week')
-    const intention = f.store.getNote(task.id).intention
+    assert.equal(f.store.getItem(task.id).subcategoryId, sub.id)
+    move(f.store, task, 'soon')
+    const intention = f.store.getItem(task.id).intention
     f.store.setTaskCompleted(task.id, true)
     assert.equal(list(f.store).total, 0); assert.equal(list(f.store, { completed: true }).total, 1)
     f.store.setTaskCompleted(task.id, false)
-    assert.deepEqual(f.store.getNote(task.id).intention, intention)
+    assert.deepEqual(f.store.getItem(task.id).intention, intention)
     const stale = move(f.store, task, 'later')
-    f.store.updateItem(task.id, f.store.getNote(task.id).revision, 'Edited', [], category.id)
+    f.store.updateItem(task.id, f.store.getItem(task.id).revision, 'Edited', [], category.id)
     assert.throws(() => f.store.undoWorkspace(stale), /Undo is no longer available/)
     f.store.deleteCategory(category.id)
     assert.equal(list(f.store, { categoryId: null }).total, 1)
@@ -140,18 +277,16 @@ test('reorder Undo returns a task between its original neighbors without duplica
   } finally { f.close() }
 })
 
-test('capture type persists with the draft, bypasses sorting, resets after submit and retries idempotently', () => {
+test('capture always creates a task in Backlog and retries idempotently', () => {
   const f = fixture()
   try {
     const category = f.store.createCategory('Work')
     f.store.updateDraft('Direct task', 0, 1, category.id, null, ['waiting'], 'task')
-    assert.equal(f.store.getCaptureDraft().captureKind, 'task')
     const requestId = crypto.randomUUID(), id = f.store.submitCapture(requestId, 0, 'Direct task', category.id)
-    assert.equal(f.store.getNote(id).kind, 'task'); assert.equal(f.store.getNote(id).intention.kind, 'unplanned')
-    assert.equal(f.store.getCaptureDraft().captureKind, 'inbox')
+    assert.equal(f.store.getItem(id).kind, 'task')
+    assert.equal(f.store.getItem(id).intention.kind, 'unplanned')
+    assert.equal(f.store.getCaptureDraft().captureKind, 'task')
     assert.equal(f.store.submitCapture(requestId, 0, '', category.id), id)
-    const note = f.store.submitCapture(crypto.randomUUID(), 1, 'Reference', category.id, null, [], 'note')
-    assert.equal(f.store.getNote(note).kind, 'note'); assert.equal(list(f.store).total, 1)
     assert.equal(f.store.taskExportMetadata([id]).get(id).intention.kind, 'unplanned')
   } finally { f.close() }
 })
@@ -164,73 +299,65 @@ test('schema 13 upgrades without changing calendar fields and creates a restorab
     const timed = f.store.createPlannerTask({ body: 'Scheduled', tags: [], placement: { kind: 'timed', startAt: new Date('2026-11-03T10:00').getTime(), endAt: new Date('2026-11-03T11:00').getTime() } })
     f.store.db.exec('DROP TRIGGER task_intention_insert; DROP TRIGGER task_intention_classify; DROP TRIGGER task_intention_unfile; DROP TABLE task_intentions; ALTER TABLE drafts DROP COLUMN capture_kind; DELETE FROM schema_migrations WHERE version>=14;')
     f.store.close(); upgraded = new Store(f.file)
-    assert.equal(upgraded.getNote(backlog.id).intention.kind, 'unplanned')
-    assert.equal(upgraded.getNote(ready.id).intention.targetDate, toLocalISODate(new Date()))
-    assert.equal(upgraded.getNote(later.id).intention.kind, 'later')
-    assert.equal(upgraded.getNote(timed.id).intention.targetDate, '2026-11-03')
+    assert.equal(upgraded.getItem(backlog.id).intention.kind, 'unplanned')
+    assert.equal(upgraded.getItem(ready.id).intention.kind, 'now')
+    assert.equal(upgraded.getItem(later.id).intention.kind, 'later')
+    assert.equal(upgraded.getItem(timed.id).intention.kind, horizonOf(day('2026-11-03'), toLocalISODate(new Date())))
     assert.deepEqual(placement(upgraded.listPlanner('2026-11-03', '2026-11-03').tasks.find(item => item.id === timed.id)), placement(timed))
     const pre = path.join(f.folder, 'backups', fs.readdirSync(path.join(f.folder, 'backups')).find(name => name.startsWith('pre-migration-')))
     assert.equal(upgraded.checkIntegrity(pre), undefined)
     const backup = path.join(f.folder, 'schema14.sqlite'); await upgraded.backupTo(backup); assert.equal(upgraded.checkIntegrity(backup), undefined)
-    upgraded.replaceWith(pre); assert.equal(upgraded.getNote(later.id).intention.kind, 'later')
-    assert.equal(upgraded.db.prepare('SELECT max(version) AS version FROM schema_migrations').get().version, 16)
+    upgraded.replaceWith(pre); assert.equal(upgraded.getItem(later.id).intention.kind, 'later')
+    assert.equal(upgraded.db.prepare('SELECT max(version) AS version FROM schema_migrations').get().version, 18)
   } finally { upgraded?.close(); f.close() }
 })
 
-test('SQL horizon projection agrees with domain classification for every date and week around a year boundary', () => {
+test('schema 18 converts date plans once, preserves ordering and calendar fields, and survives backup restore', async () => {
   const f = fixture()
   try {
-    for (const target of ['2026-12-21', '2026-12-28', '2027-01-04', '2027-01-11', '2027-01-18']) {
-      const task = make(f.store, target)
-      f.store.db.prepare('UPDATE task_intentions SET kind=?,target_date=? WHERE note_id=?').run('week', target, task.id)
-    }
-    for (const target of ['2026-12-27', '2026-12-28', '2026-12-31', '2027-01-01', '2027-01-03', '2027-01-04', '2027-01-10', '2027-01-11', '2027-02-01']) {
-      const task = make(f.store, target)
-      f.store.db.prepare('UPDATE task_intentions SET kind=?,target_date=? WHERE note_id=?').run('day', target, task.id)
-    }
-    for (const reference of ['2026-12-27', '2026-12-31', '2027-01-03', '2027-01-04']) for (const task of list(f.store, { today: reference }).items) assert.equal(task.horizon, horizonOf(task.intention, reference))
+    const { addLocalDays, mondayISO, fromLocalISODate } = require(path.join(generated, 'dates.cjs'))
+    const localToday = toLocalISODate(new Date())
+    const targets = [day(localToday), day(addLocalDays(localToday, 1)), week(addLocalDays(mondayISO(fromLocalISODate(localToday)), 7)), day(addLocalDays(localToday, 60)), intentionFor('unplanned'), intentionFor('later')]
+    const expected = ['now', 'next', 'soon', 'soon', 'unplanned', 'later']
+    const tasks = targets.map((plan, index) => {
+      const task = index === 0 ? f.store.createPlannerTask({ body: `Priority migration ${index}`, categoryId: null, tags: [], placement: { kind: 'timed', startAt: new Date(`${localToday}T10:00`).getTime(), endAt: new Date(`${localToday}T11:00`).getTime() } }) : make(f.store, `Priority migration ${index}`)
+      f.store.db.prepare('UPDATE task_intentions SET kind=?,target_date=?,position=? WHERE note_id=?').run(plan.kind, plan.targetDate, index, task.id)
+      return task
+    })
+    const before = tasks.map(task => placement(f.store.getItem(task.id)))
+    f.store.db.prepare('DELETE FROM schema_migrations WHERE version=18').run()
+    f.store.close(); f.store = new Store(f.file)
+    tasks.forEach((task, index) => {
+      assert.equal(f.store.getItem(task.id).intention.kind, expected[index])
+      assert.equal(f.store.getItem(task.id).intention.targetDate, null)
+      assert.deepEqual(placement(f.store.getItem(task.id)), before[index])
+    })
+    assert.deepEqual(list(f.store, { horizon: 'soon' }).items.map(task => task.id), [tasks[2].id, tasks[3].id])
+    const snapshot = tasks.map(task => f.store.getItem(task.id))
+    f.store.close(); f.store = new Store(f.file)
+    assert.deepEqual(tasks.map(task => f.store.getItem(task.id)), snapshot)
+    for (const date of ['2026-12-31', '2027-06-01']) assert.deepEqual(list(f.store, { today: date }).counts, list(f.store).counts)
+    const backup = path.join(f.folder, 'priorities.sqlite')
+    await f.store.backupTo(backup)
+    assert.equal(f.store.checkIntegrity(backup), undefined)
+    f.store.replaceWith(backup)
+    assert.deepEqual(tasks.map(task => f.store.getItem(task.id)), snapshot)
+    assert.ok(fs.readdirSync(path.join(f.folder, 'backups')).some(name => name.startsWith('pre-migration-')))
   } finally { f.close() }
 })
-
-
-test('schema 14 defers the removed This week bucket to Later once and preserves calendar placements', () => {
-  const f = fixture()
-  let upgraded
-  try {
-    const localToday = toLocalISODate(new Date())
-    const current = make(f.store, 'Old current week')
-    const next = make(f.store, 'Keep next week')
-    const currentPlan = intentionFor('week', localToday), nextPlan = intentionFor('next-week', localToday)
-    f.store.db.prepare("UPDATE task_intentions SET kind='week',target_date=? WHERE note_id=?").run(currentPlan.targetDate, current.id)
-    f.store.db.prepare("UPDATE task_intentions SET kind='week',target_date=? WHERE note_id=?").run(nextPlan.targetDate, next.id)
-    const before = placement(f.store.getNote(current.id))
-    f.store.db.prepare('DELETE FROM schema_migrations WHERE version=15').run()
-    f.store.close()
-    upgraded = new Store(f.file)
-    assert.equal(upgraded.getNote(current.id).intention.kind, 'later')
-    assert.equal(upgraded.getNote(current.id).intention.targetDate, null)
-    assert.equal(upgraded.getNote(next.id).intention.targetDate, nextPlan.targetDate)
-    assert.equal(upgraded.listWorkspace({ today: localToday, horizon: 'later' }).items[0].id, current.id)
-    assert.deepEqual(placement(upgraded.getNote(current.id)), before)
-    const revision = upgraded.getNote(current.id).revision
-    upgraded.close(); upgraded = new Store(f.file)
-    assert.equal(upgraded.getNote(current.id).revision, revision)
-  } finally { upgraded?.close(); f.close() }
-})
-
 
 test('Backlog and planned scopes filter before counts and pagination', () => {
   const f = fixture()
   try {
     const backlog = make(f.store, 'Undecided')
-    const capture = f.store.submitCapture(crypto.randomUUID(), 0, 'Capture')
+    const capture = f.store.submitCapture(crypto.randomUUID(), 0, 'Capture', undefined, undefined, undefined, 'inbox')
     const planned = make(f.store, 'Planned')
-    move(f.store, planned, 'tomorrow')
+    move(f.store, planned, 'next')
     const waiting = list(f.store, { scope: 'backlog', limit: 1 })
     assert.equal(waiting.total, 2)
     assert.equal(waiting.counts.unplanned, 2)
     assert.equal(waiting.categoryCounts.unassigned, 2)
-    assert.equal(waiting.counts.tomorrow, 0)
+    assert.equal(waiting.counts.next, 0)
     assert.ok(waiting.nextCursor)
     const next = list(f.store, { scope: 'backlog', limit: 1, cursor: waiting.nextCursor })
     assert.deepEqual(new Set([...waiting.items, ...next.items].map(item => item.id)), new Set([backlog.id, capture]))
@@ -246,16 +373,16 @@ test('Backlog and planned scopes filter before counts and pagination', () => {
 test('Backlog tags can be created on a capture without classifying or planning it', () => {
   const f = fixture()
   try {
-    const id = f.store.submitCapture(crypto.randomUUID(), 0, 'Tag this capture')
-    const before = f.store.getNote(id)
+    const id = f.store.submitCapture(crypto.randomUUID(), 0, 'Tag this capture', undefined, undefined, undefined, 'inbox')
+    const before = f.store.getItem(id)
     f.store.setItemTags(id, ['Planning', 'New tag', 'planning'])
-    const tagged = f.store.getNote(id)
+    const tagged = f.store.getItem(id)
     assert.equal(tagged.kind, 'inbox')
     assert.equal(tagged.categoryId, before.categoryId)
     assert.equal(tagged.revision, before.revision + 1)
     assert.deepEqual(new Set(tagged.tags), new Set(['planning', 'New tag']))
     assert.equal(f.store.taxonomy().tags.filter(tag => tag.name.toLowerCase() === 'planning').length, 1)
     f.store.setItemTags(id, ['New tag'])
-    assert.deepEqual(f.store.getNote(id).tags, ['New tag'])
+    assert.deepEqual(f.store.getItem(id).tags, ['New tag'])
   } finally { f.close() }
 })

@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.1.15 - 2026-10-18
+
+- Combine Backlog and Tasks into one Tasks page with Unsorted, Now, Next, Soon, and Later priority buckets.
+- Keep priorities fixed until moved, independently of calendar dates and scheduled time blocks.
+- Migrate existing plans to priorities while preserving task order, content, and calendar schedules.
+- Support shared search, filters, bulk priority changes, drag-and-drop ordering, and Undo in board and table layouts.
+- Preserve former notes as completed tasks and captures as Unsorted tasks, with a simpler app structure and automated checks.
+
 ## 0.1.14 - 2026-10-08
 
 - Focus the app on tasks, hide existing notes without deleting them, and remove note creation actions.

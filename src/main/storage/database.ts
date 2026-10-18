@@ -1,16 +1,18 @@
+import { migrateDatabase } from './migrations'
 import Database from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { AppError } from '../../shared/errors'
 import { meetingOccurrences } from '../../shared/meetingRecurrence'
-import type { CaptureImage, Category, DeletedPlannerEvent, ImageRef, Note, NoteFilter, NotePage, PlannerEvent, PlannerEventInput, PlannerTask, PlannerBacklogSummary, Subcategory, MigrationReview, TagRecord } from '../../shared/contracts'
+import type { CaptureImage, Category, DeletedPlannerEvent, ImageRef, ItemRecord, ItemFilter, ItemPage, PlannerEvent, PlannerEventInput, PlannerTask, PlannerBacklogSummary, Subcategory, MigrationReview, TagRecord } from '../../shared/contracts'
 import { eventOverlapsLocalDay, localDateBounds } from '../../shared/plannerDates'
 import { PlannerTaskCreateSchema, PlannerTaskScheduleSchema, PlannerEventTimingSchema, type PlannerTaskCreate, type PlannerTaskSchedule, type PlannerEventTiming } from '../../shared/contracts'
 import { placementFields, validLocalDate } from '../../shared/calendarSchedule'
-import { horizons, horizonOf, validIntention, type TaskIntention } from '../../shared/taskHorizons'
+import { horizons, horizonOf, intentionFor, validIntention, type TaskIntention } from '../../shared/taskHorizons'
 import { addLocalDays, fromLocalISODate, mondayISO, toLocalISODate } from '../../shared/plannerDates'
 import { TasksQuerySchema, TaskWorkspaceMoveSchema, TaskWorkspaceUndoSchema, type TasksQuery, type TasksPage, type TaskWorkspaceMove, type TaskWorkspaceUndo, type TaskWorkspaceItem } from '../../shared/contracts'
+import { ItemUpdateSchema, TaskCompletionSchema, TaskCompletionUndoSchema, type ItemUpdate, type TaskCompletionUndo } from '../../shared/contracts'
 
 function decodeImage(dataUrl: string) {
     const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl)
@@ -25,13 +27,13 @@ function decodeImage(dataUrl: string) {
     return { mimeType, data }
 }
 
-type NoteRow = { id: string; body: string; meeting_id: string | null; created_at: number; updated_at: number; deleted_at: number | null; revision: number; meeting_title: string | null; kind: 'inbox' | 'note' | 'task'; processed_at: number | null; completed_at: number | null; tag_names: string | null; image_refs: string | null; task_status: 'open' | 'done' | null; planned_date: string | null; task_position: number; backlog_position: number; before_event_id: string | null; project_id: string | null; subcategory_id: string | null; task_ready: number; is_later: number; intention_json?: string | null }
+type ItemRow = { id: string; body: string; meeting_id: string | null; created_at: number; updated_at: number; deleted_at: number | null; revision: number; meeting_title: string | null; kind: 'inbox' | 'note' | 'task'; processed_at: number | null; completed_at: number | null; tag_names: string | null; image_refs: string | null; task_status: 'open' | 'done' | null; planned_date: string | null; task_position: number; backlog_position: number; before_event_id: string | null; project_id: string | null; subcategory_id: string | null; task_ready: number; is_later: number; intention_json?: string | null }
 type PlannerEventRow = { id: string; title: string; start_at: number; end_at: number; all_day: number; series_id: string | null }
-const NOTE_PROJECTION = "n.*,(SELECT json_object('kind',i.kind,'targetDate',i.target_date,'position',i.position) FROM task_intentions i WHERE i.note_id=n.id) AS intention_json,m.title AS meeting_title,(SELECT group_concat(t.name,char(31)) FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id) AS tag_names,(SELECT group_concat(ref,char(31)) FROM (SELECT i.id||':'||i.mime_type AS ref FROM item_images i WHERE i.note_id=n.id ORDER BY i.position)) AS image_refs"
-const NOTE_FROM = 'FROM notes n LEFT JOIN legacy_meeting_sessions m ON m.id=n.meeting_id'
-const noteFrom = (row: NoteRow): Note & { meetingTitle: string | null } => ({ id: row.id, body: row.body, meetingId: row.meeting_id, createdAt: row.created_at, updatedAt: row.updated_at, deletedAt: row.deleted_at, revision: row.revision, meetingTitle: row.meeting_title, kind: row.kind, intention: row.intention_json ? JSON.parse(row.intention_json) : undefined, processedAt: row.processed_at, completedAt: row.completed_at, later: Boolean(row.is_later), categoryId: row.project_id, subcategoryId: row.subcategory_id, tags: row.tag_names ? row.tag_names.split('\x1f') : [], images: row.image_refs ? row.image_refs.split('\x1f').map((value) => { const [id, mimeType] = value.split(':'); return { id: id!, mimeType: mimeType as ImageRef['mimeType'] } }) : [] })
+const ITEM_PROJECTION = "n.*,(SELECT json_object('kind',i.kind,'targetDate',i.target_date,'position',i.position) FROM task_intentions i WHERE i.note_id=n.id) AS intention_json,m.title AS meeting_title,(SELECT group_concat(t.name,char(31)) FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id) AS tag_names,(SELECT group_concat(ref,char(31)) FROM (SELECT i.id||':'||i.mime_type AS ref FROM item_images i WHERE i.note_id=n.id ORDER BY i.position)) AS image_refs"
+const ITEM_FROM = 'FROM notes n LEFT JOIN legacy_meeting_sessions m ON m.id=n.meeting_id'
+const itemFrom = (row: ItemRow): ItemRecord & { meetingTitle: string | null } => ({ id: row.id, body: row.body, meetingId: row.meeting_id, createdAt: row.created_at, updatedAt: row.updated_at, deletedAt: row.deleted_at, revision: row.revision, meetingTitle: row.meeting_title, kind: row.kind, intention: row.intention_json ? JSON.parse(row.intention_json) : undefined, processedAt: row.processed_at, completedAt: row.completed_at, later: Boolean(row.is_later), categoryId: row.project_id, subcategoryId: row.subcategory_id, tags: row.tag_names ? row.tag_names.split('\x1f') : [], images: row.image_refs ? row.image_refs.split('\x1f').map((value) => { const [id, mimeType] = value.split(':'); return { id: id!, mimeType: mimeType as ImageRef['mimeType'] } }) : [] })
 const eventFrom = (row: PlannerEventRow): PlannerEvent => ({ id: row.id, title: row.title, startAt: row.start_at, endAt: row.end_at, allDay: Boolean(row.all_day), seriesId: row.series_id })
-const taskFrom = (row: NoteRow & { planned_start_at?: number | null; planned_end_at?: number | null }): PlannerTask => ({ ...noteFrom(row), plannedDate: row.planned_date, plannedStartAt: row.planned_start_at ?? null, plannedEndAt: row.planned_end_at ?? null, position: row.task_position, priorityPosition: row.backlog_position, beforeEventId: row.before_event_id, ready: Boolean(row.task_ready), later: Boolean(row.is_later) })
+const taskFrom = (row: ItemRow & { planned_start_at?: number | null; planned_end_at?: number | null }): PlannerTask => ({ ...itemFrom(row), plannedDate: row.planned_date, plannedStartAt: row.planned_start_at ?? null, plannedEndAt: row.planned_end_at ?? null, position: row.task_position, priorityPosition: row.backlog_position, beforeEventId: row.before_event_id, ready: Boolean(row.task_ready), later: Boolean(row.is_later) })
 function normalizeTags(tags: string[]) {
   return [...new Map(tags.map((tag) => tag.trim().replace(/\s+/g, ' ').slice(0, 40)).filter(Boolean).map((tag): [string, string] => [tag.toLowerCase(), tag])).values()].slice(0, 20)
 }
@@ -62,261 +64,28 @@ export class Store {
     return db
   }
 
-  private migrate() {
-    const hasMigrationTable = Boolean(this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").get())
-    const currentVersion = hasMigrationTable ? (this.db.prepare('SELECT max(version) AS version FROM schema_migrations').get() as { version: number | null }).version ?? 0 : 0
-    if (currentVersion > 16) throw new AppError('DB_NEWER_VERSION', 'This database has an unsupported captured schema.')
-    if (hasMigrationTable && currentVersion < 16) {
-      const backupDirectory = path.join(path.dirname(this.path), 'backups')
-      fs.mkdirSync(backupDirectory, { recursive: true })
-      const checkpoint = this.db.pragma('wal_checkpoint(TRUNCATE)') as { busy: number }[]
-      if (checkpoint.some(row=>row.busy)) throw new AppError('DB_BUSY','Close other instances before upgrading.')
-      const backupName = `pre-migration-${Date.now()}.sqlite`
-      this.db.prepare('VACUUM INTO ?').run(path.join(backupDirectory, backupName))
-      const older = fs.readdirSync(backupDirectory).filter((name) => name.startsWith('pre-migration-') && name.endsWith('.sqlite')).sort().reverse().slice(1)
-      for (const name of older) fs.rmSync(path.join(backupDirectory, name), { force: true })
-    }
-    this.db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);`)
-    const applied = new Set((this.db.prepare('SELECT version FROM schema_migrations').all() as { version: number }[]).map((r) => r.version))
-    if (!applied.has(1)) {
-      const transaction = this.db.transaction(() => {
-        this.db.exec(`
-          CREATE TABLE notes (
-            id TEXT PRIMARY KEY, capture_request_id TEXT UNIQUE, body TEXT NOT NULL,
-            meeting_id TEXT REFERENCES meetings(id) ON DELETE SET NULL,
-            created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER, revision INTEGER NOT NULL DEFAULT 1
-          );
-          CREATE TABLE meetings (
-            id TEXT PRIMARY KEY, title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 120),
-            started_at INTEGER NOT NULL, ended_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-          );
-          CREATE TABLE drafts(key TEXT PRIMARY KEY, body TEXT NOT NULL, meeting_id TEXT, generation INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL);
-          CREATE TABLE app_state(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-          CREATE INDEX notes_created ON notes(deleted_at, created_at DESC, id DESC);
-          CREATE INDEX notes_meeting_created ON notes(meeting_id, created_at DESC, id DESC);
-          CREATE VIRTUAL TABLE note_search USING fts5(note_id UNINDEXED, body, meeting_title, tokenize='unicode61 remove_diacritics 2');
-        `)
-        this.db.prepare('INSERT INTO drafts(key,body,generation,revision,updated_at) VALUES(\'capture\',\'\',0,0,?)').run(Date.now())
-        this.db.prepare('INSERT INTO schema_migrations(version,applied_at) VALUES(1,?)').run(Date.now())
-      })
-      transaction()
-    }
-    if (!applied.has(2)) {
-      const transaction = this.db.transaction(() => {
-        this.db.prepare('INSERT INTO schema_migrations(version,applied_at) VALUES(2,?)').run(Date.now())
-      })
-      transaction()
-    }
-    if (!applied.has(3)) {
-      const transaction = this.db.transaction(() => {
-        this.db.exec(`
-          ALTER TABLE notes ADD COLUMN kind TEXT NOT NULL DEFAULT 'note';
-          ALTER TABLE notes ADD COLUMN processed_at INTEGER;
-          ALTER TABLE notes ADD COLUMN task_status TEXT;
-          ALTER TABLE notes ADD COLUMN planned_date TEXT;
-          ALTER TABLE notes ADD COLUMN due_date TEXT;
-          ALTER TABLE notes ADD COLUMN task_position INTEGER NOT NULL DEFAULT 0;
-          ALTER TABLE notes ADD COLUMN before_event_id TEXT;
-          ALTER TABLE notes ADD COLUMN completed_at INTEGER;
-          CREATE TABLE item_tags(id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE);
-          CREATE TABLE note_tags(note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE, tag_id TEXT NOT NULL REFERENCES item_tags(id) ON DELETE CASCADE, PRIMARY KEY(note_id,tag_id));
-          CREATE TABLE planner_events(id TEXT PRIMARY KEY, title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 120), start_at INTEGER NOT NULL, end_at INTEGER NOT NULL, all_day INTEGER NOT NULL DEFAULT 0 CHECK(all_day IN (0,1)), created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
-          CREATE INDEX notes_kind_created ON notes(kind,deleted_at,created_at DESC,id DESC);
-          CREATE INDEX notes_plan ON notes(kind,task_status,planned_date,task_position);
-          CREATE INDEX planner_events_start ON planner_events(start_at,end_at);
-          ALTER TABLE meetings RENAME TO legacy_meeting_sessions;
-        `)
-        this.db.prepare('INSERT INTO schema_migrations(version,applied_at) VALUES(3,?)').run(Date.now())
-      })
-      transaction()
-    }
-    if (!applied.has(4)) {
-      const transaction = this.db.transaction(() => {
-        this.db.exec(`
-          CREATE TABLE item_images(id TEXT PRIMARY KEY, note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE, position INTEGER NOT NULL, mime_type TEXT NOT NULL, data BLOB NOT NULL);
-          CREATE INDEX item_images_note ON item_images(note_id,position);
-          CREATE TABLE capture_draft_images(id TEXT PRIMARY KEY, position INTEGER NOT NULL, mime_type TEXT NOT NULL, data BLOB NOT NULL);
-        `)
-        this.db.prepare('INSERT INTO schema_migrations(version,applied_at) VALUES(4,?)').run(Date.now())
-      })
-      transaction()
-    }
-    if (!applied.has(5)) {
-      this.db.transaction(() => {
-        this.db.exec(`
-          CREATE TABLE categories(id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, position INTEGER NOT NULL);
-          ALTER TABLE item_tags ADD COLUMN category_id TEXT REFERENCES categories(id) ON DELETE SET NULL;
-          ALTER TABLE item_tags ADD COLUMN color TEXT NOT NULL DEFAULT '#85858e';
-          CREATE INDEX item_tags_category ON item_tags(category_id,name);
-        `)
-        this.db.prepare('INSERT INTO schema_migrations(version,applied_at) VALUES(5,?)').run(Date.now())
-      })()
-    }
-    if (!applied.has(6)) {
-      this.db.transaction(() => {
-        this.db.exec(`
-          ALTER TABLE notes ADD COLUMN project_id TEXT REFERENCES categories(id) ON DELETE SET NULL;
-          ALTER TABLE notes ADD COLUMN task_ready INTEGER NOT NULL DEFAULT 0 CHECK(task_ready IN (0,1));
-          UPDATE notes SET task_ready=1 WHERE kind='task' AND planned_date IS NOT NULL;
-          UPDATE notes SET project_id=(SELECT min(t.category_id) FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id WHERE nt.note_id=notes.id AND t.category_id IS NOT NULL)
-            WHERE kind='task' AND 1=(SELECT count(DISTINCT t.category_id) FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id WHERE nt.note_id=notes.id AND t.category_id IS NOT NULL);
-          CREATE INDEX notes_backlog ON notes(kind,deleted_at,task_status,task_ready,project_id,created_at);
-        `)
-        this.db.prepare('INSERT INTO schema_migrations(version,applied_at) VALUES(6,?)').run(Date.now())
-      })()
-    }
-    if (!applied.has(7)) {
-      this.db.transaction(() => {
-        this.db.exec(`
-          UPDATE notes SET deleted_at=coalesce(completed_at,updated_at),task_status='open',completed_at=NULL,planned_date=NULL,before_event_id=NULL,task_ready=0,task_position=0,revision=revision+1
-          WHERE kind='task' AND task_status='done';
-        `)
-        this.db.prepare('INSERT INTO schema_migrations(version,applied_at) VALUES(7,?)').run(Date.now())
-      })()
-    }
-    if (!applied.has(8)) {
-      this.db.transaction(() => {
-        this.db.exec(`
-          ALTER TABLE drafts ADD COLUMN category_id TEXT REFERENCES categories(id) ON DELETE SET NULL;
-          ALTER TABLE notes ADD COLUMN backlog_position INTEGER NOT NULL DEFAULT 0;
-          UPDATE notes SET project_id=(
-            SELECT min(t.category_id) FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id
-            WHERE nt.note_id=notes.id AND t.category_id IS NOT NULL
-          ) WHERE kind<>'task' AND project_id IS NULL AND 1=(
-            SELECT count(DISTINCT t.category_id) FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id
-            WHERE nt.note_id=notes.id AND t.category_id IS NOT NULL
-          );
-          UPDATE notes AS n SET backlog_position=(
-            SELECT count(*) FROM notes AS o WHERE o.kind='task' AND o.task_status='open' AND o.deleted_at IS NULL
-              AND o.project_id IS n.project_id AND (o.created_at>n.created_at OR (o.created_at=n.created_at AND o.id>n.id))
-          ) WHERE n.kind='task' AND n.task_status='open' AND n.deleted_at IS NULL;
-          CREATE INDEX notes_backlog_priority ON notes(kind,deleted_at,task_status,task_ready,planned_date,project_id,backlog_position,id);
-        `)
-        this.db.prepare('INSERT INTO schema_migrations(version,applied_at) VALUES(8,?)').run(Date.now())
-      })()
-    }
-    if (!applied.has(9)) {
-      this.db.transaction(() => {
-        this.db.exec(`
-          UPDATE notes SET completed_at=coalesce(completed_at,updated_at)
-          WHERE kind='task' AND task_status='done' AND deleted_at IS NULL;
-        `)
-        this.db.prepare('INSERT INTO schema_migrations(version,applied_at) VALUES(9,?)').run(Date.now())
-      })()
-    }
-    if (!applied.has(10)) {
-      this.db.transaction(() => {
-        this.db.exec(`
-          ALTER TABLE notes ADD COLUMN planned_start_at INTEGER;
-          ALTER TABLE notes ADD COLUMN planned_end_at INTEGER;
-          CREATE INDEX notes_timed_plan ON notes(kind,deleted_at,planned_start_at,planned_end_at);
-          CREATE TRIGGER notes_timing_insert BEFORE INSERT ON notes
-          WHEN NOT ((NEW.planned_start_at IS NULL AND NEW.planned_end_at IS NULL) OR
-            (NEW.kind='task' AND NEW.planned_date IS NOT NULL AND NEW.before_event_id IS NULL AND NEW.planned_start_at IS NOT NULL AND NEW.planned_end_at IS NOT NULL AND NEW.planned_end_at>NEW.planned_start_at))
-          BEGIN SELECT RAISE(ABORT,'Invalid task time range'); END;
-          CREATE TRIGGER notes_timing_update BEFORE UPDATE ON notes
-          WHEN NOT ((NEW.planned_start_at IS NULL AND NEW.planned_end_at IS NULL) OR
-            (NEW.kind='task' AND NEW.planned_date IS NOT NULL AND NEW.before_event_id IS NULL AND NEW.planned_start_at IS NOT NULL AND NEW.planned_end_at IS NOT NULL AND NEW.planned_end_at>NEW.planned_start_at))
-          BEGIN SELECT RAISE(ABORT,'Invalid task time range'); END;
-        `)
-        this.db.prepare('INSERT INTO schema_migrations(version,applied_at) VALUES(10,?)').run(Date.now())
-      })()
-    }
-    if (!applied.has(11)) {
-      this.db.transaction(() => {
-        this.db.exec(`
-          ALTER TABLE item_tags ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
-          CREATE INDEX item_tags_order ON item_tags(category_id,position,id);
-          UPDATE item_tags AS t SET position=(SELECT count(*) FROM item_tags AS earlier WHERE earlier.category_id IS t.category_id AND (earlier.name COLLATE NOCASE<t.name COLLATE NOCASE OR (earlier.name COLLATE NOCASE=t.name COLLATE NOCASE AND earlier.id<t.id)));
-          ALTER TABLE notes ADD COLUMN is_later INTEGER NOT NULL DEFAULT 0 CHECK(is_later IN (0,1));
-          CREATE INDEX notes_later ON notes(kind,deleted_at,task_status,is_later,project_id,backlog_position);
-        `)
-        this.db.prepare('INSERT INTO schema_migrations(version,applied_at) VALUES(11,?)').run(Date.now())
-      })()
-    }
-    if (!applied.has(12)) {
-      this.db.transaction(() => {
-        const legacy = this.db.prepare('SELECT t.* FROM item_tags t LEFT JOIN categories c ON c.id=t.category_id ORDER BY coalesce(c.position,-1),t.position,t.name COLLATE NOCASE,t.id').all() as { id: string; name: string; category_id: string | null; color: string; position: number }[]
-        const originalLinks = (this.db.prepare('SELECT count(*) AS count FROM note_tags').get() as { count: number }).count
-        this.db.exec(`
-          CREATE TABLE subcategories(id TEXT PRIMARY KEY,category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,name TEXT NOT NULL COLLATE NOCASE,color TEXT NOT NULL,position INTEGER NOT NULL DEFAULT 0,UNIQUE(category_id,name));
-          ALTER TABLE notes ADD COLUMN subcategory_id TEXT REFERENCES subcategories(id) ON DELETE SET NULL;
-          ALTER TABLE drafts ADD COLUMN subcategory_id TEXT REFERENCES subcategories(id) ON DELETE SET NULL;
-          CREATE TABLE taxonomy_migration_mapping(tag_id TEXT PRIMARY KEY,subcategory_id TEXT NOT NULL REFERENCES subcategories(id) ON DELETE CASCADE);
-          CREATE TABLE taxonomy_migration_review(note_id TEXT PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,reason TEXT NOT NULL,candidates TEXT NOT NULL);
-          CREATE INDEX notes_subcategory ON notes(project_id,subcategory_id,deleted_at,backlog_position,id);
-          CREATE INDEX subcategories_order ON subcategories(category_id,position,id);
-        `)
-        const mapping = new Map<string,string>()
-        for (const tag of legacy) if (tag.category_id) {
-          const id = randomUUID(); mapping.set(tag.id,id)
-          this.db.prepare('INSERT INTO subcategories(id,category_id,name,color,position) VALUES(?,?,?,?,?)').run(id,tag.category_id,tag.name,tag.color,tag.position)
-          this.db.prepare('INSERT INTO taxonomy_migration_mapping VALUES(?,?)').run(tag.id,id)
-        }
-        for (const item of this.db.prepare('SELECT id,project_id FROM notes').all() as { id: string; project_id: string | null }[]) {
-          const linked = this.db.prepare('SELECT t.id,t.category_id FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id WHERE nt.note_id=? AND t.category_id IS NOT NULL ORDER BY t.position,t.id').all(item.id) as { id: string; category_id: string }[]
-          const matching = linked.filter(tag=>tag.category_id===item.project_id)
-          if (matching.length===1) this.db.prepare('UPDATE notes SET subcategory_id=? WHERE id=?').run(mapping.get(matching[0]!.id)!,item.id)
-          if (matching.length>1 || linked.some(tag=>tag.category_id!==item.project_id)) this.db.prepare('INSERT INTO taxonomy_migration_review VALUES(?,?,?)').run(item.id,matching.length>1 ? 'multiple-matching-subcategories' : item.project_id ? 'foreign-category-labels' : 'unassigned-category',JSON.stringify(linked.map(tag=>mapping.get(tag.id))))
-        }
-        this.db.exec(`CREATE TEMP TABLE preserved_note_tags AS SELECT * FROM note_tags; DROP TABLE note_tags; DROP TABLE item_tags;
-          CREATE TABLE item_tags(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE COLLATE NOCASE,color TEXT NOT NULL DEFAULT '#85858e',position INTEGER NOT NULL DEFAULT 0);
-          CREATE TABLE note_tags(note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,tag_id TEXT NOT NULL REFERENCES item_tags(id) ON DELETE CASCADE,PRIMARY KEY(note_id,tag_id));`)
-        legacy.forEach((tag,position)=>this.db.prepare('INSERT INTO item_tags VALUES(?,?,?,?)').run(tag.id,tag.name,tag.color,position))
-        this.db.exec('INSERT INTO note_tags SELECT * FROM preserved_note_tags; DROP TABLE preserved_note_tags;')
-        for (const table of ['notes','drafts']) for (const operation of ['INSERT','UPDATE']) this.db.exec(`CREATE TRIGGER ${table}_subcategory_${operation.toLowerCase()} BEFORE ${operation} ON ${table} WHEN NEW.subcategory_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM subcategories s WHERE s.id=NEW.subcategory_id AND s.category_id=NEW.${table==='notes'?'project_id':'category_id'}) BEGIN SELECT RAISE(ABORT,'Subcategory must belong to item category'); END;`)
-        this.db.exec(`CREATE TRIGGER subcategory_parent_update BEFORE UPDATE OF category_id ON subcategories WHEN NEW.category_id<>OLD.category_id BEGIN SELECT RAISE(ABORT,'Subcategory parent cannot change'); END;
-          CREATE TRIGGER category_clear_assignments BEFORE DELETE ON categories BEGIN UPDATE notes SET subcategory_id=NULL WHERE project_id=OLD.id; UPDATE drafts SET subcategory_id=NULL WHERE category_id=OLD.id; END;`)
-        if ((this.db.prepare('SELECT count(*) AS count FROM note_tags').get() as { count: number }).count!==originalLinks || (this.db.pragma('foreign_key_check') as unknown[]).length) throw new AppError('MIGRATION_FAILED','Taxonomy preservation checks failed.')
-        this.db.prepare("INSERT OR REPLACE INTO app_state VALUES('taxonomy-upgrade',?)").run(JSON.stringify({subcategories:mapping.size,assigned:(this.db.prepare('SELECT count(*) AS count FROM notes WHERE subcategory_id IS NOT NULL').get() as {count:number}).count,review:this.migrationReview().reduce((counts,row)=>({...counts,[row.reason]:(counts[row.reason]??0)+1}),{} as Record<string,number>)}))
-        this.db.prepare('INSERT INTO schema_migrations VALUES(12,?)').run(Date.now())
-      })()
-    }
-    if (!applied.has(13)) this.db.transaction(() => {
-      this.db.exec('ALTER TABLE planner_events ADD COLUMN series_id TEXT; CREATE INDEX planner_events_series ON planner_events(series_id);')
-      this.db.prepare('INSERT INTO schema_migrations VALUES(13,?)').run(Date.now())
+  private migrate() { migrateDatabase(this) }
+
+  workspaceOverview(raw: TasksQuery): Partial<Record<typeof horizons[number], TasksPage>> {
+    const input = TasksQuerySchema.parse(raw)
+    if (input.query.trim()) return { unplanned: this.listWorkspace({ ...input, horizon: undefined, cursor: undefined }) }
+    const sections = input.scope === 'backlog' ? ['unplanned'] as const : horizons
+    return this.db.transaction(() => {
+      let summary: TasksPage | undefined
+      return Object.fromEntries(sections.map(horizon => {
+        const page = this.listWorkspace({ ...input, horizon, cursor: undefined }, summary)
+        summary ??= page
+        return [horizon, page]
+      }))
     })()
-    if (!applied.has(14)) this.db.transaction(() => {
-      this.db.exec(`CREATE TABLE task_intentions(note_id TEXT PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE, kind TEXT NOT NULL CHECK(kind IN ('unplanned','day','week','later')), target_date TEXT, position INTEGER NOT NULL CHECK(position>=0), CHECK((kind IN ('unplanned','later') AND target_date IS NULL) OR (kind IN ('day','week') AND target_date IS NOT NULL)));
-        CREATE INDEX task_intentions_order ON task_intentions(kind,target_date,position,note_id);
-        ALTER TABLE drafts ADD COLUMN capture_kind TEXT NOT NULL DEFAULT 'inbox' CHECK(capture_kind IN ('inbox','task','note'));`)
-      const today = toLocalISODate(new Date())
-      const rows = this.db.prepare("SELECT id,is_later,planned_date,planned_start_at,task_ready FROM notes WHERE kind='task' ORDER BY project_id,CASE WHEN task_ready=1 THEN task_position ELSE backlog_position END,id").all() as { id: string; is_later: number; planned_date: string | null; planned_start_at: number | null; task_ready: number }[]
-      const insert = this.db.prepare('INSERT INTO task_intentions VALUES(?,?,?,?)')
-      rows.forEach((row, position) => {
-        const date = row.planned_date ?? (row.planned_start_at === null ? null : toLocalISODate(new Date(row.planned_start_at)))
-        insert.run(row.id, row.is_later ? 'later' : date || row.task_ready ? 'day' : 'unplanned', row.is_later ? null : date ?? (row.task_ready ? today : null), position)
-      })
-      this.db.exec(`CREATE TRIGGER task_intention_insert AFTER INSERT ON notes WHEN NEW.kind='task' BEGIN INSERT OR IGNORE INTO task_intentions VALUES(NEW.id,'unplanned',NULL,(SELECT coalesce(max(position),-1)+1 FROM task_intentions)); END;
-        CREATE TRIGGER task_intention_classify AFTER UPDATE OF kind ON notes WHEN NEW.kind='task' BEGIN INSERT OR IGNORE INTO task_intentions VALUES(NEW.id,'unplanned',NULL,(SELECT coalesce(max(position),-1)+1 FROM task_intentions)); END;
-        CREATE TRIGGER task_intention_unfile AFTER UPDATE OF kind ON notes WHEN NEW.kind<>'task' BEGIN DELETE FROM task_intentions WHERE note_id=NEW.id; END;`)
-      this.db.prepare('INSERT INTO schema_migrations VALUES(14,?)').run(Date.now())
-    })()
-    if (!applied.has(15)) this.db.transaction(() => {
-      const today = toLocalISODate(new Date()), monday = mondayISO(fromLocalISODate(today)), next = addLocalDays(monday, 7), tomorrow = addLocalDays(today, 1)
-      const deferred = this.db.prepare("SELECT note_id FROM task_intentions WHERE (kind='week' AND target_date=?) OR (kind='day' AND target_date>? AND target_date<?) ORDER BY position,note_id").all(monday, tomorrow, next) as { note_id: string }[]
-      let position = (this.db.prepare('SELECT coalesce(max(position),-1) AS position FROM task_intentions').get() as { position: number }).position + 1
-      for (const item of deferred) {
-        this.db.prepare("UPDATE task_intentions SET kind='later',target_date=NULL,position=? WHERE note_id=?").run(position++, item.note_id)
-        this.db.prepare('UPDATE notes SET revision=revision+1 WHERE id=?').run(item.note_id)
-      }
-      this.db.prepare('INSERT INTO schema_migrations VALUES(15,?)').run(Date.now())
-    })()
-    if (!applied.has(16)) this.db.transaction(() => {
-      if (!(this.db.pragma('table_info(categories)') as { name: string }[]).some(column => column.name === 'color')) this.db.exec("ALTER TABLE categories ADD COLUMN color TEXT NOT NULL DEFAULT '#85858e'");
-      this.db.prepare('INSERT INTO schema_migrations VALUES(16,?)').run(Date.now());
-    })()
-    const version = this.db.prepare('SELECT max(version) AS version FROM schema_migrations').get() as { version: number | null }
-    if (version.version !== 16) throw new AppError('DB_INVALID_SCHEMA', 'This database has an unsupported captured schema.')
   }
 
-  listWorkspace(raw: TasksQuery): TasksPage {
+  listWorkspace(raw: TasksQuery, summary?: TasksPage): TasksPage {
     const input = TasksQuerySchema.parse(raw)
     if (!validLocalDate(input.today)) throw new AppError('INVALID_INPUT', 'Choose a valid local date.')
     if (input.cursor && (input.cursor.sequence !== this.changeSequence || input.cursor.today !== input.today)) throw new AppError('STALE_PAGE', 'Tasks changed. Refresh the board.')
-    const monday = mondayISO(fromLocalISODate(input.today)), next = addLocalDays(monday, 7), after = addLocalDays(monday, 14), tomorrow = addLocalDays(input.today, 1)
-    const bucket = `CASE WHEN n.kind='inbox' OR coalesce(i.kind,'unplanned')='unplanned' THEN 'unplanned' WHEN i.kind='later' THEN 'later' WHEN i.kind='week' THEN CASE WHEN i.target_date<'${monday}' THEN 'today' WHEN i.target_date='${monday}' THEN 'today' WHEN i.target_date='${next}' THEN 'next-week' ELSE 'upcoming' END WHEN i.target_date<='${input.today}' THEN 'today' WHEN i.target_date='${tomorrow}' THEN 'tomorrow' WHEN i.target_date<'${next}' THEN 'upcoming' WHEN i.target_date<'${after}' THEN 'next-week' ELSE 'upcoming' END`
-    const where = ["n.deleted_at IS NULL", input.completed ? "n.kind='task' AND n.task_status='done'" : "(n.kind='inbox' OR (n.kind='task' AND n.task_status='open'))"]
+    const bucket = "CASE WHEN n.kind='inbox' THEN 'unplanned' ELSE coalesce(i.kind,'unplanned') END"
+    const where = ["n.deleted_at IS NULL", input.completed ? "n.kind='task' AND n.task_status='done'" : input.query.trim() ? "n.kind='task'" : "(n.kind='inbox' OR (n.kind='task' AND n.task_status='open'))"]
     const params: (string | number | null)[] = []
     if (input.scope === 'planned') where.push("n.kind='task' AND coalesce(i.kind,'unplanned')<>'unplanned'")
     if (input.scope === 'backlog') where.push("(n.kind='inbox' OR coalesce(i.kind,'unplanned')='unplanned')")
@@ -325,26 +94,41 @@ export class Store {
     if (input.query) { where.push("(n.body LIKE ? ESCAPE '\\' OR EXISTS(SELECT 1 FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id AND t.name LIKE ? ESCAPE '\\'))"); const pattern = `%${input.query.replace(/[\\%_]/g, '\\$&')}%`; params.push(pattern, pattern) }
     if (input.tags.length) { where.push(`EXISTS(SELECT 1 FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id AND t.name COLLATE NOCASE IN (${input.tags.map(() => '?').join(',')}))`); params.push(...input.tags) }
     if (input.excludedTags.length) { where.push(`NOT EXISTS(SELECT 1 FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id AND t.name COLLATE NOCASE IN (${input.excludedTags.map(() => '?').join(',')}))`); params.push(...input.excludedTags) }
-    const from = `${NOTE_FROM} LEFT JOIN task_intentions i ON i.note_id=n.id WHERE ${where.join(' AND ')}`
-    const counts = Object.fromEntries(horizons.map(h => [h, 0])) as TasksPage['counts']
-    for (const row of this.db.prepare(`SELECT ${bucket} AS horizon,count(*) AS total ${from} GROUP BY horizon`).all(...params) as { horizon: keyof typeof counts; total: number }[]) counts[row.horizon] = row.total
-    const categoryCounts: Record<string, number> = {}
-    let captureTotal = 0
-    for (const row of this.db.prepare(`SELECT n.project_id AS categoryId,n.kind,count(*) AS total ${from} GROUP BY n.project_id,n.kind`).all(...params) as { categoryId: string | null; kind: string; total: number }[]) { if (row.kind === 'inbox') captureTotal += row.total; if (row.kind !== 'inbox' || input.scope === 'backlog') { const key = row.categoryId ?? 'unassigned'; categoryCounts[key] = (categoryCounts[key] ?? 0) + row.total } }
+    const from = `${ITEM_FROM} LEFT JOIN task_intentions i ON i.note_id=n.id WHERE ${where.join(' AND ')}`
+    const counts = summary?.counts ?? Object.fromEntries(horizons.map(h => [h, 0])) as TasksPage['counts']
+    if (!summary) for (const row of this.db.prepare(`SELECT ${bucket} AS horizon,count(*) AS total ${from} GROUP BY horizon`).all(...params) as { horizon: keyof typeof counts; total: number }[]) counts[row.horizon] = row.total
+    const categoryCounts: Record<string, number> = summary?.categoryCounts ?? {}
+    let captureTotal = summary?.captureTotal ?? 0
+    if (!summary) for (const row of this.db.prepare(`SELECT n.project_id AS categoryId,n.kind,count(*) AS total ${from} GROUP BY n.project_id,n.kind`).all(...params) as { categoryId: string | null; kind: string; total: number }[]) { if (row.kind === 'inbox') captureTotal += row.total; if (row.kind !== 'inbox' || input.scope === 'backlog') { const key = row.categoryId ?? 'unassigned'; categoryCounts[key] = (categoryCounts[key] ?? 0) + row.total } }
     const pageWhere = [...where], pageParams = [...params]
     if (input.horizon) { pageWhere.push(`(${bucket})=?`); pageParams.push(input.horizon) }
     if (input.cursor) { pageWhere.push('(coalesce(i.position,0)>? OR (coalesce(i.position,0)=? AND n.id>?))'); pageParams.push(input.cursor.position, input.cursor.position, input.cursor.id) }
-    const rows = this.db.prepare(`SELECT ${NOTE_PROJECTION},i.kind AS intention_kind,i.target_date AS intention_date,coalesce(i.position,0) AS intention_position ${NOTE_FROM} LEFT JOIN task_intentions i ON i.note_id=n.id WHERE ${pageWhere.join(' AND ')} ORDER BY coalesce(i.position,0),n.id LIMIT ?`).all(...pageParams, input.limit + 1) as (NoteRow & { intention_kind: TaskIntention['kind'] | null; intention_date: string | null; intention_position: number })[]
+    const rows = this.db.prepare(`SELECT ${ITEM_PROJECTION},i.kind AS intention_kind,i.target_date AS intention_date,coalesce(i.position,0) AS intention_position ${ITEM_FROM} LEFT JOIN task_intentions i ON i.note_id=n.id WHERE ${pageWhere.join(' AND ')} ORDER BY coalesce(i.position,0),n.id LIMIT ?`).all(...pageParams, input.limit + 1) as (ItemRow & { intention_kind: TaskIntention['kind'] | null; intention_date: string | null; intention_position: number })[]
     const items: TaskWorkspaceItem[] = rows.slice(0, input.limit).map(row => { const intention: TaskIntention = { kind: row.intention_kind ?? 'unplanned', targetDate: row.intention_date, position: row.intention_position }; return { ...taskFrom(row), intention, horizon: row.kind === 'inbox' ? 'unplanned' : horizonOf(intention, input.today) } })
     const last = items.at(-1)
     return { items, counts, categoryCounts, captureTotal, total: input.horizon ? counts[input.horizon] : Object.values(counts).reduce((a, b) => a + b, 0), nextCursor: rows.length > input.limit && last ? { position: last.intention.position, id: last.id, sequence: this.changeSequence, today: input.today } : null }
   }
 
+  moveWorkspaceMany(inputs: TaskWorkspaceMove[]) {
+    const sequence = this.changeSequence
+    try {
+      this.db.transaction(() => {
+        if (!inputs.length || inputs.length > 100 || new Set(inputs.map(input => input.id)).size !== inputs.length) throw new AppError('INVALID_INPUT', 'Select up to 100 distinct items.')
+        for (const input of inputs) {
+          if (this.getItem(input.id)?.revision !== input.expectedRevision) throw new AppError('STALE_REVISION', 'An item changed. Refresh before planning these items.')
+        }
+        for (const input of inputs) this.moveWorkspace({ ...input, expectedRevision: this.getItem(input.id)!.revision })
+      })()
+      this.changeSequence = sequence + 1
+    } catch (error) { this.changeSequence = sequence; throw error }
+  }
+
   moveWorkspace(raw: TaskWorkspaceMove): TaskWorkspaceUndo {
     const input = TaskWorkspaceMoveSchema.parse(raw)
     if (!validLocalDate(input.today)) throw new AppError('INVALID_INPUT', 'Choose a valid local date.')
+    input.intention = { ...intentionFor(horizonOf(input.intention, input.today)), position: input.intention.position }
     const undo = this.db.transaction(() => {
-      const item = this.getNote(input.id)
+      const item = this.getItem(input.id)
       if (!item || item.deletedAt !== null || !['inbox', 'task'].includes(item.kind) || item.completedAt !== null) throw new AppError('NOT_FOUND', 'This task is no longer available.')
       if (item.revision !== input.expectedRevision) throw new AppError('STALE_REVISION', 'This item changed. Refresh before moving it.')
       const old = this.db.prepare('SELECT kind,target_date AS targetDate,position FROM task_intentions WHERE note_id=?').get(item.id) as TaskIntention | undefined
@@ -358,9 +142,8 @@ export class Store {
       const category = input.categoryId === undefined ? item.categoryId : input.categoryId
       if (category && !this.db.prepare('SELECT id FROM categories WHERE id=?').get(category)) throw new AppError('CATEGORY_MISSING', 'That category no longer exists.')
       if (item.kind === 'inbox') this.classifyItem(item.id, input.classify ?? 'task', input.tags ?? item.tags, category)
-      else if (input.classify === 'note') throw new AppError('INVALID_INPUT', 'Only captures can be filed as notes here.')
       else this.db.prepare('UPDATE notes SET project_id=?,subcategory_id=?,backlog_position=?,updated_at=?,revision=revision+1 WHERE id=?').run(category, category === item.categoryId ? item.subcategoryId : null, category === item.categoryId && 'priorityPosition' in item ? item.priorityPosition : this.nextBacklogPosition(category), Date.now(), item.id)
-      if (input.classify !== 'note') {
+      {
         const targetHorizon = horizonOf(input.intention, input.today)
         const rows = this.db.prepare("SELECT i.note_id AS id,i.kind,i.target_date AS targetDate,i.position FROM task_intentions i JOIN notes n ON n.id=i.note_id WHERE n.kind='task' AND n.task_status='open' AND n.deleted_at IS NULL AND i.note_id<>? ORDER BY i.position,i.note_id").all(item.id) as (TaskIntention & { id: string })[]
         const destination = rows.filter(row => horizonOf(row, input.today) === targetHorizon)
@@ -370,7 +153,7 @@ export class Store {
         this.db.prepare('INSERT OR REPLACE INTO task_intentions VALUES(?,?,?,?)').run(item.id, input.intention.kind, input.intention.targetDate, index)
         destination.forEach((row, position) => { if (row.id !== item.id && row.position !== position) { this.db.prepare('UPDATE task_intentions SET position=? WHERE note_id=?').run(position, row.id); this.db.prepare('UPDATE notes SET revision=revision+1,updated_at=? WHERE id=?').run(Date.now(), row.id) } })
       }
-      snapshot.expectedRevision = this.getNote(item.id)!.revision
+      snapshot.expectedRevision = this.getItem(item.id)!.revision
       return snapshot
     })()
     this.changeSequence++
@@ -380,7 +163,7 @@ export class Store {
   undoWorkspace(raw: TaskWorkspaceUndo) {
     const input = TaskWorkspaceUndoSchema.parse(raw)
     this.db.transaction(() => {
-      const item = this.getNote(input.id)
+      const item = this.getItem(input.id)
       if (!item || item.deletedAt !== null || item.revision !== input.expectedRevision) throw new AppError('STALE_REVISION', 'This item changed. Undo is no longer available.')
       if (input.categoryId && !this.db.prepare('SELECT id FROM categories WHERE id=?').get(input.categoryId)) throw new AppError('CATEGORY_MISSING', 'The original category no longer exists.')
       this.validateSubcategory(input.categoryId, input.subcategoryId)
@@ -416,7 +199,7 @@ export class Store {
     const rows = this.db.prepare('SELECT id,mime_type,data FROM capture_draft_images ORDER BY position').all() as { id: string; mime_type: ImageRef['mimeType']; data: Buffer }[]
     const tagRow=this.db.prepare("SELECT value FROM app_state WHERE key='capture-tags'").get() as {value:string}|undefined
     const tagState=tagRow?JSON.parse(tagRow.value) as {generation:number;tags:string[]}:null
-    return { ...draft, tags:tagState?.generation===draft.generation?tagState.tags:[], images: rows.map((row): CaptureImage => ({ id: row.id, mimeType: row.mime_type, dataUrl: `data:${row.mime_type};base64,${row.data.toString('base64')}` })) }
+    return { ...draft, captureKind: 'task' as const, tags:tagState?.generation===draft.generation?tagState.tags:[], images: rows.map((row): CaptureImage => ({ id: row.id, mimeType: row.mime_type, dataUrl: `data:${row.mime_type};base64,${row.data.toString('base64')}` })) }
   }
 
   updateDraft(body: string, generation: number, revision: number, categoryId: string | null = null, requestedSubcategoryId?: string | null, tags?:string[], captureKind?: 'inbox' | 'task' | 'note') {
@@ -467,15 +250,14 @@ export class Store {
   submitCapture(requestId: string, generation: number, body: string, categoryId: string | null = null, requestedSubcategoryId?: string | null, requestedTags?:string[], captureKind?: 'inbox' | 'task' | 'note') {
     const existing = this.db.prepare('SELECT id FROM notes WHERE capture_request_id=?').get(requestId) as { id: string } | undefined
     if (existing) return existing.id
-    const draft = this.getCaptureDraft()
-    const selectedKind = captureKind ?? (draft.generation === generation ? draft.captureKind : 'inbox')
+    const selectedKind = captureKind ?? 'task'
     const cleaned = body.trim()
     const current = this.db.prepare("SELECT generation,category_id AS categoryId,subcategory_id AS subcategoryId FROM drafts WHERE key='capture'").get() as { generation: number;categoryId:string|null;subcategoryId:string|null }
     const subcategoryId=requestedSubcategoryId===undefined?(current.generation===generation&&current.categoryId===categoryId?current.subcategoryId:null):requestedSubcategoryId
     this.validateSubcategory(categoryId,subcategoryId)
     const hasImages = generation === current.generation && Boolean(this.db.prepare('SELECT 1 FROM capture_draft_images LIMIT 1').get())
-    if (!cleaned && !hasImages) throw new AppError('EMPTY_NOTE', 'Write something or paste an image before saving.')
-    if ([...body].length > 50_000) throw new AppError('NOTE_TOO_LONG', 'Notes can contain up to 50,000 characters.')
+    if (!cleaned && !hasImages) throw new AppError('EMPTY_TASK', 'Write something or paste an image before saving.')
+    if ([...body].length > 50_000) throw new AppError('TASK_TOO_LONG', 'Tasks can contain up to 50,000 characters.')
     if (categoryId && !this.db.prepare('SELECT id FROM categories WHERE id=?').get(categoryId)) throw new AppError('CATEGORY_MISSING', 'That category no longer exists.')
     const tags=normalizeTags(requestedTags??(current.generation===generation?this.getCaptureDraft().tags:[]))
     const now = Date.now()
@@ -487,7 +269,7 @@ export class Store {
         this.db.prepare('INSERT INTO item_images(id,note_id,position,mime_type,data) SELECT id,?,position,mime_type,data FROM capture_draft_images').run(id)
         this.db.prepare('DELETE FROM capture_draft_images').run()
       }
-      this.db.prepare("UPDATE drafts SET body='',capture_kind='inbox',category_id=NULL,subcategory_id=NULL,generation=?,revision=0,updated_at=? WHERE key='capture' AND generation<=?").run(generation + 1, now, generation)
+      this.db.prepare("UPDATE drafts SET body='',capture_kind='task',category_id=NULL,subcategory_id=NULL,generation=?,revision=0,updated_at=? WHERE key='capture' AND generation<=?").run(generation + 1, now, generation)
       this.replaceItemTags(id,tags)
       this.syncSearch(id)
       if(selectedKind!=='inbox')this.classifyItem(id,selectedKind,tags,categoryId,subcategoryId)
@@ -497,7 +279,7 @@ export class Store {
     return id
   }
 
-  listNotes(filter: NoteFilter): NotePage {
+  listItems(filter: ItemFilter): ItemPage {
     const trashScope = filter.scope === 'trash'
     const prioritySort = filter.sort === 'priority' && !trashScope
     const sortColumn = trashScope ? 'n.deleted_at' : 'n.created_at'
@@ -559,15 +341,15 @@ export class Store {
     }
     const order = filter.sort === 'oldest' ? 'ASC' : 'DESC'
     const orderBy = prioritySort ? "CASE WHEN n.kind='task' AND n.task_status='open' THEN 0 WHEN n.kind='task' AND n.task_status='done' THEN 1 ELSE 2 END,CASE WHEN n.kind='task' THEN n.backlog_position ELSE 0 END,CASE WHEN n.kind='task' THEN n.id END ASC,CASE WHEN n.kind<>'task' THEN n.created_at END DESC,CASE WHEN n.kind<>'task' THEN n.id END DESC" : `${sortColumn} ${order},n.id ${order}`
-    const items = this.db.prepare(`SELECT ${NOTE_PROJECTION} ${NOTE_FROM} WHERE ${pageWhere.join(' AND ')} ORDER BY ${orderBy} LIMIT ?`)
-      .all(...pageParams, filter.limit) as NoteRow[]
+    const items = this.db.prepare(`SELECT ${ITEM_PROJECTION} ${ITEM_FROM} WHERE ${pageWhere.join(' AND ')} ORDER BY ${orderBy} LIMIT ?`)
+      .all(...pageParams, filter.limit) as ItemRow[]
     const last = items.at(-1)
     const sortAt = last ? (trashScope ? last.deleted_at : last.created_at) : null
     const nextCursor = items.length === filter.limit && last && sortAt !== null
       ? prioritySort ? { sortAt, id: last.id, kindRank: last.kind === 'task' ? (last.task_status === 'done' ? 1 : 0) : 2, ...(last.kind === 'task' ? { priorityPosition: last.backlog_position } : {}) }
         : { sortAt, id: last.id }
       : null
-    return { items: items.map(noteFrom), nextCursor, total: count.count }
+    return { items: items.map(itemFrom), nextCursor, total: count.count }
   }
 
   listTags(): string[] {
@@ -607,7 +389,7 @@ export class Store {
     const remove = this.db.transaction(() => {
       if (!this.db.prepare('SELECT id FROM categories WHERE id=?').get(id)) throw new AppError('CATEGORY_MISSING', 'That category no longer exists.')
       const items=this.db.prepare('SELECT id FROM notes WHERE project_id=? ORDER BY backlog_position,id').all(id) as {id:string}[]
-      for(const item of items){const note=this.getNote(item.id)!;this.db.prepare('UPDATE notes SET project_id=NULL,subcategory_id=NULL,backlog_position=?,updated_at=?,revision=revision+1 WHERE id=?').run(note.kind==='task'?this.nextBacklogPosition(null):0,Date.now(),item.id)}
+      for(const item of items){const note=this.getItem(item.id)!;this.db.prepare('UPDATE notes SET project_id=NULL,subcategory_id=NULL,backlog_position=?,updated_at=?,revision=revision+1 WHERE id=?').run(note.kind==='task'?this.nextBacklogPosition(null):0,Date.now(),item.id)}
       this.db.prepare('UPDATE drafts SET category_id=NULL,subcategory_id=NULL,updated_at=?,revision=revision+1 WHERE category_id=?').run(Date.now(),id)
       this.db.prepare('DELETE FROM categories WHERE id=?').run(id)
     })
@@ -690,7 +472,7 @@ export class Store {
   migrationReview(): MigrationReview[] { return (this.db.prepare('SELECT note_id AS noteId,reason,candidates FROM taxonomy_migration_review ORDER BY note_id').all() as {noteId:string;reason:string;candidates:string}[]).map(row=>({...row,candidates:JSON.parse(row.candidates) as string[]})) }
   resolveMigrationReview(id: string, expectedRevision: number, subcategoryId: string | null, categoryId?: string | null) {
     this.db.transaction(()=> {
-      const item=this.getNote(id)
+      const item=this.getItem(id)
       if (!item || item.deletedAt!==null) throw new AppError('NOT_FOUND','Restore this item before editing its assignment.')
       this.updateItem(id,expectedRevision,item.body,item.tags,categoryId,undefined,subcategoryId)
       this.db.prepare('DELETE FROM taxonomy_migration_review WHERE note_id=?').run(id)
@@ -706,17 +488,17 @@ export class Store {
     this.changeSequence++
   }
 
-  getNote(id: string) {
-    const row = this.db.prepare(`SELECT ${NOTE_PROJECTION} ${NOTE_FROM} WHERE n.id=?`).get(id) as NoteRow | undefined
-    return row ? row.kind === 'task' ? taskFrom(row) : noteFrom(row) : null
+  getItem(id: string) {
+    const row = this.db.prepare(`SELECT ${ITEM_PROJECTION} ${ITEM_FROM} WHERE n.id=?`).get(id) as ItemRow | undefined
+    return row ? row.kind === 'task' ? taskFrom(row) : itemFrom(row) : null
   }
 
-  listInbox(cursor?: { sortAt: number; id: string }, limit = 50): { items: (Note & { meetingTitle: string | null })[]; nextCursor: { sortAt: number; id: string } | null; total: number } {
+  listInbox(cursor?: { sortAt: number; id: string }, limit = 50): { items: (ItemRecord & { meetingTitle: string | null })[]; nextCursor: { sortAt: number; id: string } | null; total: number } {
     const cursorWhere = cursor ? ' AND (n.created_at<? OR (n.created_at=? AND n.id<?))' : ''
     const params = cursor ? [cursor.sortAt, cursor.sortAt, cursor.id, limit] : [limit]
-    const rows = this.db.prepare(`SELECT ${NOTE_PROJECTION} ${NOTE_FROM} WHERE n.deleted_at IS NULL AND n.kind='inbox'${cursorWhere} ORDER BY n.created_at DESC,n.id DESC LIMIT ?`).all(...params) as NoteRow[]
+    const rows = this.db.prepare(`SELECT ${ITEM_PROJECTION} ${ITEM_FROM} WHERE n.deleted_at IS NULL AND n.kind='inbox'${cursorWhere} ORDER BY n.created_at DESC,n.id DESC LIMIT ?`).all(...params) as ItemRow[]
     const last = rows.at(-1)
-    return { items: rows.map(noteFrom), nextCursor: rows.length === limit && last ? { sortAt: last.created_at, id: last.id } : null, total: this.inboxCount() }
+    return { items: rows.map(itemFrom), nextCursor: rows.length === limit && last ? { sortAt: last.created_at, id: last.id } : null, total: this.inboxCount() }
   }
 
   inboxCount() {
@@ -753,7 +535,7 @@ export class Store {
   }
 
   setItemTags(id: string, tags: string[]) {
-    const current = this.getNote(id)
+    const current = this.getItem(id)
     if (!current || current.deletedAt !== null) throw new AppError('NOT_FOUND', 'This item no longer exists.')
     const cleanTags = normalizeTags(tags)
     const transaction = this.db.transaction(() => {
@@ -836,8 +618,8 @@ export class Store {
       pageWhere.push('(n.backlog_position>? OR (n.backlog_position=? AND n.id>?))')
       pageParams.push(input.cursor.priorityPosition, input.cursor.priorityPosition, input.cursor.id)
     }
-    const rows = this.db.prepare(`SELECT ${NOTE_PROJECTION} ${NOTE_FROM} WHERE ${pageWhere.join(' AND ')} ORDER BY n.backlog_position,n.id LIMIT ?`)
-      .all(...pageParams, limit + 1) as NoteRow[]
+    const rows = this.db.prepare(`SELECT ${ITEM_PROJECTION} ${ITEM_FROM} WHERE ${pageWhere.join(' AND ')} ORDER BY n.backlog_position,n.id LIMIT ?`)
+      .all(...pageParams, limit + 1) as ItemRow[]
     const hasMore = rows.length > limit
     const items = rows.slice(0, limit)
     const last = items.at(-1)
@@ -880,7 +662,7 @@ export class Store {
 
   setItemCategory(id: string, categoryId: string | null, subcategoryId?: string | null) {
     if (categoryId && !this.db.prepare('SELECT id FROM categories WHERE id=?').get(categoryId)) throw new AppError('CATEGORY_MISSING', 'That category no longer exists.')
-    const current=this.getNote(id)
+    const current=this.getItem(id)
     if (!current) throw new AppError('NOT_FOUND','This item no longer exists.')
     this.updateItem(id,current.revision,current.body,current.tags,categoryId,undefined,subcategoryId)
   }
@@ -927,10 +709,10 @@ export class Store {
     if (!isISODate(from) || !isISODate(to) || to < from) throw new AppError('INVALID_INPUT', 'Choose a valid planner date range.')
     const start = new Date(`${from}T00:00:00`).getTime()
     const end = localDateBounds(to).end
-    const rows = this.db.prepare(`SELECT ${NOTE_PROJECTION} ${NOTE_FROM} WHERE n.deleted_at IS NULL AND n.kind='task' AND (
+    const rows = this.db.prepare(`SELECT ${ITEM_PROJECTION} ${ITEM_FROM} WHERE n.deleted_at IS NULL AND n.kind='task' AND (
       (n.planned_start_at IS NOT NULL AND ((n.planned_start_at<? AND n.planned_end_at>?) OR (n.task_status='open' AND n.is_later=0 AND n.planned_end_at<=?))) OR
       (n.planned_start_at IS NULL AND ((n.task_status='open' AND n.is_later=0 AND ((n.planned_date IS NULL AND n.task_ready=1) OR n.planned_date<=?)) OR (n.task_status='done' AND n.planned_date>=? AND n.planned_date<=?))))
-      ORDER BY coalesce(n.planned_date,''),n.before_event_id,n.task_position,n.created_at,n.id`).all(end, start, start, to, from, to) as NoteRow[]
+      ORDER BY coalesce(n.planned_date,''),n.before_event_id,n.task_position,n.created_at,n.id`).all(end, start, start, to, from, to) as ItemRow[]
     const tasks = rows.map(taskFrom)
     const events = (this.db.prepare('SELECT * FROM planner_events WHERE start_at<? AND end_at>? ORDER BY start_at,end_at,title').all(end, start) as PlannerEventRow[]).map(eventFrom)
     const tags = (this.db.prepare('SELECT name FROM item_tags ORDER BY name COLLATE NOCASE').all() as { name: string }[]).map((row) => row.name)
@@ -938,7 +720,7 @@ export class Store {
   }
 
   private getPlannerTask(id: string): PlannerTask {
-    const row = this.db.prepare(`SELECT ${NOTE_PROJECTION} ${NOTE_FROM} WHERE n.id=? AND n.kind='task' AND n.deleted_at IS NULL`).get(id) as NoteRow | undefined
+    const row = this.db.prepare(`SELECT ${ITEM_PROJECTION} ${ITEM_FROM} WHERE n.id=? AND n.kind='task' AND n.deleted_at IS NULL`).get(id) as ItemRow | undefined
     if (!row) throw new AppError('NOT_FOUND', 'This task no longer exists.')
     return taskFrom(row)
   }
@@ -978,7 +760,7 @@ export class Store {
       this.replaceItemTags(id, normalizeTags(input.tags), input.categoryId)
       this.syncSearch(id)
       const scheduled = this.schedulePlannerTask({ id, expectedRevision: 1, placement: input.placement })
-      this.db.prepare('UPDATE task_intentions SET kind=?,target_date=? WHERE note_id=?').run(input.placement.kind==='later'?'later':scheduled.plannedDate?'day':'unplanned',scheduled.plannedDate,id)
+      this.db.prepare('UPDATE task_intentions SET kind=?,target_date=? WHERE note_id=?').run(input.placement.kind==='later'?'later':'unplanned',null,id)
       return this.getPlannerTask(id)!
     })()
     return result
@@ -1113,29 +895,80 @@ export class Store {
     restore(); this.changeSequence++
   }
 
-  updateNote(id: string, expectedRevision: number, body: string) {
-    const current = this.getNote(id)
-    if (!current) throw new AppError('NOT_FOUND', 'This note no longer exists.')
-    if (current.revision !== expectedRevision) throw new AppError('REVISION_CONFLICT', 'This note changed elsewhere. Reload it before saving.')
-    if ([...body].length > 50_000) throw new AppError('NOTE_TOO_LONG', 'Notes can contain up to 50,000 characters.')
+  updateItemBody(id: string, expectedRevision: number, body: string) {
+    const current = this.getItem(id)
+    if (!current) throw new AppError('NOT_FOUND', 'This task no longer exists.')
+    if (current.revision !== expectedRevision) throw new AppError('REVISION_CONFLICT', 'This task changed elsewhere. Reload it before saving.')
+    if ([...body].length > 50_000) throw new AppError('TASK_TOO_LONG', 'Tasks can contain up to 50,000 characters.')
     const now = Date.now()
     const transaction = this.db.transaction(() => {
       const changed = this.db.prepare('UPDATE notes SET body=?,updated_at=?,revision=revision+1 WHERE id=? AND revision=? AND deleted_at IS NULL').run(body.replace(/\r\n?/g, '\n'), now, id, expectedRevision)
-      if (!changed.changes) throw new AppError('REVISION_CONFLICT', 'This note changed elsewhere. Reload it before saving.')
+      if (!changed.changes) throw new AppError('REVISION_CONFLICT', 'This task changed elsewhere. Reload it before saving.')
       this.syncSearch(id)
     })
     transaction()
     this.changeSequence++
-    const updated = this.getNote(id)
-    if (!updated) throw new AppError('NOT_FOUND', 'This note no longer exists.')
+    const updated = this.getItem(id)
+    if (!updated) throw new AppError('NOT_FOUND', 'This task no longer exists.')
     return updated
   }
 
+  saveItem(raw: ItemUpdate) {
+    const input = ItemUpdateSchema.parse(raw)
+    if (input.plan && validLocalDate(input.plan.today)) input.plan.intention = { ...intentionFor(horizonOf(input.plan.intention, input.plan.today)), position: input.plan.intention.position }
+    const sequence = this.changeSequence
+    try {
+      const result = this.db.transaction(() => {
+        const current = this.getItem(input.id)
+        if ((input.plan || input.placement) && (current?.kind !== 'task' || current.completedAt !== null)) throw new AppError('INVALID_INPUT', 'Only open tasks can be planned or scheduled.')
+        let updated = this.updateItem(input.id, input.expectedRevision, input.body, input.tags, input.categoryId, input.images, input.subcategoryId)
+        if (input.plan) {
+          this.moveWorkspace({ id: input.id, expectedRevision: updated.revision, ...input.plan, beforeId: null })
+          updated = this.getItem(input.id)!
+        }
+        if (input.placement) this.schedulePlannerTask({ id: input.id, expectedRevision: updated.revision, placement: input.placement })
+        return this.getItem(input.id)!
+      })()
+      this.changeSequence = sequence + 1
+      return result
+    } catch (error) { this.changeSequence = sequence; throw error }
+  }
+
+  completeWorkspace(raw: { id: string; expectedRevision: number; completed: boolean }): TaskCompletionUndo {
+    const input = TaskCompletionSchema.parse(raw)
+    const task = this.getPlannerTask(input.id)
+    if (task.revision !== input.expectedRevision) throw new AppError('STALE_REVISION', 'This task changed. Refresh before completing it.')
+    this.setTaskCompleted(input.id, input.completed)
+    return { task, expectedRevision: this.getPlannerTask(input.id).revision }
+  }
+
+  undoCompletion(raw: TaskCompletionUndo) {
+    const { task, expectedRevision } = TaskCompletionUndoSchema.parse(raw)
+    this.db.transaction(() => {
+      const current = this.getPlannerTask(task.id)
+      if (current.revision !== expectedRevision) throw new AppError('STALE_REVISION', 'This task changed. Undo is no longer available.')
+      const anchor = task.beforeEventId && this.db.prepare('SELECT 1 FROM planner_events WHERE id=?').get(task.beforeEventId) ? task.beforeEventId : null
+      // Remove the current placement before inserting the original slot again.
+      this.db.prepare("UPDATE notes SET task_status='done',task_ready=0,planned_date=NULL,planned_start_at=NULL,planned_end_at=NULL,before_event_id=NULL WHERE id=?").run(task.id)
+      if (current.plannedDate) this.compactTaskSlot(current.plannedDate, current.beforeEventId)
+      else if (current.ready) this.compactReadySlot()
+      if (task.completedAt === null && task.plannedStartAt === null && (task.plannedDate || task.ready)) {
+        this.db.prepare("UPDATE notes SET task_position=task_position+1,revision=revision+1,updated_at=? WHERE id<>? AND kind='task' AND task_status='open' AND deleted_at IS NULL AND planned_start_at IS NULL AND planned_date IS ? AND before_event_id IS ? AND task_ready=? AND task_position>=?")
+          .run(Date.now(), task.id, task.plannedDate, anchor, task.ready ? 1 : 0, task.position)
+      }
+      this.db.prepare('UPDATE notes SET task_status=?,completed_at=?,task_ready=?,is_later=?,planned_date=?,planned_start_at=?,planned_end_at=?,before_event_id=?,task_position=?,backlog_position=?,updated_at=?,revision=revision+1 WHERE id=?')
+        .run(task.completedAt === null ? 'open' : 'done', task.completedAt, task.ready ? 1 : 0, task.later ? 1 : 0, task.plannedDate, task.plannedStartAt, task.plannedEndAt, anchor, task.position, task.priorityPosition, Date.now(), task.id)
+      if (task.plannedDate) this.compactTaskSlot(task.plannedDate, anchor)
+      else if (task.ready) this.compactReadySlot()
+    })()
+    this.changeSequence++
+  }
+
   updateItem(id: string, expectedRevision: number, body: string, tags: string[], requestedCategoryId?: string | null, images?: (ImageRef & { dataUrl?: string })[], requestedSubcategoryId?: string | null) {
-    const current = this.getNote(id)
+    const current = this.getItem(id)
     if (!current || current.deletedAt !== null) throw new AppError('NOT_FOUND', 'This item no longer exists.')
     if (current.revision !== expectedRevision) throw new AppError('REVISION_CONFLICT', 'This item changed elsewhere. Reload it before saving.')
-    if ([...body].length > 50_000) throw new AppError('NOTE_TOO_LONG', 'Notes can contain up to 50,000 characters.')
+    if ([...body].length > 50_000) throw new AppError('TASK_TOO_LONG', 'Tasks can contain up to 50,000 characters.')
     const categoryId = requestedCategoryId === undefined ? current.categoryId : requestedCategoryId
     if (categoryId && !this.db.prepare('SELECT id FROM categories WHERE id=?').get(categoryId)) throw new AppError('CATEGORY_MISSING', 'That category no longer exists.')
     const subcategoryId=requestedSubcategoryId===undefined ? (current.categoryId===categoryId?current.subcategoryId:null):requestedSubcategoryId
@@ -1164,7 +997,7 @@ export class Store {
     })
     transaction()
     this.changeSequence++
-    const updated = this.getNote(id)
+    const updated = this.getItem(id)
     if (!updated) throw new AppError('NOT_FOUND', 'This item no longer exists.')
     return updated
   }
@@ -1209,7 +1042,7 @@ export class Store {
     transaction(); this.changeSequence++
   }
 
-  getDraftText(ids: string[]) { return ids.map((id) => this.getNote(id)).filter((n): n is NonNullable<typeof n> => Boolean(n)).map((n) => n.body).join('\n\n') }
+  getDraftText(ids: string[]) { return ids.map((id) => this.getItem(id)).filter((n): n is NonNullable<typeof n> => Boolean(n)).map((n) => n.body).join('\n\n') }
 
   taskExportMetadata(ids: string[]) {
     const metadata = new Map<string, { categoryName: string | null; subcategoryName:string|null; ready: boolean; plannedDate: string | null; plannedStartAt: number | null; plannedEndAt: number | null; intention?: TaskIntention }>()
@@ -1222,9 +1055,9 @@ export class Store {
     return metadata
   }
 
-  recentNotes(scope: 'all' | 'full' = 'all') {
+  recentItems(scope: 'all' | 'full' = 'all') {
     const deleted = scope === 'full' ? '' : 'WHERE n.deleted_at IS NULL'
-    return this.db.prepare(`SELECT ${NOTE_PROJECTION} ${NOTE_FROM} ${deleted} ORDER BY n.created_at DESC,n.id DESC`).all() as NoteRow[]
+    return this.db.prepare(`SELECT ${ITEM_PROJECTION} ${ITEM_FROM} ${deleted} ORDER BY n.created_at DESC,n.id DESC`).all() as ItemRow[]
   }
   legacyMeetingLabels() { return this.db.prepare('SELECT id,title,started_at,ended_at,created_at,updated_at FROM legacy_meeting_sessions ORDER BY started_at DESC').all() as { id: string; title: string; started_at: number; ended_at: number | null; created_at: number; updated_at: number }[] }
   backupTo(path: string) { return this.db.backup(path) }
@@ -1237,7 +1070,7 @@ export class Store {
       const required = ['notes', 'drafts', 'app_state', 'schema_migrations', 'note_search', ...(version.version && version.version >= 3 ? ['legacy_meeting_sessions', 'planner_events', 'item_tags', 'note_tags'] : ['meetings']), ...(version.version && version.version >= 4 ? ['item_images', 'capture_draft_images'] : []), ...(version.version && version.version >= 5 ? ['categories'] : []), ...(version.version && version.version >= 12 ? ['subcategories','taxonomy_migration_review','taxonomy_migration_mapping'] : []), ...(version.version && version.version >= 14 ? ['task_intentions'] : [])]
       const tables = new Set((database.prepare("SELECT name FROM sqlite_master WHERE type IN ('table','view')").all() as { name: string }[]).map((row) => row.name))
       if (required.some((name) => !tables.has(name))) throw new AppError('DB_INVALID_SCHEMA', 'The selected file is not a complete captured backup.')
-      if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].includes(version.version ?? 0)) throw new AppError(version.version && version.version > 16 ? 'DB_NEWER_VERSION' : 'DB_INVALID_SCHEMA', 'This backup has an unsupported captured schema.')
+      if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].includes(version.version ?? 0)) throw new AppError(version.version && version.version > 18 ? 'DB_NEWER_VERSION' : 'DB_INVALID_SCHEMA', 'This backup has an unsupported captured schema.')
       if ((database.pragma('foreign_key_check') as unknown[]).length) throw new AppError('DB_CORRUPT', 'The selected backup contains invalid note links.')
       if (version.version! >= 14) {
         if (!(database.pragma('table_info(drafts)') as { name: string }[]).some(column => column.name === 'capture_kind')) throw new AppError('DB_INVALID_SCHEMA', 'This backup is missing capture type storage.')

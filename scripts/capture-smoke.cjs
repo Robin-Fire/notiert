@@ -6,6 +6,7 @@ const path = require('node:path')
 
 const tempRoot = path.resolve(os.tmpdir())
 const profile = fs.mkdtempSync(path.join(tempRoot, 'captured-capture-smoke-'))
+fs.writeFileSync(path.join(profile, 'settings.json'), JSON.stringify({ firstRunComplete: true, shortcutEnabled: false, closeToTray: false, captureProtection: false, theme: 'light' }))
 app.setPath('userData', profile)
 app.commandLine.appendSwitch('disable-gpu')
 require('../out/main/index.js')
@@ -16,22 +17,30 @@ const findWindow = (name) => BrowserWindow.getAllWindows().find((window) => wind
 app.whenReady().then(async () => {
   for (let attempt = 0; attempt < 50 && !findWindow('index'); attempt++) await wait(100)
   const notes = findWindow('index')
-  if (!notes) throw new Error('Notes window did not load')
+  if (!notes) throw new Error('Task window did not load')
+  const originalExecute = notes.webContents.executeJavaScript.bind(notes.webContents)
+  notes.webContents.executeJavaScript = async code => { try { return await originalExecute(code) } catch (error) { console.error('Failed main-window capture smoke step:', code); throw error } }
   for (let attempt = 0; attempt < 50; attempt++) {
-    if (await notes.webContents.executeJavaScript("Boolean(document.querySelector('.side-nav'))")) break
+    if (await notes.webContents.executeJavaScript("document.documentElement.dataset.windowReady === 'true'")) break
     await wait(100)
   }
-  await notes.webContents.executeJavaScript("[...document.querySelectorAll('.side-nav button')].find((button) => button.textContent.includes('All items')).click()")
+  await notes.webContents.executeJavaScript("[...document.querySelectorAll('.side-nav button')].find((button) => button.textContent.trim()==='Tasks').click()")
   await wait(300)
-  const createdCategory = await notes.webContents.executeJavaScript("window.captured.notes.createCategory('Capture smoke')")
+  const createdCategory = await notes.webContents.executeJavaScript("window.captured.items.createCategory('Capture smoke')")
   if (!createdCategory.ok) throw new Error(`Category creation failed: ${createdCategory.message}`)
   const categoryId = createdCategory.value.id
-  await notes.webContents.executeJavaScript("document.querySelector('.capture-button').click()")
+  await notes.webContents.executeJavaScript("document.querySelector('.sidebar-capture').click()")
   for (let attempt = 0; attempt < 50 && !findWindow('capture'); attempt++) await wait(100)
   const capture = findWindow('capture')
   if (!capture) throw new Error('Capture window did not load')
+  const captureExecute = capture.webContents.executeJavaScript.bind(capture.webContents)
+  capture.webContents.executeJavaScript = async code => { try { return await captureExecute(code) } catch (error) { console.error('Failed capture-window smoke step:', code); throw error } }
   for (let attempt = 0; attempt < 50; attempt++) {
     if (await capture.webContents.executeJavaScript("Boolean(document.querySelector('.capture-input'))")) break
+    await wait(100)
+  }
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (await capture.webContents.executeJavaScript("Boolean(document.querySelector('[aria-label=\"Capture category\"]'))")) break
     await wait(100)
   }
   await selectOption(code=>capture.webContents.executeJavaScript(code), '[aria-label="Capture category"]', categoryId)
@@ -45,18 +54,18 @@ app.whenReady().then(async () => {
   const after = await capture.webContents.executeJavaScript("({ text: document.querySelector('.capture-input').value, error: document.querySelector('.capture-alert')?.innerText })")
   const Database = require('better-sqlite3')
   const db = new Database(path.join(profile, 'captured.sqlite'), { readonly: true })
-  const count = db.prepare("SELECT count(*) AS count FROM notes WHERE kind='inbox' AND body='Capture smoke test'").get().count
-  const categorizedCount = db.prepare("SELECT count(*) AS count FROM notes WHERE kind='inbox' AND body='Capture smoke test' AND project_id=?").get(categoryId).count
+  const count = db.prepare("SELECT count(*) AS count FROM notes WHERE kind='task' AND body='Capture smoke test'").get().count
+  const categorizedCount = db.prepare("SELECT count(*) AS count FROM notes WHERE kind='task' AND body='Capture smoke test' AND project_id=?").get(categoryId).count
   db.close()
   if (count !== 1 || categorizedCount !== 1) throw new Error(`Capture was not saved with its category: ${JSON.stringify({ after, count, categorizedCount })}`)
   let visible = false
   for (let attempt = 0; attempt < 30; attempt++) {
-    visible = await notes.webContents.executeJavaScript("Boolean([...document.querySelectorAll('.note-preview')].some((item) => item.textContent === 'Capture smoke test'))")
+    visible = await notes.webContents.executeJavaScript("Boolean([...document.querySelectorAll('.tasks-card-body')].some((item) => item.textContent === 'Capture smoke test'))")
     if (visible) break
     await wait(100)
   }
-  if (!visible) throw new Error('Saved capture did not appear in All items')
-  await notes.webContents.executeJavaScript("document.querySelector('.capture-button').click()")
+  if (!visible) throw new Error('Saved task did not appear in Tasks')
+  await notes.webContents.executeJavaScript("document.querySelector('.sidebar-capture').click()")
   await wait(250)
   const rememberedCategory = await capture.webContents.executeJavaScript("document.querySelector('[aria-label=\"Capture category\"]').value")
   if (rememberedCategory !== categoryId) throw new Error('Capture must remember its category after saving and reopening')
@@ -85,11 +94,11 @@ app.whenReady().then(async () => {
   const imageCount = dbImageCount(profile)
   if (imageCount !== 1) throw new Error(`Image-only capture was not saved: ${imageCount}`)
   for (let attempt = 0; attempt < 30; attempt++) {
-    const hasRow = await notes.webContents.executeJavaScript("Boolean([...document.querySelectorAll('.note-row-open')].find((item) => item.textContent.includes('Image capture')))")
+    const hasRow = await notes.webContents.executeJavaScript("Boolean([...document.querySelectorAll('.tasks-card-body')].find((item) => item.textContent.includes('Image capture')))")
     if (hasRow) break
     await wait(100)
   }
-  await notes.webContents.executeJavaScript("[...document.querySelectorAll('.note-row-open')].find((item) => item.textContent.includes('Image capture')).click()")
+  await notes.webContents.executeJavaScript("[...document.querySelectorAll('.tasks-card-body')].find((item) => item.textContent.includes('Image capture')).click()")
   await notes.webContents.executeJavaScript("(() => { const button=document.querySelector('.task-detail-dialog .image-section-toggle'); if(button?.getAttribute('aria-expanded')==='false')button.click(); })()")
   for (let attempt = 0; attempt < 30; attempt++) {
     const rendered = await notes.webContents.executeJavaScript("Boolean(document.querySelector('.task-detail-dialog .attachment-thumbnails img'))")
@@ -98,14 +107,16 @@ app.whenReady().then(async () => {
   }
   const imageRendered = await notes.webContents.executeJavaScript("document.querySelector('.task-detail-dialog .attachment-thumbnails img')?.getAttribute('src')?.startsWith('data:image/png;base64,') ?? false")
   if (!imageRendered) throw new Error('Saved image did not render in item details')
-  process.stdout.write(`capture_saved=${count} categorized_capture_saved=${categorizedCount} visible_in_all_items=${visible} image_capture_saved=${imageCount} image_rendered=${imageRendered}\n`)
+  process.stdout.write(`capture_saved=${count} categorized_capture_saved=${categorizedCount} visible_in_backlog=${visible} image_capture_saved=${imageCount} image_rendered=${imageRendered}\n`)
+  await notes.webContents.executeJavaScript("[...document.querySelectorAll('.task-detail-actions button')].find(button=>button.textContent.trim()==='Close')?.click()")
+  await wait(300)
   app.exit(0)
 }).catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); app.exit(1) })
 
 function dbImageCount(profilePath) {
   const Database = require('better-sqlite3')
   const db = new Database(path.join(profilePath, 'captured.sqlite'), { readonly: true })
-  try { return db.prepare("SELECT count(*) AS count FROM notes n JOIN item_images i ON i.note_id=n.id WHERE n.kind='inbox' AND n.body=''").get().count }
+  try { return db.prepare("SELECT count(*) AS count FROM notes n JOIN item_images i ON i.note_id=n.id WHERE n.kind='task' AND n.body=''").get().count }
   finally { db.close() }
 }
 

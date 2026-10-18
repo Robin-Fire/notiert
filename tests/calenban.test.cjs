@@ -28,7 +28,7 @@ function withStore(callback) {
 }
 
 function captureTask(store, body, tags = []) {
-  const id = store.submitCapture(randomUUID(), 0, body)
+  const id = store.submitCapture(randomUUID(), 0, body, undefined, undefined, undefined, 'inbox')
   store.classifyItem(id, 'task', tags)
   return id
 }
@@ -45,12 +45,12 @@ test('pasted image survives draft restart, image-only capture, filing, and backu
     store.close()
     store = new Store(file)
     assert.deepEqual(store.getCaptureDraft().images, [image])
-    const id = store.submitCapture(randomUUID(), 0, '')
-    assert.deepEqual(store.getNote(id).images, [{ id: image.id, mimeType: 'image/png' }])
+    const id = store.submitCapture(randomUUID(), 0, '', undefined, undefined, undefined, 'inbox')
+    assert.deepEqual(store.getItem(id).images, [{ id: image.id, mimeType: 'image/png' }])
     assert.equal(store.getItemImage(image.id), dataUrl)
     assert.deepEqual(store.getCaptureDraft().images, [])
     store.classifyItem(id, 'task', ['Visual'])
-    assert.equal(store.getNote(id).images.length, 1)
+    assert.equal(store.getItem(id).images.length, 1)
     await store.backupTo(backup)
     store.checkIntegrity(backup)
     const removable = store.addDraftImage(1, dataUrl)
@@ -65,12 +65,12 @@ test('version 3 database migrates to image storage without losing notes', () => 
   const file = path.join(folder, 'notes.sqlite')
   let store = new Store(file)
   try {
-    const id = store.submitCapture(randomUUID(), 0, 'Before image support')
+    const id = store.submitCapture(randomUUID(), 0, 'Before image support', undefined, undefined, undefined, 'inbox')
     store.db.exec('DROP TABLE item_images; DROP TABLE capture_draft_images; DELETE FROM schema_migrations WHERE version=4;')
     store.close()
     store = new Store(file)
-    assert.equal(store.getNote(id).body, 'Before image support')
-    assert.deepEqual(store.getNote(id).images, [])
+    assert.equal(store.getItem(id).body, 'Before image support')
+    assert.deepEqual(store.getItem(id).images, [])
     assert.equal(store.checkIntegrity(), undefined)
   } finally { store.close(); fs.rmSync(folder, { recursive: true, force: true }) }
 })
@@ -83,7 +83,7 @@ test('classification is one-shot and preserves task tags', () => {
     assert.throws(() => store.classifyItem(id, 'task', []), /already been filed/i)
     assert.equal(store.db.prepare('SELECT planned_date FROM notes WHERE id=?').get(id).planned_date, day)
     assert.equal(store.db.prepare('SELECT task_status FROM notes WHERE id=?').get(id).task_status, 'open')
-    assert.equal(store.getNote(id).tags.length, 2)
+    assert.equal(store.getItem(id).tags.length, 2)
   })
 })
 
@@ -99,7 +99,7 @@ test('categories and tag colors persist while tags remain independent', () => {
     assert.equal(store.taxonomy().tags.find((tag) => tag.id === work.id).color, '#c2413b')
     store.updateTag(work.id, second.id, '#2563eb')
     assert.equal(store.taxonomy().tags.find((tag) => tag.id === work.id).categoryId, null)
-    assert.equal(store.listNotes({ query: '', scope: 'notes', tags: ['Work'], limit: 50, sort: 'newest' }).items[0].id, id)
+    assert.equal(store.listItems({ query: '', scope: 'items', tags: ['Work'], limit: 50, sort: 'newest' }).items[0].id, id)
     assert.throws(() => store.createTag('work', first.id), /already exists/i)
   })
 })
@@ -109,13 +109,13 @@ test('deleting a category keeps its items and tags, while deleting a tag removes
     const uncategorized = store.createTag('General', null)
     const category = store.createCategory('Projects')
     const projectTag = store.createTag('Planning', category.id)
-    const id = store.submitCapture(randomUUID(), 0, 'Keep this item', category.id)
+    const id = store.submitCapture(randomUUID(), 0, 'Keep this item', category.id, undefined, undefined, 'inbox')
     store.classifyItem(id, 'note', [projectTag.name], category.id)
 
     store.deleteCategory(category.id)
 
-    assert.equal(store.getNote(id).categoryId, null)
-    assert.deepEqual(store.getNote(id).tags, ['Planning'])
+    assert.equal(store.getItem(id).categoryId, null)
+    assert.deepEqual(store.getItem(id).tags, ['Planning'])
     assert.equal(store.taxonomy().categories.some((entry) => entry.id === category.id), false)
     assert.equal(store.taxonomy().tags.find((entry) => entry.id === projectTag.id).categoryId, null)
     assert.deepEqual(store.db.prepare('SELECT id,position FROM item_tags ORDER BY position').all(), [
@@ -124,8 +124,8 @@ test('deleting a category keeps its items and tags, while deleting a tag removes
 
     store.deleteTag(projectTag.id)
 
-    assert.ok(store.getNote(id))
-    assert.deepEqual(store.getNote(id).tags, [])
+    assert.ok(store.getItem(id))
+    assert.deepEqual(store.getItem(id).tags, [])
     assert.deepEqual(store.taxonomy().tags.map((entry) => entry.id), [uncategorized.id])
     assert.throws(() => store.deleteTag(projectTag.id), /tag no longer exists/i)
   })
@@ -147,7 +147,7 @@ test('unscheduled tasks can be reordered and dated tasks can be dropped onto an 
 
 test('Inbox retrieval paginates without losing stable ordering', () => {
   withStore((store) => {
-    for (let index = 0; index < 55; index++) store.submitCapture(randomUUID(), 0, 'Capture ' + index)
+    for (let index = 0; index < 55; index++) store.submitCapture(randomUUID(), 0, 'Capture ' + index, undefined, undefined, undefined, 'inbox')
     const firstPage = store.listInbox(undefined, 50)
     const secondPage = store.listInbox(firstPage.nextCursor, 50)
     assert.equal(firstPage.items.length, 50)
@@ -161,7 +161,7 @@ test('Inbox retrieval paginates without losing stable ordering', () => {
 test('tasks move between category backlog, Ready, a day, and back to Ready', () => {
   withStore((store) => {
     const category = store.createCategory('Client A')
-    const id = store.submitCapture(randomUUID(), 0, 'Prepare review')
+    const id = store.submitCapture(randomUUID(), 0, 'Prepare review', undefined, undefined, undefined, 'inbox')
     store.classifyItem(id, 'task', ['Design'], category.id)
     assert.equal(store.listBacklog({ categoryId: category.id }).items[0].categoryId, category.id)
     const otherCategory = store.createCategory('Client B')
@@ -192,15 +192,15 @@ test('v7 migration assigns direct categories only from unambiguous legacy tags a
     const onlyOne = store.createTag('Only one', one.id)
     const alsoOne = store.createTag('Also one', one.id)
     const other = store.createTag('Other', two.id)
-    const note = store.submitCapture(randomUUID(), 0, 'Legacy note')
+    const note = store.submitCapture(randomUUID(), 0, 'Legacy note', undefined, undefined, undefined, 'inbox')
     store.classifyItem(note, 'note', [onlyOne.name])
     store.db.prepare('UPDATE notes SET project_id=NULL WHERE id=?').run(note)
-    const ambiguous = store.submitCapture(randomUUID(), 0, 'Ambiguous note')
+    const ambiguous = store.submitCapture(randomUUID(), 0, 'Ambiguous note', undefined, undefined, undefined, 'inbox')
     store.classifyItem(ambiguous, 'note', [alsoOne.name, other.name])
     store.db.prepare('UPDATE notes SET project_id=NULL WHERE id=?').run(ambiguous)
-    const newest = store.submitCapture(randomUUID(), 0, 'Newest task')
+    const newest = store.submitCapture(randomUUID(), 0, 'Newest task', undefined, undefined, undefined, 'inbox')
     store.classifyItem(newest, 'task', [], one.id)
-    const older = store.submitCapture(randomUUID(), 0, 'Older task')
+    const older = store.submitCapture(randomUUID(), 0, 'Older task', undefined, undefined, undefined, 'inbox')
     store.classifyItem(older, 'task', [], one.id)
     store.db.prepare('UPDATE notes SET created_at=100 WHERE id=?').run(newest)
     store.db.prepare('UPDATE notes SET created_at=50 WHERE id=?').run(older)
@@ -211,8 +211,8 @@ test('v7 migration assigns direct categories only from unambiguous legacy tags a
     store = null
     store = new Store(file)
 
-    assert.equal(store.getNote(note).categoryId, one.id)
-    assert.equal(store.getNote(ambiguous).categoryId, null)
+    assert.equal(store.getItem(note).categoryId, one.id)
+    assert.equal(store.getItem(ambiguous).categoryId, null)
     assert.deepEqual(store.listBacklog({ categoryId: one.id }).items.map((item) => item.id), [newest, older])
     assert.equal(store.getCaptureDraft().categoryId, null)
     assert.equal(store.checkIntegrity(), undefined)
@@ -230,8 +230,8 @@ test('capture category persists in the draft and copies to the submitted Inbox i
     store.close()
     store = new Store(file)
     assert.equal(store.getCaptureDraft().categoryId, category.id)
-    const id = store.submitCapture(randomUUID(), 0, 'Captured thought', category.id)
-    assert.equal(store.getNote(id).categoryId, category.id)
+    const id = store.submitCapture(randomUUID(), 0, 'Captured thought', category.id, undefined, undefined, 'inbox')
+    assert.equal(store.getItem(id).categoryId, category.id)
     assert.equal(store.getCaptureDraft().categoryId, null)
   } finally { store?.close(); fs.rmSync(folder, { recursive: true, force: true }) }
 })
@@ -240,12 +240,12 @@ test('classification preserves an Inbox category by default and honors an explic
   withStore((store) => {
     const category = store.createCategory('Work')
     const tag = store.createTag('Planning', category.id)
-    const keep = store.submitCapture(randomUUID(), 0, 'Keep my category', category.id)
+    const keep = store.submitCapture(randomUUID(), 0, 'Keep my category', category.id, undefined, undefined, 'inbox')
     store.classifyItem(keep, 'note', [tag.name])
-    assert.equal(store.getNote(keep).categoryId, category.id)
-    const clear = store.submitCapture(randomUUID(), 0, 'Leave unassigned', category.id)
+    assert.equal(store.getItem(keep).categoryId, category.id)
+    const clear = store.submitCapture(randomUUID(), 0, 'Leave unassigned', category.id, undefined, undefined, 'inbox')
     store.classifyItem(clear, 'note', [tag.name], null)
-    assert.equal(store.getNote(clear).categoryId, null)
+    assert.equal(store.getItem(clear).categoryId, null)
   })
 })
 
@@ -256,13 +256,13 @@ test('category tag filters use OR matching, deduplicate multi-tag tasks, and inc
     const tagOne = store.createTag('Planning', category.id)
     const tagTwo = store.createTag('Writing', category.id)
     const foreignTag = store.createTag('Home tag', otherCategory.id)
-    const matching = store.submitCapture(randomUUID(), 0, 'Both tags')
+    const matching = store.submitCapture(randomUUID(), 0, 'Both tags', undefined, undefined, undefined, 'inbox')
     store.classifyItem(matching, 'task', [tagOne.name, tagTwo.name], category.id)
-    const foreignTagged = store.submitCapture(randomUUID(), 0, 'Foreign tag')
+    const foreignTagged = store.submitCapture(randomUUID(), 0, 'Foreign tag', undefined, undefined, undefined, 'inbox')
     store.classifyItem(foreignTagged, 'task', [foreignTag.name], category.id)
-    const untagged = store.submitCapture(randomUUID(), 0, 'No tag')
+    const untagged = store.submitCapture(randomUUID(), 0, 'No tag', undefined, undefined, undefined, 'inbox')
     store.classifyItem(untagged, 'task', [], category.id)
-    const unrelated = store.submitCapture(randomUUID(), 0, 'Another category')
+    const unrelated = store.submitCapture(randomUUID(), 0, 'Another category', undefined, undefined, undefined, 'inbox')
     store.classifyItem(unrelated, 'task', [tagOne.name], otherCategory.id)
 
     const filtered = store.listBacklog({ categoryId: category.id, tagNames: [tagOne.name, tagTwo.name], includeUntagged: true })
@@ -279,17 +279,17 @@ test('reordering a category backlog updates the shared order used by category an
   withStore((store) => {
     const category = store.createCategory('Work')
     const tag = store.createTag('Planning', category.id)
-    const first = store.submitCapture(randomUUID(), 0, 'First')
-    const second = store.submitCapture(randomUUID(), 0, 'Second')
-    const third = store.submitCapture(randomUUID(), 0, 'Third')
+    const first = store.submitCapture(randomUUID(), 0, 'First', undefined, undefined, undefined, 'inbox')
+    const second = store.submitCapture(randomUUID(), 0, 'Second', undefined, undefined, undefined, 'inbox')
+    const third = store.submitCapture(randomUUID(), 0, 'Third', undefined, undefined, undefined, 'inbox')
     store.classifyItem(first, 'task', [tag.name], category.id)
     store.classifyItem(second, 'task', [tag.name], category.id)
     store.classifyItem(third, 'task', [], category.id)
     store.reorderBacklog(first, category.id, null)
 
     const backlog = store.listBacklog({ categoryId: category.id }).items.map((item) => item.id)
-    const categoryPage = store.listNotes({ query: '', scope: 'notes', categoryId: category.id, limit: 50, sort: 'priority' }).items.filter((item) => item.kind === 'task').map((item) => item.id)
-    const tagPage = store.listNotes({ query: '', scope: 'notes', tags: [tag.name], limit: 50, sort: 'priority' }).items.filter((item) => item.kind === 'task').map((item) => item.id)
+    const categoryPage = store.listItems({ query: '', scope: 'items', categoryId: category.id, limit: 50, sort: 'priority' }).items.filter((item) => item.kind === 'task').map((item) => item.id)
+    const tagPage = store.listItems({ query: '', scope: 'items', tags: [tag.name], limit: 50, sort: 'priority' }).items.filter((item) => item.kind === 'task').map((item) => item.id)
     assert.deepEqual(backlog, [second, third, first])
     assert.deepEqual(categoryPage, [second, third, first])
     assert.deepEqual(tagPage, [second, first])
@@ -302,7 +302,7 @@ test('Backlog pagination keeps a stable priority cursor and places a move after 
     const category = store.createCategory('Work')
     const ids = []
     for (let index = 0; index < 55; index++) {
-      const id = store.submitCapture(randomUUID(), 0, `Task ${index}`)
+      const id = store.submitCapture(randomUUID(), 0, `Task ${index}`, undefined, undefined, undefined, 'inbox')
       store.classifyItem(id, 'task', [], category.id)
       ids.push(id)
     }
@@ -323,11 +323,11 @@ test('Backlog pagination keeps a stable priority cursor and places a move after 
 test('task body and tags update atomically', () => {
   withStore((store) => {
     const id = captureTask(store, 'Before', ['old'])
-    const current = store.getNote(id)
+    const current = store.getItem(id)
     store.db.exec("CREATE TRIGGER fail_tag_link BEFORE INSERT ON note_tags BEGIN SELECT RAISE(ABORT, 'forced tag failure'); END")
     assert.throws(() => store.updateItem(id, current.revision, 'After', ['new']), /forced tag failure/)
-    assert.equal(store.getNote(id).body, 'Before')
-    assert.deepEqual(store.getNote(id).tags, ['old'])
+    assert.equal(store.getItem(id).body, 'Before')
+    assert.deepEqual(store.getItem(id).tags, ['old'])
     store.db.exec('DROP TRIGGER fail_tag_link')
     const updated = store.updateItem(id, current.revision, 'After', ['new'])
     assert.equal(updated.body, 'After')
@@ -337,20 +337,20 @@ test('task body and tags update atomically', () => {
 
 test('all items support multi-type and multi-tag filters', () => {
   withStore((store) => {
-    const workId = store.submitCapture(randomUUID(), 0, 'Project note')
+    const workId = store.submitCapture(randomUUID(), 0, 'Project note', undefined, undefined, undefined, 'inbox')
     store.classifyItem(workId, 'note', ['Work'])
-    const homeId = store.submitCapture(randomUUID(), 0, 'Personal note')
+    const homeId = store.submitCapture(randomUUID(), 0, 'Personal note', undefined, undefined, undefined, 'inbox')
     store.classifyItem(homeId, 'note', ['Home'])
-    const taskId = store.submitCapture(randomUUID(), 0, 'Project task')
+    const taskId = store.submitCapture(randomUUID(), 0, 'Project task', undefined, undefined, undefined, 'inbox')
     store.classifyItem(taskId, 'task', ['Work'])
-    const inboxId = store.submitCapture(randomUUID(), 0, 'Unfiled thought')
+    const inboxId = store.submitCapture(randomUUID(), 0, 'Unfiled thought', undefined, undefined, undefined, 'inbox')
     assert.deepEqual(store.listTags(), ['Home', 'Work'])
-    const base = { query: '', scope: 'notes', sort: 'newest', limit: 50 }
-    assert.equal(store.listNotes(base).total, 4)
-    assert.deepEqual(store.listNotes({ ...base, kinds: ['note', 'task'], tags: ['work'] }).items.map((item) => item.id), [taskId, workId])
-    assert.deepEqual(store.listNotes({ ...base, tags: ['work', 'home'] }).items.map((item) => item.id), [taskId, homeId, workId])
-    assert.deepEqual(store.listNotes({ ...base, kinds: ['inbox'] }).items.map((item) => item.id), [inboxId])
-    assert.equal(store.listNotes({ ...base, kinds: [], tags: [] }).total, 4)
+    const base = { query: '', scope: 'items', sort: 'newest', limit: 50 }
+    assert.equal(store.listItems(base).total, 4)
+    assert.deepEqual(store.listItems({ ...base, kinds: ['note', 'task'], tags: ['work'] }).items.map((item) => item.id), [taskId, workId])
+    assert.deepEqual(store.listItems({ ...base, tags: ['work', 'home'] }).items.map((item) => item.id), [taskId, homeId, workId])
+    assert.deepEqual(store.listItems({ ...base, kinds: ['inbox'] }).items.map((item) => item.id), [inboxId])
+    assert.equal(store.listItems({ ...base, kinds: [], tags: [] }).total, 4)
   })
 })
 
@@ -378,7 +378,7 @@ test('undoing a meeting deletion restores its task anchors and order', () => {
     store.movePlannerTask(second, day, meeting.id, null)
     const snapshot = store.deletePlannerEvent(meeting.id)
     assert.equal(store.listPlanner(day, day).events.length, 0)
-    assert.equal(store.getNote(first).kind, 'task')
+    assert.equal(store.getItem(first).kind, 'task')
     assert.equal(store.db.prepare('SELECT before_event_id FROM notes WHERE id=?').get(first).before_event_id, null)
     store.undoDeletePlannerEvent(snapshot)
     assert.equal(store.listPlanner(day, day).events[0].id, meeting.id)
@@ -443,7 +443,7 @@ test('version 2 database migrates with historical meeting labels intact', () => 
   try {
     store = new Store(file)
     assert.equal(store.legacyMeetingLabels()[0].title, 'Historical sync')
-    assert.equal(store.getNote(noteId).meetingTitle, 'Historical sync')
+    assert.equal(store.getItem(noteId).meetingTitle, 'Historical sync')
     assert.equal(store.checkIntegrity(), undefined)
   } finally { store?.close(); fs.rmSync(folder, { recursive: true, force: true }) }
 })
@@ -498,17 +498,17 @@ test('recurring all-day and timed meetings preserve local calendar times across 
 test('item image edits are atomic, retain attachments, and reject conflicts and foreign images', () => withStore(store => {
   const dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl8n+QAAAAASUVORK5CYII='
   const id = captureTask(store, 'Original')
-  let note = store.getNote(id)
+  let note = store.getItem(id)
   const added = { id: randomUUID(), mimeType: 'image/png', dataUrl }
   note = store.updateItem(id, note.revision, 'With screenshot', ['Visual'], undefined, [added])
   assert.equal(note.images.length, 1)
   assert.equal(store.getItemImage(note.images[0].id), dataUrl)
   assert.throws(() => store.updateItem(id, note.revision - 1, 'Stale', [], undefined, []), /changed elsewhere/)
   assert.throws(() => store.updateItem(id, note.revision, 'Invalid', [], undefined, [...note.images, { ...added, dataUrl: 'data:image/png;base64,ZmFrZQ==' }]), /Paste a PNG/)
-  assert.equal(store.getNote(id).body, 'With screenshot')
-  assert.deepEqual(store.getNote(id).images, note.images)
+  assert.equal(store.getItem(id).body, 'With screenshot')
+  assert.deepEqual(store.getItem(id).images, note.images)
   const other = captureTask(store, 'Other')
-  assert.throws(() => store.updateItem(other, store.getNote(other).revision, 'Foreign', [], undefined, note.images), /no longer available/)
+  assert.throws(() => store.updateItem(other, store.getItem(other).revision, 'Foreign', [], undefined, note.images), /no longer available/)
   const retained = store.updateItem(id, note.revision, 'Retained', [], undefined, note.images)
   assert.deepEqual(retained.images, note.images)
   const removed = store.updateItem(id, retained.revision, 'Removed', [], undefined, [])
@@ -528,7 +528,7 @@ test('backlog summary groups eligible tasks and counts-only requests preserve fi
     const done = captureTask(store, 'Done work'); store.setTaskCompleted(done, true)
     const trashed = captureTask(store, 'Trashed work'); store.trash([trashed])
     const later = captureTask(store, 'Later work')
-    store.schedulePlannerTask({ id: later, expectedRevision: store.getNote(later).revision, placement: { kind: 'later' } })
+    store.schedulePlannerTask({ id: later, expectedRevision: store.getItem(later).revision, placement: { kind: 'later' } })
     assert.deepEqual(store.backlogSummary(), {
       [category.id]: { total: 1, subcategoryCounts: { [subcategory.id]: 1 } },
       unassigned: { total: 1, subcategoryCounts: { '': 1 } },

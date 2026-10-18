@@ -31,7 +31,7 @@ export function CalendarCreateDialog({ draft, onClose, onMeeting, onTask }: { dr
     if (kind !== 'task') return
     let active = true
     setTaxonomyLoading(true)
-    void window.captured.notes.taxonomy().then((result) => {
+    void window.captured.items.taxonomy().then((result) => {
       if (!active) return
       if (!result.ok) { setError(result.message); return }
       setCategories(result.value.categories); setTagOptions(result.value.tags)

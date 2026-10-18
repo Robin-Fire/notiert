@@ -36,18 +36,18 @@ test('included tags combine with OR and excluded tags win before counts and pagi
     assert.equal(next.items[0].id, second.id)
     assert.equal(next.nextCursor, null)
     assert.deepEqual(f.store.listBacklog({ categoryId: category.id, excludedTags: ['Waiting'] }).items.map(item => item.id), [first.id, second.id, untagged.id])
-    const notes = f.store.listNotes({ query: '', scope: 'notes', sort: 'oldest', categoryId: category.id, tags: ['Design', 'Work'], excludedTags: ['Waiting'], includeCompleted: false, limit: 1 })
+    const notes = f.store.listItems({ query: '', scope: 'items', sort: 'oldest', categoryId: category.id, tags: ['Design', 'Work'], excludedTags: ['Waiting'], includeCompleted: false, limit: 1 })
     assert.equal(notes.total, 2)
-    const noteNext = f.store.listNotes({ query: '', scope: 'notes', sort: 'oldest', categoryId: category.id, tags: ['Design', 'Work'], excludedTags: ['Waiting'], includeCompleted: false, limit: 1, cursor: notes.nextCursor })
+    const noteNext = f.store.listItems({ query: '', scope: 'items', sort: 'oldest', categoryId: category.id, tags: ['Design', 'Work'], excludedTags: ['Waiting'], includeCompleted: false, limit: 1, cursor: notes.nextCursor })
     assert.equal(noteNext.items.length, 1)
     assert.notEqual(noteNext.items[0].id, notes.items[0].id)
-    assert.equal(f.store.listNotes({ query: '', scope: 'notes', excludedTags: ['Waiting'], includeCompleted: false, limit: 50 }).total, 3)
+    assert.equal(f.store.listItems({ query: '', scope: 'items', excludedTags: ['Waiting'], includeCompleted: false, limit: 50 }).total, 3)
   } finally { f.close() }
 })
 function create(store, body, categoryId, tags, kind = 'note') {
-  const id = store.submitCapture(randomUUID(), store.getCaptureDraft().generation, body, categoryId)
+  const id = store.submitCapture(randomUUID(), store.getCaptureDraft().generation, body, categoryId, undefined, undefined, 'inbox')
   if (kind !== 'inbox') store.classifyItem(id, kind, tags)
-  else store.updateItem(id, store.getNote(id).revision, body, tags)
+  else store.updateItem(id, store.getItem(id).revision, body, tags)
   return id
 }
 test('v11 migration preserves all data and applies only unambiguous matching subcategories', async () => {
@@ -68,10 +68,10 @@ test('v11 migration preserves all data and applies only unambiguous matching sub
     f.store.setTaskCompleted(completed, true)
     const trashed = create(f.store, 'Trash', work.id, ['Beta'])
     f.store.trash([trashed])
-    f.store.schedulePlannerTask({ id: one, expectedRevision: f.store.getNote(one).revision, placement: { kind: 'timed', startAt: 1800000000000, endAt: 1800001800000 } })
+    f.store.schedulePlannerTask({ id: one, expectedRevision: f.store.getItem(one).revision, placement: { kind: 'timed', startAt: 1800000000000, endAt: 1800001800000 } })
     f.store.updateDraft('Unfinished capture', f.store.getCaptureDraft().generation, 10, work.id)
     const ids = [one, multiple, mismatch, foreignOnly, unassigned, empty, inbox, completed, trashed]
-    const snapshot = ids.map(id => f.store.getNote(id))
+    const snapshot = ids.map(id => f.store.getItem(id))
     const imageId = snapshot[0].images[0].id
     const priority = f.store.db.prepare('SELECT id,backlog_position,task_position FROM notes ORDER BY id').all()
     const links = f.store.db.prepare('SELECT * FROM note_tags ORDER BY note_id,tag_id').all()
@@ -83,15 +83,18 @@ test('v11 migration preserves all data and applies only unambiguous matching sub
     const migratedAlpha = taxonomy.subcategories.find(sub => sub.name === 'Alpha')
     const migratedBeta = taxonomy.subcategories.find(sub => sub.name === 'Beta')
     assert.equal(migratedAlpha.color, '#123456')
-    assert.equal(f.store.getNote(one).subcategoryId, migratedAlpha.id)
-    assert.equal(f.store.getNote(mismatch).subcategoryId, migratedAlpha.id)
-    assert.equal(f.store.getNote(inbox).subcategoryId, migratedBeta.id)
-    assert.equal(f.store.getNote(completed).subcategoryId, migratedAlpha.id)
-    assert.equal(f.store.getNote(trashed).subcategoryId, migratedBeta.id)
-    for (const id of [multiple,foreignOnly,unassigned,empty]) assert.equal(f.store.getNote(id).subcategoryId,null)
+    assert.equal(f.store.getItem(one).subcategoryId, migratedAlpha.id)
+    assert.equal(f.store.getItem(mismatch).subcategoryId, migratedAlpha.id)
+    assert.equal(f.store.getItem(inbox).subcategoryId, migratedBeta.id)
+    assert.equal(f.store.getItem(completed).subcategoryId, migratedAlpha.id)
+    assert.equal(f.store.getItem(trashed).subcategoryId, migratedBeta.id)
+    for (const id of [multiple,foreignOnly,unassigned,empty]) assert.equal(f.store.getItem(id).subcategoryId,null)
     for (const before of snapshot) {
-      const after = f.store.getNote(before.id)
-      assert.deepEqual({ ...after, subcategoryId: null, intention: undefined }, { ...before, subcategoryId: null, intention: undefined })
+      const after = f.store.getItem(before.id)
+      for (const key of ['id', 'body', 'categoryId', 'tags', 'images', 'createdAt', 'deletedAt', 'meetingId']) assert.deepEqual(after[key], before[key])
+      assert.equal(after.kind, 'task')
+      if (before.kind === 'note') assert.ok(after.completedAt !== null)
+      if (before.kind === 'task') assert.equal(after.completedAt, before.completedAt)
     }
     assert.deepEqual(f.store.db.prepare('SELECT * FROM note_tags ORDER BY note_id,tag_id').all(), links)
     assert.deepEqual(f.store.db.prepare('SELECT id,backlog_position,task_position FROM notes ORDER BY id').all(), priority)
@@ -112,7 +115,7 @@ test('v11 migration preserves all data and applies only unambiguous matching sub
     f.store.checkIntegrity(pre)
     const restore = path.join(f.folder,'restored.sqlite');fs.copyFileSync(pre,restore)
     const restored=new Store(restore)
-    try {assert.deepEqual(new Set(restored.getNote(one).tags),new Set(['Alpha','Waiting']));assert.equal(restored.getItemImage(imageId),png)}finally{restored.close()}
+    try {assert.deepEqual(new Set(restored.getItem(one).tags),new Set(['Alpha','Waiting']));assert.equal(restored.getItemImage(imageId),png)}finally{restored.close()}
     assert.ok(taxonomy.tags.some(tag=>tag.id===independent.id))
   } finally { f.close() }
 })
@@ -132,7 +135,7 @@ test('migration failure rolls back schema, item assignments and tag associations
     assert.equal(db.prepare('SELECT category_id FROM item_tags WHERE id=?').get(tag.id).category_id,category.id)
     assert.equal(db.prepare('SELECT count(*) AS count FROM note_tags WHERE note_id=?').get(id).count,1)
     db.exec('DROP TRIGGER fail_assignment');db.close()
-    f.store=new Store(f.file);assert.ok(f.store.getNote(id).subcategoryId)
+    f.store=new Store(f.file);assert.ok(f.store.getItem(id).subcategoryId)
   }finally{f.close()}
 })
 
@@ -143,21 +146,21 @@ test('one subcategory is category-scoped while independent tags survive moves an
     const sa=f.store.createSubcategory('Ideas',a.id),sb=f.store.createSubcategory('Ideas',b.id)
     assert.throws(()=>f.store.createSubcategory('ideas',a.id),/already exists/)
     const id=create(f.store,'Task',a.id,['Waiting','Follow-up'],'task')
-    let item=f.store.getNote(id)
+    let item=f.store.getItem(id)
     item=f.store.updateItem(id,item.revision,item.body,item.tags,a.id,undefined,sa.id)
     const priority=f.store.db.prepare('SELECT backlog_position FROM notes WHERE id=?').get(id).backlog_position
     assert.throws(()=>f.store.updateItem(id,item.revision,'Wrong',[],a.id,undefined,sb.id),/belonging/)
-    assert.deepEqual(f.store.getNote(id),item)
+    assert.deepEqual(f.store.getItem(id),item)
     assert.throws(()=>f.store.db.prepare('UPDATE notes SET subcategory_id=? WHERE id=?').run(sb.id,id),/belong/)
     assert.throws(()=>f.store.db.prepare('UPDATE subcategories SET category_id=? WHERE id=?').run(b.id,sa.id),/parent/)
     f.store.setItemCategory(id,b.id)
-    item=f.store.getNote(id);assert.equal(item.subcategoryId,null);assert.deepEqual(new Set(item.tags),new Set(['Waiting','Follow-up']))
-    f.store.setItemCategory(id,b.id,sb.id);assert.equal(f.store.getNote(id).subcategoryId,sb.id)
-    f.store.deleteSubcategory(sb.id);assert.equal(f.store.getNote(id).subcategoryId,null);assert.equal(f.store.getNote(id).categoryId,b.id)
-    f.store.deleteCategory(b.id);assert.equal(f.store.getNote(id).categoryId,null);assert.deepEqual(new Set(f.store.getNote(id).tags),new Set(['Waiting','Follow-up']))
+    item=f.store.getItem(id);assert.equal(item.subcategoryId,null);assert.deepEqual(new Set(item.tags),new Set(['Waiting','Follow-up']))
+    f.store.setItemCategory(id,b.id,sb.id);assert.equal(f.store.getItem(id).subcategoryId,sb.id)
+    f.store.deleteSubcategory(sb.id);assert.equal(f.store.getItem(id).subcategoryId,null);assert.equal(f.store.getItem(id).categoryId,b.id)
+    f.store.deleteCategory(b.id);assert.equal(f.store.getItem(id).categoryId,null);assert.deepEqual(new Set(f.store.getItem(id).tags),new Set(['Waiting','Follow-up']))
     assert.equal(typeof priority,'number')
     const tag=f.store.taxonomy().tags.find(tag=>tag.name==='Waiting')
-    f.store.updateTag(tag.id,null,'#123456','Blocked');assert.ok(f.store.getNote(id).tags.includes('Blocked'))
+    f.store.updateTag(tag.id,null,'#123456','Blocked');assert.ok(f.store.getItem(id).tags.includes('Blocked'))
   }finally{f.close()}
 })
 
@@ -166,17 +169,17 @@ test('subcategory filters, independent tag filters, priority pagination and taxo
   try {
     const category=f.store.createCategory('Work'),sub=f.store.createSubcategory('Project Alpha',category.id)
     const a=create(f.store,'First',category.id,['Waiting'],'task'),b=create(f.store,'Second',category.id,[],'task'),c=create(f.store,'Third',category.id,['Waiting'],'task')
-    for(const id of [a,b]){const item=f.store.getNote(id);f.store.updateItem(id,item.revision,item.body,item.tags,undefined,undefined,sub.id)}
+    for(const id of [a,b]){const item=f.store.getItem(id);f.store.updateItem(id,item.revision,item.body,item.tags,undefined,undefined,sub.id)}
     assert.deepEqual(f.store.listBacklog({categoryId:category.id,subcategoryIds:[sub.id],includeNoSubcategory:false,tagNames:['Waiting']}).items.map(item=>item.id),[a])
     assert.deepEqual(f.store.listBacklog({categoryId:category.id,subcategoryIds:[],includeNoSubcategory:true}).items.map(item=>item.id),[c])
     assert.deepEqual(f.store.listBacklog({categoryId:category.id,includeUntagged:true}).items.map(item=>item.id),[b])
     const first=f.store.listBacklog({categoryId:category.id,subcategoryIds:[sub.id],limit:1})
     const second=f.store.listBacklog({categoryId:category.id,subcategoryIds:[sub.id],cursor:first.nextCursor,limit:1})
     assert.deepEqual([...first.items,...second.items].map(item=>item.id),[a,b])
-    const filter={scope:'notes',sort:'newest',query:'Project Alpha',limit:50}
-    assert.equal(f.store.listNotes(filter).total,2)
+    const filter={scope:'items',sort:'newest',query:'Project Alpha',limit:50}
+    assert.equal(f.store.listItems(filter).total,2)
     assert.equal(f.store.listBacklog({categoryId:category.id,query:'Project Alpha'}).total,2)
-    assert.equal(f.store.listNotes({...filter,query:'Waiting'}).total,2)
+    assert.equal(f.store.listItems({...filter,query:'Waiting'}).total,2)
     assert.equal(f.store.taskExportMetadata([a]).get(a).subcategoryName,'Project Alpha')
   }finally{f.close()}
 })
@@ -188,10 +191,10 @@ test('capture subcategory persists, classification preserves it, and explicit cl
     f.store.updateDraft('Draft',0,1,category.id,sub.id)
     f.store.close();f.store=new Store(f.file)
     assert.equal(f.store.getCaptureDraft().subcategoryId,sub.id)
-    const id=f.store.submitCapture(randomUUID(),0,'Draft',category.id,sub.id)
-    assert.equal(f.store.getNote(id).subcategoryId,sub.id)
-    f.store.classifyItem(id,'task',['Waiting']);assert.equal(f.store.getNote(id).subcategoryId,sub.id)
-    f.store.setItemCategory(id,category.id,null);assert.equal(f.store.getNote(id).subcategoryId,null)
+    const id=f.store.submitCapture(randomUUID(),0,'Draft',category.id,sub.id, undefined, 'inbox')
+    assert.equal(f.store.getItem(id).subcategoryId,sub.id)
+    f.store.classifyItem(id,'task',['Waiting']);assert.equal(f.store.getItem(id).subcategoryId,sub.id)
+    f.store.setItemCategory(id,category.id,null);assert.equal(f.store.getItem(id).subcategoryId,null)
     f.store.updateDraft('Another',1,1,category.id,sub.id)
     f.store.deleteCategory(category.id);assert.equal(f.store.getCaptureDraft().categoryId,null);assert.equal(f.store.getCaptureDraft().subcategoryId,null)
   }finally{f.close()}
@@ -209,8 +212,8 @@ test('capture context preserves independent tags and never replaces a nonempty d
     assert.deepEqual(f.store.getCaptureDraft().tags,['waiting'])
     assert.equal(f.store.prepareCaptureContext(null,null,['other']),null)
     f.store.close();f.store=new Store(f.file)
-    const id=f.store.submitCapture(randomUUID(),0,'Draft',category.id)
-    assert.equal(f.store.getNote(id).subcategoryId,sub.id);assert.deepEqual(f.store.getNote(id).tags,['waiting'])
+    const id=f.store.submitCapture(randomUUID(),0,'Draft',category.id, undefined, undefined, 'inbox')
+    assert.equal(f.store.getItem(id).subcategoryId,sub.id);assert.deepEqual(f.store.getItem(id).tags,['waiting'])
     assert.deepEqual(f.store.getCaptureDraft().tags,[])
     f.store.prepareCaptureContext(null,null,['global']);f.store.addDraftImage(1,png)
     assert.equal(f.store.prepareCaptureContext(category.id,sub.id),null)
@@ -227,7 +230,7 @@ test('backlog subcategory counts cover all pages and stay separate from Later an
     const later=create(f.store,'Later',category.id,[],'task')
     f.store.setItemCategory(a,category.id,sub.id)
     f.store.setItemCategory(later,category.id,sub.id)
-    f.store.schedulePlannerTask({id:later,expectedRevision:f.store.getNote(later).revision,placement:{kind:'later'}})
+    f.store.schedulePlannerTask({id:later,expectedRevision:f.store.getItem(later).revision,placement:{kind:'later'}})
     const page=f.store.listBacklog({categoryId:category.id,limit:1})
     assert.equal(page.items.length,1)
     assert.deepEqual(page.subcategoryCounts,{[sub.id]:1,'':1})

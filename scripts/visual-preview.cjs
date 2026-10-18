@@ -31,7 +31,7 @@ app.whenReady().then(async () => {
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
   if (view === 'notes' && process.env.PREVIEW_DETAIL === 'edit') {
-    await click('.note-row-open')
+    await click('.item-row-open')
     await click('.edit-button')
   }
   if (view === 'calenban' && process.env.PREVIEW_DETAIL === 'task') await click('.planner-task-title')

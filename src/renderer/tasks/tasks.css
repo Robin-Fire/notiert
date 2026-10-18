@@ -139,3 +139,27 @@
 .tasks-table-panel > .backlog-group-heading { border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0; }
 .tasks-card { display: flex; flex-direction: column; }
 .tasks-card-tags { justify-content: flex-end; text-align: right; margin-top: auto; padding-top: 8px; }
+
+.tasks-active-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 0; }
+:is(.tasks-backlog-page, .tasks-table-page) .tasks-active-filters { padding: 10px 27px; border-bottom: 1px solid var(--border); }
+.tasks-active-filters button { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--surface); font-size: 12px; }
+.tasks-active-filters .tasks-clear-filters { border-color: transparent; text-decoration: underline; text-underline-offset: 3px; }
+.tasks-empty-state { display: flex; flex-direction: column; align-items: center; padding: 36px 20px; text-align: center; color: var(--text-muted); }
+.tasks-empty-state h2 { margin: 12px 0 6px; font-size: 16px; color: var(--text); }
+.tasks-empty-state p { margin: 0 0 16px; font-size: 13px; max-width: 340px; }
+.tasks-section-empty { padding: 14px 8px; margin: 0; font-size: 12px; color: var(--text-muted); }
+.tasks-table-task + .tasks-scheduled { margin: 5px 0 0 25px; }
+
+.tasks-bulk-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 27px; border-bottom: 1px solid var(--border); font-size: 12px; }
+
+.tasks-search-results { padding: 12px 0; }
+:is(.tasks-backlog-page, .tasks-table-page) .tasks-search-results { padding: 12px 27px; }
+.tasks-search-results > p { color: var(--text-secondary); font-size: 12px; margin: 0 0 12px; }
+.tasks-search-results table { width: 100%; }
+.task-search-status { display: inline-flex; margin: 6px 0 0 24px; font-size: 11px; color: var(--text-secondary); }
+.task-search-status.is-completed { color: var(--text-muted); }
+.tasks-search-results .is-completed .backlog-task-title { color: var(--text-secondary); }
+
+.tasks-search-results .backlog-task-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; text-align: left; }
+
+.tasks-priority-help { margin: -8px 0 16px; color: var(--text-muted); font-size: var(--type-secondary); }

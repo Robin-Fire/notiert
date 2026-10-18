@@ -2,28 +2,37 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { capturedApi } from '../shared/contracts'
 
 const api: Omit<capturedApi, 'capture'> = {
-  taskWorkspace: { list: input => ipcRenderer.invoke('tasks:list', input), move: input => ipcRenderer.invoke('tasks:move', input), undo: input => ipcRenderer.invoke('tasks:undo', input), create: input => ipcRenderer.invoke('tasks:create', input) },
+  taskWorkspace: {
+    list: input => ipcRenderer.invoke('tasks:list', input),
+    overview: input => ipcRenderer.invoke('tasks:overview', input),
+    complete: input => ipcRenderer.invoke('tasks:complete', input),
+    undoCompletion: input => ipcRenderer.invoke('tasks:undo-completion', input),
+    move: input => ipcRenderer.invoke('tasks:move', input),
+    moveMany: input => ipcRenderer.invoke('tasks:move-many', input),
+    undo: input => ipcRenderer.invoke('tasks:undo', input),
+    create: input => ipcRenderer.invoke('tasks:create', input),
+  },
   updates: {
     getStatus: () => ipcRenderer.invoke('updates:status'),
     check: () => ipcRenderer.invoke('updates:check'),
     install: () => ipcRenderer.invoke('updates:install'),
     onChanged: (callback) => { const listener = (_event: Electron.IpcRendererEvent, status: Parameters<typeof callback>[0]) => callback(status); ipcRenderer.on('updates:changed', listener); return () => ipcRenderer.removeListener('updates:changed', listener) },
   },
-  notes: {
-    onTaxonomyChanged: (callback) => { const listener = () => callback(); ipcRenderer.on('notes:taxonomy-changed', listener); return () => ipcRenderer.removeListener('notes:taxonomy-changed', listener) },
-    migrationStatus:()=>ipcRenderer.invoke('notes:migration-status'), acknowledgeMigration:()=>ipcRenderer.invoke('notes:migration-acknowledge'),
-    createSubcategory: input => ipcRenderer.invoke('notes:subcategory:create',input), updateSubcategory: input => ipcRenderer.invoke('notes:subcategory:update',input), deleteSubcategory: id => ipcRenderer.invoke('notes:subcategory:delete',id), reorderSubcategories: input => ipcRenderer.invoke('notes:subcategories:reorder',input), migrationReview: () => ipcRenderer.invoke('notes:migration-review'), resolveMigrationReview: input => ipcRenderer.invoke('notes:migration-review:resolve',input),
-    list: (filter) => ipcRenderer.invoke('notes:list', filter), tags: () => ipcRenderer.invoke('notes:tags'), taxonomy: () => ipcRenderer.invoke('notes:taxonomy'), createCategory: (name) => ipcRenderer.invoke('notes:category:create', name), updateCategory: (input) => ipcRenderer.invoke('notes:category:update', input), deleteCategory: (id) => ipcRenderer.invoke('notes:category:delete', id), reorderCategories: (input) => ipcRenderer.invoke('notes:categories:reorder', input), reorderTags: (input) => ipcRenderer.invoke('notes:tags:reorder', input), createTag: (input) => ipcRenderer.invoke('notes:tag:create', input), updateTag: (input) => ipcRenderer.invoke('notes:tag:update', input), deleteTag: (id) => ipcRenderer.invoke('notes:tag:delete', id), get: (id) => ipcRenderer.invoke('notes:get', id), image: (id) => ipcRenderer.invoke('notes:image', id),
-    update: (input) => ipcRenderer.invoke('notes:update', input), updateItem: (input) => ipcRenderer.invoke('notes:update-item', input), setCategory: (input) => ipcRenderer.invoke('notes:set-category', input), trash: (ids) => ipcRenderer.invoke('notes:trash', ids),
-    setTags: (input) => ipcRenderer.invoke('notes:set-tags', input),
-    restore: (ids) => ipcRenderer.invoke('notes:restore', ids), deletePermanently: (ids) => ipcRenderer.invoke('notes:delete-permanently', ids),
-    copy: (ids) => ipcRenderer.invoke('notes:copy', ids),
-    emptyTrash: () => ipcRenderer.invoke('notes:empty-trash'),
-    onChanged: (callback) => { const listener = (_event: Electron.IpcRendererEvent, seq: number) => callback(seq); ipcRenderer.on('notes:changed', listener); return () => ipcRenderer.removeListener('notes:changed', listener) },
+  items: {
+    onTaxonomyChanged: (callback) => { const listener = () => callback(); ipcRenderer.on('items:taxonomy-changed', listener); return () => ipcRenderer.removeListener('items:taxonomy-changed', listener) },
+    migrationStatus:()=>ipcRenderer.invoke('items:migration-status'), acknowledgeMigration:()=>ipcRenderer.invoke('items:migration-acknowledge'),
+    createSubcategory: input => ipcRenderer.invoke('items:subcategory:create',input), updateSubcategory: input => ipcRenderer.invoke('items:subcategory:update',input), deleteSubcategory: id => ipcRenderer.invoke('items:subcategory:delete',id), reorderSubcategories: input => ipcRenderer.invoke('items:subcategories:reorder',input), migrationReview: () => ipcRenderer.invoke('items:migration-review'), resolveMigrationReview: input => ipcRenderer.invoke('items:migration-review:resolve',input),
+    list: (filter) => ipcRenderer.invoke('items:list', filter), tags: () => ipcRenderer.invoke('items:tags'), taxonomy: () => ipcRenderer.invoke('items:taxonomy'), createCategory: (name) => ipcRenderer.invoke('items:category:create', name), updateCategory: (input) => ipcRenderer.invoke('items:category:update', input), deleteCategory: (id) => ipcRenderer.invoke('items:category:delete', id), reorderCategories: (input) => ipcRenderer.invoke('items:categories:reorder', input), reorderTags: (input) => ipcRenderer.invoke('items:tags:reorder', input), createTag: (input) => ipcRenderer.invoke('items:tag:create', input), updateTag: (input) => ipcRenderer.invoke('items:tag:update', input), deleteTag: (id) => ipcRenderer.invoke('items:tag:delete', id), get: (id) => ipcRenderer.invoke('items:get', id), image: (id) => ipcRenderer.invoke('items:image', id),
+    update: (input) => ipcRenderer.invoke('items:update', input), updateItem: (input) => ipcRenderer.invoke('items:update-item', input), setCategory: (input) => ipcRenderer.invoke('items:set-category', input), trash: (ids) => ipcRenderer.invoke('items:trash', ids),
+    setTags: (input) => ipcRenderer.invoke('items:set-tags', input),
+    restore: (ids) => ipcRenderer.invoke('items:restore', ids), deletePermanently: (ids) => ipcRenderer.invoke('items:delete-permanently', ids),
+    copy: (ids) => ipcRenderer.invoke('items:copy', ids),
+    emptyTrash: () => ipcRenderer.invoke('items:empty-trash'),
+    onChanged: (callback) => { const listener = (_event: Electron.IpcRendererEvent, seq: number) => callback(seq); ipcRenderer.on('items:changed', listener); return () => ipcRenderer.removeListener('items:changed', listener) },
   },
   planner: {
     backlogSummary: (later) => ipcRenderer.invoke('planner:backlog-summary', later),
-    inbox: (input) => ipcRenderer.invoke('planner:inbox', input ?? {}), inboxCount: () => ipcRenderer.invoke('planner:inbox-count'), unfile: (id) => ipcRenderer.invoke('planner:unfile', id), classify: (input) => ipcRenderer.invoke('planner:classify', input),
+    backlogCount: () => ipcRenderer.invoke('planner:backlog-count'),
     tasks: (from, to) => ipcRenderer.invoke('planner:tasks', { from, to }), move: (input) => ipcRenderer.invoke('planner:move', input),
     scheduleTask: (input) => ipcRenderer.invoke('planner:task:schedule', input), createTask: (input) => ipcRenderer.invoke('planner:task:create', input), updateEventTiming: (input) => ipcRenderer.invoke('planner:event:timing', input),
     backlog: (input) => ipcRenderer.invoke('planner:backlog', input ?? {}), setReady: (input) => ipcRenderer.invoke('planner:ready', input), setTaskCompleted: (input) => ipcRenderer.invoke('planner:complete', input), reorderBacklog: (input) => ipcRenderer.invoke('planner:backlog-reorder', input),
@@ -41,10 +50,10 @@ const api: Omit<capturedApi, 'capture'> = {
     export: (input) => ipcRenderer.invoke('data:export', input), backup: () => ipcRenderer.invoke('data:backup'), restore: () => ipcRenderer.invoke('data:restore'), diagnostics: () => ipcRenderer.invoke('data:diagnostics'),
   },
   windows: {
-    openCapture: context => ipcRenderer.send('windows:open-capture',context), openNotes: () => ipcRenderer.send('windows:open-notes'),
+    openCapture: context => ipcRenderer.send('windows:open-capture',context), openTasks: () => ipcRenderer.send('windows:open-tasks'),
     openSettings: () => ipcRenderer.send('windows:open-settings'), quit: () => ipcRenderer.send('app:quit'),
-    ready: () => ipcRenderer.send('notes:ready'),
-    onView: (callback) => { const listener = (_event: Electron.IpcRendererEvent, view: 'all' | 'inbox' | 'calenban' | 'trash' | 'settings') => callback(view); ipcRenderer.on('notes:view', listener); return () => ipcRenderer.removeListener('notes:view', listener) },
+    ready: () => ipcRenderer.send('items:ready'),
+    onView: (callback) => { const listener = (_event: Electron.IpcRendererEvent, view: 'all' | 'inbox' | 'calenban' | 'trash' | 'settings') => callback(view); ipcRenderer.on('items:view', listener); return () => ipcRenderer.removeListener('items:view', listener) },
   },
 }
 

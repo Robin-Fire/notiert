@@ -22,6 +22,6 @@ const capture: Pick<capturedApi, 'capture'> & { windows: Omit<capturedApi['windo
     respondToQuit: (saved, body) => ipcRenderer.send('app:quit-ready', { saved, body }),
     ready: () => ipcRenderer.send('capture:ready'),
   },
-  windows: { openCapture: () => ipcRenderer.send('windows:open-capture'), openNotes: () => ipcRenderer.send('windows:open-notes'), openSettings: () => ipcRenderer.send('windows:open-settings'), quit: () => ipcRenderer.send('app:quit') },
+  windows: { openCapture: () => ipcRenderer.send('windows:open-capture'), openTasks: () => ipcRenderer.send('windows:open-tasks'), openSettings: () => ipcRenderer.send('windows:open-settings'), quit: () => ipcRenderer.send('app:quit') },
 }
 contextBridge.exposeInMainWorld('captured', capture)

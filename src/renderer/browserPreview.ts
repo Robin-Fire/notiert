@@ -1,8 +1,9 @@
+import { ItemUpdateSchema, TaskCompletionSchema, TaskCompletionUndoSchema, type ItemUpdate, type TaskCompletionUndo } from '../shared/contracts'
 import { horizons, horizonOf, intentionFor, type TaskIntention } from '../shared/taskHorizons'
 import { toLocalISODate } from '../shared/plannerDates'
 import { TasksQuerySchema, TaskWorkspaceCreateSchema, TaskWorkspaceMoveSchema, TaskWorkspaceUndoSchema, type TasksQuery, type TasksPage, type TaskWorkspaceMove, type TaskWorkspaceUndo, type TaskWorkspaceItem } from '../shared/contracts'
 import { validLocalDate } from '../shared/calendarSchedule'
-import type { Category, Subcategory, MigrationReview, ImageRef, Note, capturedApi, PlannerEvent, PlannerEventInput, DeletedPlannerEvent, PlannerTask, TagRecord } from '../shared/contracts'
+import type { Category, Subcategory, MigrationReview, ImageRef, ItemRecord, capturedApi, PlannerEvent, PlannerEventInput, DeletedPlannerEvent, PlannerTask, TagRecord } from '../shared/contracts'
 
 import { meetingOccurrences } from '../shared/meetingRecurrence'
 import { eventOverlapsLocalDay, localDateBounds } from '../shared/plannerDates'
@@ -10,7 +11,7 @@ import { CalendarHoursSchema, SettingsSchema, PlannerTaskCreateSchema, PlannerTa
 import { placementFields } from '../shared/calendarSchedule'
 
 // Browser-only sample data. Electron supplies the real API and database.
-type Item = (Note & { meetingTitle: null }) | PlannerTask
+type Item = (ItemRecord & { meetingTitle: null }) | PlannerTask
 const now = Date.now()
 const initialCategories: Category[] = [{ id: '11111111-1111-4111-8111-111111111111', name: 'Work' }, { id: '22222222-2222-4222-8222-222222222222', name: 'Personal' }]
 const sample: Item[] = [
@@ -25,12 +26,16 @@ const initialTags: TagRecord[] = [
 const stored = (() => { try { return JSON.parse(localStorage.getItem('captured-browser-preview') ?? localStorage.getItem('notiert-browser-preview') ?? localStorage.getItem('notable-browser-preview') ?? 'null') as { items: Item[]; categories: Category[]; tags: TagRecord[]; subcategories?:Subcategory[]; reviews?:MigrationReview[]; events?: PlannerEvent[]; tasksRevision?: number } | null } catch { return null } })()
 let items = stored?.items ?? sample
 items = items.map((item) => ({ ...item, subcategoryId:item.subcategoryId??null, completedAt: 'completedAt' in item ? item.completedAt : null, later: 'later' in item ? item.later : false, categoryId: 'categoryId' in item ? item.categoryId : null })).map((item) => item.kind === 'task' ? { ...item, plannedStartAt: 'plannedStartAt' in item ? item.plannedStartAt : null, plannedEndAt: 'plannedEndAt' in item ? item.plannedEndAt : null, priorityPosition: 'priorityPosition' in item ? item.priorityPosition : 0, ready: 'ready' in item ? item.ready : Boolean('plannedDate' in item && item.plannedDate), later: 'later' in item ? item.later : false, position: 'position' in item ? item.position : 0, beforeEventId: 'beforeEventId' in item ? item.beforeEventId : null } as PlannerTask : item)
+// Upgrade preview data with the same task-only semantics as SQLite schema 17.
+items = items.map((item, position) => item.kind === 'task' ? item : ({
+  ...item, kind: 'task', processedAt: item.processedAt ?? item.createdAt,
+  completedAt: item.kind === 'note' ? item.completedAt ?? item.updatedAt : null,
+  plannedDate: null, plannedStartAt: null, plannedEndAt: null, beforeEventId: null,
+  ready: false, later: false, position: 0, priorityPosition: position,
+  intention: { kind: 'unplanned', targetDate: null, position }, revision: item.revision + 1,
+} as PlannerTask))
 items.forEach((item, position) => { if (item.kind === 'task' && !item.intention) { const task = item as PlannerTask; item.intention = { kind: task.later ? 'later' : task.plannedDate || task.ready ? 'day' : 'unplanned', targetDate: task.later ? null : task.plannedDate ?? (task.ready ? toLocalISODate(new Date()) : null), position } } })
-if ((stored?.tasksRevision ?? 0) < 15) {
-  const today = toLocalISODate(new Date()), monday = intentionFor('week', today).targetDate!, next = intentionFor('next-week', today).targetDate!
-  const tomorrow = intentionFor('tomorrow', today).targetDate!
-  items.forEach(item => { const plan = item.intention; if (item.kind === 'task' && plan && (plan.kind === 'week' && plan.targetDate === monday || plan.kind === 'day' && plan.targetDate! > tomorrow && plan.targetDate! < next)) { item.intention = { ...plan, kind: 'later', targetDate: null }; item.revision++ } })
-}
+items.forEach(item => { if (item.intention && (item.intention.kind === 'day' || item.intention.kind === 'week')) item.intention = { ...item.intention, kind: horizonOf(item.intention, toLocalISODate(new Date())), targetDate: null } })
 let workspaceSequence = 0
 let events: PlannerEvent[] = stored?.events ?? []
 const categories = stored?.categories ?? initialCategories
@@ -43,11 +48,13 @@ const listen = (callback: () => void) => { listeners.add(callback); return () =>
 const taxonomyListeners = new Set<() => void>()
 const taxonomySignature = () => JSON.stringify([categories, subcategories, tags, items.map(({ categoryId, subcategoryId, tags, deletedAt }) => ({ categoryId, subcategoryId, tags, deletedAt }))])
 let previousTaxonomy = taxonomySignature()
+let batchDepth = 0
 const changed = () => {
+  if (batchDepth) return
   workspaceSequence++
   const signature = taxonomySignature()
   if (signature !== previousTaxonomy) { previousTaxonomy = signature; taxonomyListeners.forEach(callback => callback()) }
- localStorage.setItem('captured-browser-preview', JSON.stringify({ items, categories, subcategories, tags, events, reviews, tasksRevision: 15 })); listeners.forEach((callback) => callback()) }
+ localStorage.setItem('captured-browser-preview', JSON.stringify({ items, categories, subcategories, tags, events, reviews, tasksRevision: 18 })); listeners.forEach((callback) => callback()) }
 const ok = <T,>(value: T) => Promise.resolve({ ok: true as const, value })
 const visible = () => items.filter((item) => item.deletedAt === null)
 const tagList = () => tags.map((tag) => ({ ...tag, count: visible().filter((item) => item.tags.includes(tag.name)).length }))
@@ -93,12 +100,39 @@ const scheduleTask = (raw: PlannerTaskSchedule) => {
 }
 
 const workspace = {
+  overview: async (input: TasksQuery) => {
+    if (input.query.trim()) { const result = await workspace.list({ ...input, horizon: undefined, cursor: undefined }); return result.ok ? ok({ unplanned: result.value }) : result }
+    const pages: Partial<Record<typeof horizons[number], TasksPage>> = {}
+    for (const horizon of input.scope === 'backlog' ? ['unplanned'] as const : horizons) {
+      const result = await workspace.list({ ...input, horizon, cursor: undefined })
+      if (!result.ok) return result
+      pages[horizon] = result.value
+    }
+    return ok(pages)
+  },
+  complete: async (raw: { id: string; expectedRevision: number; completed: boolean }) => {
+    const parsed = TaskCompletionSchema.safeParse(raw)
+    if (!parsed.success) return failure('Choose a valid task.')
+    const input = parsed.data, task = allPlannerTasks().find(task => task.id === input.id)
+    if (!task || task.revision !== input.expectedRevision) return failure('This task changed. Refresh before completing it.', 'STALE_REVISION')
+    const snapshot = structuredClone(task)
+    await api.planner.setTaskCompleted(input)
+    return ok({ task: snapshot, expectedRevision: task.revision })
+  },
+  undoCompletion: (raw: TaskCompletionUndo) => {
+    const parsed = TaskCompletionUndoSchema.safeParse(raw)
+    if (!parsed.success) return failure('Invalid undo.')
+    const { task, expectedRevision } = parsed.data, current = allPlannerTasks().find(item => item.id === task.id)
+    if (!current || current.revision !== expectedRevision) return failure('This task changed. Undo is no longer available.', 'STALE_REVISION')
+    Object.assign(current, { completedAt: task.completedAt, ready: task.ready, later: task.later, plannedDate: task.plannedDate, plannedStartAt: task.plannedStartAt, plannedEndAt: task.plannedEndAt, beforeEventId: events.some(event => event.id === task.beforeEventId) ? task.beforeEventId : null, position: task.position, priorityPosition: task.priorityPosition, revision: current.revision + 1, updatedAt: Date.now() })
+    changed(); return ok(undefined)
+  },
   list: (raw: TasksQuery) => {
     const parsed = TasksQuerySchema.safeParse(raw)
     if (!parsed.success || !validLocalDate(raw.today)) return failure('Choose a valid task query.')
     const input = parsed.data
     if (input.cursor && (input.cursor.sequence !== workspaceSequence || input.cursor.today !== input.today)) return failure('Tasks changed. Refresh the board.', 'STALE_PAGE')
-    const matching: TaskWorkspaceItem[] = visible().filter(item => input.completed ? item.kind === 'task' && item.completedAt !== null : item.kind === 'inbox' || item.kind === 'task' && item.completedAt === null).filter(item => (input.categoryId === undefined || item.categoryId === input.categoryId) && (!input.subcategoryId || item.subcategoryId === input.subcategoryId) && (!input.query || [item.body, ...item.tags].some(text => text.toLowerCase().includes(input.query.toLowerCase()))) && (!input.tags.length || item.tags.some(tag => input.tags.some(name => name.toLowerCase() === tag.toLowerCase()))) && !item.tags.some(tag => input.excludedTags.some(name => name.toLowerCase() === tag.toLowerCase()))).map(item => { const intention = item.kind === 'inbox' ? { kind: 'unplanned' as const, targetDate: null, position: 0 } : item.intention ?? { kind: 'unplanned' as const, targetDate: null, position: 0 }; return { ...item, plannedDate: null, plannedStartAt: null, plannedEndAt: null, ready: false, position: 0, priorityPosition: 0, beforeEventId: null, ...('plannedDate' in item ? item : {}), intention, horizon: horizonOf(intention, input.today) } as TaskWorkspaceItem }).filter(item => input.scope === 'planned' ? item.kind === 'task' && item.horizon !== 'unplanned' : input.scope === 'backlog' ? item.horizon === 'unplanned' : true)
+    const matching: TaskWorkspaceItem[] = visible().filter(item => input.completed ? item.kind === 'task' && item.completedAt !== null : input.query.trim() ? item.kind === 'task' : item.kind === 'inbox' || item.kind === 'task' && item.completedAt === null).filter(item => (input.categoryId === undefined || item.categoryId === input.categoryId) && (!input.subcategoryId || item.subcategoryId === input.subcategoryId) && (!input.query || [item.body, ...item.tags].some(text => text.toLowerCase().includes(input.query.toLowerCase()))) && (!input.tags.length || item.tags.some(tag => input.tags.some(name => name.toLowerCase() === tag.toLowerCase()))) && !item.tags.some(tag => input.excludedTags.some(name => name.toLowerCase() === tag.toLowerCase()))).map(item => { const intention = item.kind === 'inbox' ? { kind: 'unplanned' as const, targetDate: null, position: 0 } : item.intention ?? { kind: 'unplanned' as const, targetDate: null, position: 0 }; return { ...item, plannedDate: null, plannedStartAt: null, plannedEndAt: null, ready: false, position: 0, priorityPosition: 0, beforeEventId: null, ...('plannedDate' in item ? item : {}), intention, horizon: horizonOf(intention, input.today) } as TaskWorkspaceItem }).filter(item => input.scope === 'planned' ? item.kind === 'task' && item.horizon !== 'unplanned' : input.scope === 'backlog' ? item.horizon === 'unplanned' : true)
     const counts = Object.fromEntries(horizons.map(h => [h, matching.filter(item => item.horizon === h).length])) as TasksPage['counts']
     const group = matching.filter(item => !input.horizon || item.horizon === input.horizon).sort((a,b) => a.intention.position - b.intention.position || a.id.localeCompare(b.id))
     const page = group.filter(item => !input.cursor || item.intention.position > input.cursor.position || item.intention.position === input.cursor.position && item.id > input.cursor.id)
@@ -109,9 +143,9 @@ const workspace = {
     const parsed = TaskWorkspaceMoveSchema.safeParse(raw)
     if (!parsed.success || !validLocalDate(raw.today)) return failure('Choose a valid task destination.')
     const input = parsed.data, item = visible().find(item => item.id === input.id)
+    input.intention = { ...intentionFor(horizonOf(input.intention, input.today)), position: input.intention.position }
     if (!item || !['inbox','task'].includes(item.kind) || item.completedAt !== null) return failure('This task is no longer available.')
     if (item.revision !== input.expectedRevision) return failure('This item changed. Refresh before moving.', 'STALE_REVISION')
-    if (input.classify === 'note' && item.kind !== 'inbox') return failure('Only captures can be filed as notes here.')
     const category = input.categoryId === undefined ? item.categoryId : input.categoryId
     if(category && !categories.some(entry => entry.id === category)) return failure('That category no longer exists.')
     const destination = plannerTasks().filter(task => task.id !== item.id && horizonOf(task.intention ?? intentionFor('unplanned', input.today), input.today) === horizonOf(input.intention, input.today)).sort((a,b) => (a.intention?.position ?? 0) - (b.intention?.position ?? 0) || a.id.localeCompare(b.id))
@@ -122,9 +156,23 @@ const workspace = {
     if(item.kind === 'inbox')Object.assign(item, { kind: input.classify ?? 'task', processedAt: Date.now(), tags: input.tags ?? item.tags, plannedDate: null, plannedStartAt: null, plannedEndAt: null, beforeEventId: null, ready: false, position: 0, priorityPosition: nextPriority(category) })
     if(category !== item.categoryId){item.subcategoryId=null;if(item.kind==='task')(item as PlannerTask).priorityPosition=nextPriority(category)}
     item.categoryId=category; item.revision++; item.updatedAt=Date.now()
-    if(input.classify!=='note') { item.intention={...input.intention,position:index}; destination.splice(index,0,item as PlannerTask); destination.forEach((task,position)=>{if(task.id!==item.id && task.intention && task.intention.position!==position){task.intention.position=position;task.revision++;task.updatedAt=Date.now()}}) }
+    { item.intention={...input.intention,position:index}; destination.splice(index,0,item as PlannerTask); destination.forEach((task,position)=>{if(task.id!==item.id && task.intention && task.intention.position!==position){task.intention.position=position;task.revision++;task.updatedAt=Date.now()}}) }
     for(const name of item.tags)if(!tags.some(tag=>tag.name.toLowerCase()===name.toLowerCase()))tags.push({id:crypto.randomUUID(),name,categoryId:null,color:'#85858e',count:0})
     changed(); return ok(undo)
+  },
+  moveMany: async (inputs: TaskWorkspaceMove[]) => {
+    if (!inputs.length || inputs.length > 100 || new Set(inputs.map(input => input.id)).size !== inputs.length) return failure('Select up to 100 distinct items.')
+    for (const input of inputs) if (visible().find(item => item.id === input.id)?.revision !== input.expectedRevision) return failure('An item changed. Refresh before planning these items.', 'STALE_REVISION')
+    const originalItems = structuredClone(items), originalTags = structuredClone(tags)
+    batchDepth++
+    try {
+      for (const input of inputs) {
+        const result = await workspace.move({ ...input, expectedRevision: visible().find(item => item.id === input.id)!.revision })
+        if (!result.ok) { items = originalItems; tags.splice(0, tags.length, ...originalTags); return result }
+      }
+    } catch (reason) { items = originalItems; tags.splice(0, tags.length, ...originalTags); return failure(reason instanceof Error ? reason.message : 'These items could not be planned.') }
+    finally { batchDepth-- }
+    changed(); return ok(undefined)
   },
   undo: (raw: TaskWorkspaceUndo) => {
     const parsed=TaskWorkspaceUndoSchema.safeParse(raw)
@@ -141,6 +189,7 @@ const workspace = {
     const parsed=TaskWorkspaceCreateSchema.safeParse(raw)
     if(!parsed.success)return failure('Choose valid task details.')
     const input=parsed.data
+    input.intention = { ...intentionFor(horizonOf(input.intention, toLocalISODate(new Date()))), position: input.intention.position }
     if(input.categoryId&&!categories.some(category=>category.id===input.categoryId))return failure('That category no longer exists.')
     if(input.subcategoryId&&!subcategories.some(sub=>sub.id===input.subcategoryId&&sub.categoryId===input.categoryId))return failure('That subcategory no longer exists.')
     const timestamp=Date.now(),id=crypto.randomUUID()
@@ -152,7 +201,7 @@ const workspace = {
 const api = {
   taskWorkspace: workspace,
   updates: { getStatus: () => ok({ status: 'idle' as const }), check: () => ok(undefined), install: () => ok(undefined), onChanged: () => () => {} },
-  capture: { submit: ({body,categoryId=null,subcategoryId=null,tags:labels=[],captureKind='inbox',requestId}:{body:string;captureKind?:'inbox'|'task'|'note';requestId?:string;categoryId?:string|null;subcategoryId?:string|null;tags?:string[]})=>{
+  capture: { submit: ({body,categoryId=null,subcategoryId=null,tags:labels=[],captureKind='task',requestId}:{body:string;captureKind?:'task';requestId?:string;categoryId?:string|null;subcategoryId?:string|null;tags?:string[]})=>{
     if(subcategoryId&&!subcategories.some(sub=>sub.id===subcategoryId&&sub.categoryId===categoryId))return failure('Invalid subcategory.')
     const existing=requestId?items.find(item=>(item as Item & {captureRequestId?:string}).captureRequestId===requestId):undefined
     if(existing)return ok({id:existing.id})
@@ -161,10 +210,10 @@ const api = {
     items=[{id,body,meetingId:null,meetingTitle:null,createdAt:Date.now(),updatedAt:Date.now(),deletedAt:null,revision:1,kind:'inbox',processedAt:null,completedAt:null,later:false,subcategoryId,categoryId,tags:labels,images:[]},...items]
     const item=items[0]!
     if(requestId)Object.assign(item,{captureRequestId:requestId})
-    if(captureKind!=='inbox')Object.assign(item,{kind:captureKind,processedAt:Date.now(),plannedDate:null,plannedStartAt:null,plannedEndAt:null,ready:false,position:0,priorityPosition:nextPriority(categoryId),beforeEventId:null,...(captureKind==='task'?{intention:{...intentionFor('unplanned',toLocalISODate(new Date())),position:Math.max(-1,...plannerTasks().map(task=>task.intention?.position??0))+1}}:{})})
+    Object.assign(item,{kind:captureKind,processedAt:Date.now(),plannedDate:null,plannedStartAt:null,plannedEndAt:null,ready:false,position:0,priorityPosition:nextPriority(categoryId),beforeEventId:null,...(captureKind==='task'?{intention:{...intentionFor('unplanned',toLocalISODate(new Date())),position:Math.max(-1,...plannerTasks().map(task=>task.intention?.position??0))+1}}:{})})
     changed();return ok({id})
   } },
-  notes: {
+  items: {
     onTaxonomyChanged: (callback: () => void) => { taxonomyListeners.add(callback); return () => taxonomyListeners.delete(callback) },
     createSubcategory: ({name,categoryId}:{name:string;categoryId:string})=>{if(subcategories.some(item=>item.categoryId===categoryId&&item.name.toLowerCase()===name.trim().toLowerCase()))return failure('Subcategory already exists.');const item={id:crypto.randomUUID(),name:name.trim(),categoryId,color:'#85858e',count:0};subcategories.push(item);changed();return ok(item)},
     updateSubcategory:({id,name,color}:{id:string;name:string;color:string})=>{const item=subcategories.find(item=>item.id===id);if(!item)return failure('Subcategory no longer exists.');if(subcategories.some(other=>other.id!==id&&other.categoryId===item.categoryId&&other.name.toLowerCase()===name.trim().toLowerCase()))return failure('Subcategory already exists.');Object.assign(item,{name:name.trim(),color});changed();return ok(undefined)},
@@ -173,7 +222,7 @@ const api = {
     migrationStatus:()=>ok({upgraded:subcategories.length>0,acknowledged:(localStorage.getItem('captured-preview-taxonomy-ack') ?? localStorage.getItem('notiert-preview-taxonomy-ack'))==='true'}),acknowledgeMigration:()=>{localStorage.setItem('captured-preview-taxonomy-ack','true');return ok(undefined)},
     migrationReview:()=>ok(reviews.filter(row=>items.some(item=>item.id===row.noteId))),
     resolveMigrationReview:({id,expectedRevision,categoryId,subcategoryId}:{id:string;expectedRevision:number;categoryId?:string|null;subcategoryId:string|null})=>{const item=items.find(item=>item.id===id);if(!item||item.revision!==expectedRevision)return failure('Item changed. Reload it.');const category=categoryId===undefined?item.categoryId:categoryId;if(subcategoryId&&!subcategories.some(sub=>sub.id===subcategoryId&&sub.categoryId===category))return failure('Invalid subcategory.');assignCategory(item,category);item.subcategoryId=subcategoryId;item.revision++;reviews=reviews.filter(row=>row.noteId!==id);changed();return ok(undefined)},
-    list: (filter: { scope: 'notes' | 'trash'; tags?: string[]; excludedTags?: string[]; kinds?: string[]; query?: string; categoryId?: string; subcategoryId?:string;noSubcategory?:boolean;needsReview?:boolean; sort?: string; includeCompleted?: boolean }) => { const found = items.filter((item) => (filter.scope === 'trash' ? item.deletedAt !== null : item.deletedAt === null && (filter.includeCompleted || item.completedAt === null)) && (!filter.categoryId || item.categoryId === filter.categoryId) && (!filter.subcategoryId||item.subcategoryId===filter.subcategoryId) && (!filter.noSubcategory||!item.subcategoryId) && (!filter.needsReview||reviews.some(row=>row.noteId===item.id)) && (!filter.tags?.length || filter.tags.some((tag) => item.tags.includes(tag))) && (!filter.excludedTags?.some(tag => item.tags.some(name => name.toLocaleLowerCase() === tag.toLocaleLowerCase()))) && (!filter.kinds?.length || filter.kinds.includes(item.kind)) && (!filter.query || item.body.toLowerCase().includes(filter.query.toLowerCase()))); if (filter.sort === 'priority') found.sort((a, b) => (a.kind === 'task' ? (a.completedAt === null ? 0 : 1) : 2) - (b.kind === 'task' ? (b.completedAt === null ? 0 : 1) : 2) || (a.kind === 'task' && b.kind === 'task' ? (a as PlannerTask).priorityPosition - (b as PlannerTask).priorityPosition : b.createdAt - a.createdAt)); return ok({ items: found, nextCursor: null, total: found.length }) },
+    list: (filter: { scope: 'items' | 'trash'; tags?: string[]; excludedTags?: string[]; kinds?: string[]; query?: string; categoryId?: string; subcategoryId?:string;noSubcategory?:boolean;needsReview?:boolean; sort?: string; includeCompleted?: boolean }) => { const found = items.filter((item) => (filter.scope === 'trash' ? item.deletedAt !== null : item.deletedAt === null && (filter.includeCompleted || item.completedAt === null)) && (!filter.categoryId || item.categoryId === filter.categoryId) && (!filter.subcategoryId||item.subcategoryId===filter.subcategoryId) && (!filter.noSubcategory||!item.subcategoryId) && (!filter.needsReview||reviews.some(row=>row.noteId===item.id)) && (!filter.tags?.length || filter.tags.some((tag) => item.tags.includes(tag))) && (!filter.excludedTags?.some(tag => item.tags.some(name => name.toLocaleLowerCase() === tag.toLocaleLowerCase()))) && (!filter.kinds?.length || filter.kinds.includes(item.kind)) && (!filter.query || item.body.toLowerCase().includes(filter.query.toLowerCase()))); if (filter.sort === 'priority') found.sort((a, b) => (a.kind === 'task' ? (a.completedAt === null ? 0 : 1) : 2) - (b.kind === 'task' ? (b.completedAt === null ? 0 : 1) : 2) || (a.kind === 'task' && b.kind === 'task' ? (a as PlannerTask).priorityPosition - (b as PlannerTask).priorityPosition : b.createdAt - a.createdAt)); return ok({ items: found, nextCursor: null, total: found.length }) },
     tags: () => ok(tags.map((tag) => tag.name)), taxonomy: () => ok({ categories: categories.map(category=>({...category,noSubcategoryCount:visible().filter(item=>item.categoryId===category.id&&!item.subcategoryId).length})), subcategories:subcategories.map(sub=>({...sub,count:visible().filter(item=>item.subcategoryId===sub.id).length})), tags: tagList() }),
     createCategory: (name: string) => { const category = { id: crypto.randomUUID(), name }; categories.push(category); changed(); return ok(category) },
     updateCategory: ({ id, name, color }: { id: string; name: string; color?: string }) => { const category = categories.find((entry) => entry.id === id); if (!category) return failure('That category no longer exists.'); if (categories.some((entry) => entry.id !== id && entry.name.toLocaleLowerCase() === name.trim().toLocaleLowerCase())) return failure('That category already exists.'); category.name = name.trim().replace(/\s+/g, ' '); if (color !== undefined) category.color = color; changed(); return ok({ ...category }) },
@@ -185,7 +234,30 @@ const api = {
     deleteTag: (id: string) => { const index = tags.findIndex((tag) => tag.id === id); if (index < 0) return failure('That tag no longer exists.'); const [tag] = tags.splice(index, 1); items.forEach((item) => { item.tags = item.tags.filter((name) => name.toLocaleLowerCase() !== tag!.name.toLocaleLowerCase()) }); changed(); return ok(undefined) },
     get: (id: string) => ok(items.find((item) => item.id === id) ?? null), image: (id: string) => ok((items.flatMap(item => item.images).find(image => image.id === id) as (ImageRef & { dataUrl?: string }) | undefined)?.dataUrl ?? ''),
     update: ({ id, body }: { id: string; body: string }) => { const item = items.find((entry) => entry.id === id)!; item.body = body; item.revision++; changed(); return ok(item) },
-    updateItem: ({ id, body, tags: names, categoryId, subcategoryId, images }: { id: string; body: string; tags: string[]; categoryId?: string | null; subcategoryId?:string|null; images?: (ImageRef & { dataUrl?: string })[] }) => { const item = items.find((entry) => entry.id === id)!; item.body = body; item.tags = names; if (images !== undefined) item.images = images; if (categoryId !== undefined) assignCategory(item, categoryId); if(subcategoryId!==undefined)item.subcategoryId=subcategoryId; item.revision++; changed(); return ok(item) },
+    updateItem: (raw: ItemUpdate) => {
+      const parsed = ItemUpdateSchema.safeParse(raw)
+      if (!parsed.success) return failure('Choose valid item details.')
+      const input = parsed.data, item = visible().find(item => item.id === input.id)
+      if (!item || item.revision !== input.expectedRevision) return failure('This item changed elsewhere. Reload it before saving.', 'REVISION_CONFLICT')
+      if ((input.plan || input.placement) && (item.kind !== 'task' || item.completedAt !== null)) return failure('Only open tasks can be planned or scheduled.')
+      if (input.plan && validLocalDate(input.plan.today)) input.plan.intention = { ...intentionFor(horizonOf(input.plan.intention, input.plan.today)), position: input.plan.intention.position }
+      if (input.plan && !validLocalDate(input.plan.today)) return failure('Choose a valid local date.')
+      const categoryId = input.categoryId === undefined ? item.categoryId : input.categoryId
+      const subcategoryId = input.subcategoryId === undefined ? categoryId === item.categoryId ? item.subcategoryId : null : input.subcategoryId
+      if (categoryId && !categories.some(category => category.id === categoryId)) return failure('That category no longer exists.')
+      if (subcategoryId && !subcategories.some(sub => sub.id === subcategoryId && sub.categoryId === categoryId)) return failure('That subcategory no longer exists.')
+      item.body = input.body; item.tags = input.tags
+      if (input.images !== undefined) item.images = input.images
+      assignCategory(item, categoryId); item.subcategoryId = subcategoryId
+      if (input.plan) {
+        const destination = plannerTasks().filter(task => task.id !== item.id && task.intention && horizonOf(task.intention, input.plan!.today) === horizonOf(input.plan!.intention, input.plan!.today)).sort((a, b) => a.intention!.position - b.intention!.position || a.id.localeCompare(b.id))
+        destination.forEach((task, position) => { if (task.intention!.position !== position) { task.intention!.position = position; task.revision++ } })
+        item.intention = { ...input.plan.intention, position: destination.length }
+      }
+      if (input.placement) Object.assign(item, placementFields(input.placement), { later: input.placement.kind === 'later', beforeEventId: null, position: input.placement.kind === 'ready' ? readyTasks().length : 0 })
+      for (const name of item.tags) if (!tags.some(tag => tag.name.toLowerCase() === name.toLowerCase())) tags.push({ id: crypto.randomUUID(), name, categoryId: null, color: '#85858e', count: 0 })
+      item.revision++; item.updatedAt = Date.now(); changed(); return ok({ ...item })
+    },
     setCategory: ({ id, categoryId,subcategoryId }: { id: string; categoryId: string | null;subcategoryId?:string|null }) => { const item = items.find((entry) => entry.id === id); if (item) {assignCategory(item, categoryId);if(subcategoryId!==undefined)item.subcategoryId=subcategoryId} changed(); return ok(undefined) },
     setTags: ({ id, tags: names }: { id: string; tags: string[] }) => { const item = items.find(entry => entry.id === id && entry.deletedAt === null); if (!item) return failure('This item no longer exists.'); if (names.length > 20) return failure('Choose up to 20 tags.'); const clean = [...new Map(names.map(name=>name.trim().replace(/\s+/g,' ').slice(0,40)).filter(Boolean).map(name=>[name.toLocaleLowerCase(),name])).values()]; item.tags = clean.map(name => { let tag = tags.find(tag=>tag.name.toLocaleLowerCase()===name.toLocaleLowerCase()); if (!tag) { tag = { id:crypto.randomUUID(),name,categoryId:null,color:'#85858e',count:0 };tags.push(tag) } return tag.name });item.revision++;changed(); return ok(undefined) },
     trash: (ids: string[]) => { items.filter((item) => ids.includes(item.id)).forEach((item) => { item.deletedAt = Date.now() }); changed(); return ok(undefined) },
@@ -212,7 +284,7 @@ const api = {
       const task: PlannerTask = { id: crypto.randomUUID(), body: input.body, meetingId: null, meetingTitle: null, createdAt: timestamp, updatedAt: timestamp, deletedAt: null, revision: 1, kind: 'task', processedAt: timestamp, completedAt: null, later: input.placement.kind === 'later', subcategoryId:input.subcategoryId??null, categoryId: input.categoryId, tags: input.tags, images: [], ...placementFields(input.placement), priorityPosition: nextPriority(input.categoryId), position: readyTasks().length }
       if (input.placement.kind === 'backlog-top') { plannerTasks().filter((entry) => !entry.later && !entry.ready && !entry.plannedDate && entry.categoryId === input.categoryId).forEach((entry) => { entry.priorityPosition++ }); task.priorityPosition = 0 }
       for (const name of input.tags) if (!tags.some((tag) => tag.name.toLocaleLowerCase() === name.toLocaleLowerCase())) tags.push({ id: crypto.randomUUID(), name, categoryId: null, color: '#85858e', count: 0 })
-      task.intention={kind:task.later?'later':task.plannedDate?'day':'unplanned',targetDate:task.plannedDate,position:Math.max(-1,...plannerTasks().map(task=>task.intention?.position??0))+1}
+      task.intention={kind:task.later?'later':'unplanned',targetDate:null,position:Math.max(-1,...plannerTasks().map(task=>task.intention?.position??0))+1}
       items.push(task); changed(); return ok({ ...task })
     },
     updateEventTiming: (raw: PlannerEventTiming) => {
@@ -223,10 +295,7 @@ const api = {
       if (current.startAt !== input.expectedStartAt || current.endAt !== input.expectedEndAt || current.allDay !== input.expectedAllDay) return failure('This meeting changed. Reload it and try again.', 'REVISION_CONFLICT')
       return saveEvent({ id: input.id, title: current.title, startAt: input.startAt, endAt: input.endAt, allDay: input.allDay })
     },
-    inbox: () => { const inbox = visible().filter((item) => item.kind === 'inbox'); return ok({ items: inbox, nextCursor: null, total: inbox.length }) },
-    inboxCount: () => ok(visible().filter((item) => item.kind === 'inbox').length),
-    unfile: (id: string) => { const item = items.find((entry) => entry.id === id); if (item) Object.assign(item, { kind: 'inbox', intention: undefined, plannedDate: null, plannedStartAt: null, plannedEndAt: null, ready: false, later: false, beforeEventId: null, revision: item.revision + 1 }); changed(); return ok(undefined) },
-    classify: ({ id, kind, tags: names, categoryId,subcategoryId }: { id: string; kind: 'note' | 'task'; tags: string[]; categoryId?: string | null;subcategoryId?:string|null }) => { const item = items.find((entry) => entry.id === id); if (item) { const effectiveCategory = categoryId === undefined ? item.categoryId : categoryId; Object.assign(item, { kind, tags: names, categoryId: effectiveCategory, subcategoryId:subcategoryId??(effectiveCategory===item.categoryId?item.subcategoryId:null), processedAt: Date.now(), ...(kind === 'task' ? { plannedDate: null, plannedStartAt: null, plannedEndAt: null, beforeEventId: null, position: visible().filter((entry) => entry.kind === 'task').length, priorityPosition: nextPriority(effectiveCategory), ready: false } : {}) }) }; for (const name of names) if (!tags.some((tag) => tag.name.toLowerCase() === name.toLowerCase())) tags.push({ id: crypto.randomUUID(), name, categoryId: null, color: '#85858e', count: 0 }); changed(); return ok(undefined) },
+    backlogCount: () => ok(plannerTasks().filter(task => task.intention?.kind === 'unplanned').length),
     tasks: (from: string, to: string) => {
       const start = localDateBounds(from).start, end = localDateBounds(to).end
       const found = allPlannerTasks().filter((task) => task.later ? false : task.plannedStartAt !== null && task.plannedEndAt !== null
@@ -326,7 +395,7 @@ const api = {
     Object.assign(settings, next.data); localStorage.setItem('captured-preview-settings', JSON.stringify(settings)); settingsListeners.forEach((listener) => listener()); return ok({ ...settings })
   }, onChanged: (listener: () => void) => { settingsListeners.add(listener); return () => settingsListeners.delete(listener) }, openFolder: () => ok(undefined) },
   data: { export: () => ok(undefined), backup: () => ok(undefined), restore: () => ok(undefined), diagnostics: () => ok(undefined) },
-  windows: { openCapture(context?:{categoryId:string|null;subcategoryId?:string|null;tags?:string[]}) { window.dispatchEvent(new window.CustomEvent('captured:browser-capture',{detail:context})) }, openNotes() {}, openSettings() {}, quit() {}, ready() {}, onView: () => () => {} },
+  windows: { openCapture(context?:{categoryId:string|null;subcategoryId?:string|null;tags?:string[]}) { window.dispatchEvent(new window.CustomEvent('captured:browser-capture',{detail:context})) }, openTasks() {}, openSettings() {}, quit() {}, ready() {}, onView: () => () => {} },
 } as unknown as capturedApi
 
 Object.defineProperty(window, 'captured', { value: api, configurable: true, writable: true })
