@@ -430,9 +430,10 @@ test('note editing saves tags and multi-select filters combine selected types an
     assert.equal(cleared.getByRole('button', { name: 'Work' }).getAttribute('aria-pressed'), 'false')
     fireEvent.click(screen.getByRole('button', { name: 'Tag filter for items: All tags' }))
     fireEvent.click(await screen.findByRole('button', { name: /Open task Existing note/ }))
-    const tagInput = await screen.findByRole('combobox', { name: 'Add a tag' })
-    fireEvent.change(tagInput, { target: { value: 'Work' } })
-    fireEvent.keyDown(tagInput, { key: 'Enter' })
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit tags for task' }))
+    const tagPopup = within(document.querySelector('.task-tag-popover'))
+    fireEvent.click(await tagPopup.findByRole('checkbox', { name: '#Work' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit tags for task' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => assert.deepEqual(saved.tags, ['Work']))
   } finally { app.unmount() }
@@ -704,7 +705,7 @@ test('search finds completed Backlog and planned tasks and editing retains their
     assert.ok(updated.completedAt !== null)
     assert.match(updated.body, /Additional reference details/)
     fireEvent.change(search, { target: { value: 'Additional reference details' } })
-    await screen.findByRole('button', { name: /Bookmark phrase archived/ })
+    await screen.findByRole('button', { name: /^Bookmark phrase archived/ })
     backlogNav()
     const backlogSearch = await screen.findByRole('textbox', { name: 'Search tasks' })
     fireEvent.change(backlogSearch, { target: { value: 'Bookmark phrase planned' } })
@@ -794,24 +795,20 @@ test('completing from the workspace offers Undo and restores its schedule', asyn
   } finally { app.unmount() }
 })
 
-test('Backlog selection plans tasks and captures together', async () => {
+test('hover actions plan tasks and captures in the table without bulk selection', async () => {
   browserWorkspace()
   await window.captured.taskWorkspace.create({ body: 'Bulk task', categoryId: null, intention: planFor('unplanned') })
   await window.captured.capture.submit({ requestId: crypto.randomUUID(), generation: 0, body: 'Bulk capture' })
   const app = render(React.createElement(TaskApp))
   try {
-    backlogNav()
     await screen.findByRole('button', { name: 'Bulk task' })
     fireEvent.click(screen.getByRole('button', { name: 'Table', exact: true }))
-    fireEvent.click(screen.getByRole('button', { name: 'Select items' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Bulk task' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Bulk capture' }))
-    const toolbar = within(screen.getByRole('group', { name: 'Bulk task priorities' }))
-    fireEvent.click(toolbar.getByRole('button', { name: 'Now', exact: true }))
-    await screen.findByText('Moved 2 tasks to Now.')
-    const planned = (await window.captured.taskWorkspace.list({ today: workspaceToday(), horizon: 'now' })).value.items
-    assert.ok(planned.some(item => item.body === 'Bulk task'))
-    assert.ok(planned.some(item => item.body === 'Bulk capture' && item.kind === 'task'))
+    assert.equal(screen.queryByRole('button', { name: 'Select items' }), null)
+    for (const name of ['Bulk task', 'Bulk capture']) {
+      fireEvent.click(await screen.findByRole('button', { name: `Move ${name} to Now`, exact: true }))
+      await waitFor(async () => assert.ok((await window.captured.taskWorkspace.list({ today: workspaceToday(), horizon: 'now' })).value.items.some(item => item.body === name && item.kind === 'task')))
+      await waitFor(() => assert.equal(document.querySelector('.tasks-page').getAttribute('aria-busy'), 'false'))
+    }
   } finally { app.unmount() }
 })
 
@@ -823,7 +820,7 @@ test('notes UI is absent and former reference content is found as a completed ta
     const search = await screen.findByRole('textbox', { name: 'Search tasks' })
     fireEvent.change(search, { target: { value: 'Ideas for the next release' } })
     const results = within(await screen.findByRole('table', { name: 'Search results' }))
-    await results.findByRole('button', { name: /Ideas for the next release/ })
+    await results.findByRole('button', { name: /^Ideas for the next release/ })
     assert.ok(results.getByText('Completed', { exact: true }))
   } finally { app.unmount() }
 })
@@ -862,7 +859,7 @@ test('integrated captures offer task planning and retain draft tags through Undo
     let item
     const card = screen.getByRole('button', { name: 'Sort this capture' }).closest('article')
     assert.equal(within(card).queryByRole('button', { name: 'Note', exact: true }), null)
-    fireEvent.click(within(card).getByRole('button', { name: 'Now', exact: true }))
+    fireEvent.click(within(card).getByRole('button', { name: 'Move Sort this capture to Now', exact: true }))
     await screen.findByText('Moved to Now.')
     item = (await window.captured.items.get(saved.value.id)).value
     assert.deepEqual(item.tags, ['waiting', 'Stored label'])
@@ -953,13 +950,13 @@ test('Backlog keeps captures and undecided tasks separate from Tasks; planning b
     assert.ok(screen.getByRole('button', { name: 'Backlog candidate' }))
     backlogNav()
     const card = (await screen.findByRole('button', { name: 'Backlog candidate' })).closest('article')
-    for (const label of ['Now', 'Next', 'Soon']) assert.ok(within(card).getByRole('button', { name: label, exact: true }))
-    fireEvent.click(within(card).getByRole('button', { name: 'Next', exact: true }))
+    for (const label of ['Now', 'Next', 'Soon']) assert.ok(within(card).getByRole('button', { name: `Move Backlog candidate to ${label}`, exact: true }))
+    fireEvent.click(within(card).getByRole('button', { name: 'Move Backlog candidate to Next', exact: true }))
     await screen.findByText('Moved to Next.')
     await waitFor(() => assert.ok(screen.getByRole('button', { name: 'Backlog candidate' }).closest('[data-horizon=next]')))
     fireEvent.click(screen.getByRole('button', { name: 'Undo', exact: true }))
     await screen.findByRole('button', { name: 'Backlog candidate' })
-    fireEvent.click(within(screen.getByRole('button', { name: 'Backlog candidate' }).closest('article')).getByRole('button', { name: 'Now', exact: true }))
+    fireEvent.click(within(screen.getByRole('button', { name: 'Backlog candidate' }).closest('article')).getByRole('button', { name: 'Move Backlog candidate to Now', exact: true }))
     await screen.findByText('Moved to Now.')
     tasksNav()
     await screen.findByRole('button', { name: 'Backlog candidate' })
@@ -977,36 +974,30 @@ test('Backlog keeps captures and undecided tasks separate from Tasks; planning b
 })
 
 
-test('Backlog ReUI tag picker selects, creates and removes tags without classifying a capture', async () => {
+test('task tag popover selects, creates and removes tags', async () => {
   browserWorkspace()
   const saved = await window.captured.capture.submit({ requestId: crypto.randomUUID(), generation: 0, body: 'Pick capture tags' })
   const app = render(React.createElement(TaskApp))
   try {
-    backlogNav()
-    let input = await screen.findByRole('combobox', { name: 'Tags for Pick capture tags' })
-    const group = input.closest('.tasks-column')
-    assert.ok(group, 'Unsorted uses the unified priority column')
-    assert.equal(input.closest('.backlog-tag-picker').parentElement, input.closest('.tasks-card'))
+    const trigger = await screen.findByRole('button', { name: 'Edit tags for Pick capture tags' })
+    const group = trigger.closest('.tasks-column')
     const toggle = group.querySelector('.tasks-column-heading > button')
     fireEvent.click(toggle)
     assert.equal(toggle.getAttribute('aria-expanded'), 'false')
-    assert.equal(group.querySelector('.tasks-column-content'), null)
     fireEvent.click(toggle)
-    assert.equal(toggle.getAttribute('aria-expanded'), 'true')
-    input = await screen.findByRole('combobox', { name: 'Tags for Pick capture tags' })
-    act(() => input.focus())
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit tags for Pick capture tags' }))
+    const input = await screen.findByRole('textbox', { name: 'Find or create tags for Pick capture tags' })
     fireEvent.change(input, { target: { value: 'Planning' } })
-    fireEvent.keyDown(input, { key: 'ArrowDown', code: 'ArrowDown' })
-    fireEvent.click(await screen.findByRole('option', { name: 'Planning', exact: true }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: '#Planning', exact: true }))
     await waitFor(async () => assert.deepEqual((await window.captured.items.get(saved.value.id)).value.tags, ['Planning']))
+    await waitFor(() => assert.equal(input.value, ''))
     fireEvent.change(input, { target: { value: 'Fresh backlog tag' } })
-    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
+    fireEvent.click(screen.getByRole('button', { name: 'Create #Fresh backlog tag' }))
     await waitFor(async () => assert.deepEqual((await window.captured.items.get(saved.value.id)).value.tags, ['Planning', 'Fresh backlog tag']))
-    assert.equal((await window.captured.items.get(saved.value.id)).value.kind, 'task')
-    assert.ok((await window.captured.items.taxonomy()).value.tags.some(tag => tag.name === 'Fresh backlog tag'))
-    const chip = [...document.querySelectorAll('[data-slot="combobox-chip"]')].find(chip => chip.textContent === 'Planning')
-    fireEvent.click(chip.querySelector('[data-slot="combobox-chip-remove"]'))
+    await waitFor(() => assert.equal(input.value, ''))
+    fireEvent.click(await screen.findByRole('checkbox', { name: '#Planning', exact: true }))
     await waitFor(async () => assert.deepEqual((await window.captured.items.get(saved.value.id)).value.tags, ['Fresh backlog tag']))
+    assert.ok((await window.captured.items.taxonomy()).value.tags.some(tag => tag.name === 'Fresh backlog tag'))
   } finally { app.unmount() }
 })
 
@@ -1104,7 +1095,6 @@ test('new tasks default to Unsorted and priority choices contain only the five f
     assert.equal(screen.queryByRole('textbox', { name: 'Task plan date' }), null)
   } finally { app.unmount() }
 })
-
 test('sidebar restores category and tag expansion after remount', async () => {
   const first = setup({ taxonomy: async () => ({ ok: true, value: { categories: [{ id: 'work', name: 'Work', color: '#85858e' }], subcategories: [{ id: 'project', categoryId: 'work', name: 'Project', color: '#85858e', count: 1 }], tags: [{ id: 'tag', name: 'Waiting', color: '#85858e', count: 1 }] } }) })
   fireEvent.click(await screen.findByRole('button', { name: 'Collapse Work' }))

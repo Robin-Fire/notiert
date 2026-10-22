@@ -851,7 +851,13 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .attachment-thumbnail img { width: 100%; height: 100%; object-fit: contain; }
 .attachment-thumbnail .attachment-remove { position: absolute; top: 3px; right: 3px; padding: 3px; border-radius: 4px; background: var(--surface); border: 1px solid var(--border); color: inherit; cursor: pointer; }
 .image-paste-hint { display: block; color: var(--text-muted); font-size: var(--type-secondary); margin: 8px 0; }
-.image-viewer { padding: 36px 12px 12px; max-width: 92vw; max-height: 92vh; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: inherit; }
+.attachment-copy { position: absolute; bottom: 4px; right: 4px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); cursor: pointer; opacity: 0; transition: opacity .15s ease; }
+.attachment-thumbnail:hover .attachment-copy, .attachment-thumbnail:focus-within .attachment-copy { opacity: 1; }
+.attachment-copy:disabled { cursor: wait; }
+@media (hover: none) { .attachment-copy { opacity: 1; } }
+.image-copy-notice { display: block; color: var(--text-secondary); font-size: var(--type-caption); }
+.image-copy-notice:empty { display: none; }
+.image-viewer { position: fixed; inset: 0; margin: auto; padding: 36px 12px 12px; max-width: 92vw; max-height: 92vh; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: inherit; }
 .image-viewer::backdrop { background: rgba(0,0,0,.65); }
 .image-viewer img { display: block; max-width: 86vw; max-height: 80vh; object-fit: contain; }
 .image-viewer-close { position: absolute; top: 6px; right: 6px; background: transparent; border: 0; color: inherit; cursor: pointer; }
@@ -1010,3 +1016,24 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .task-detail-actions { display: grid; gap: 10px; }
 .task-detail-secondary-actions, .task-detail-primary-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .task-detail-primary-actions { justify-content: flex-end; }
+
+.task-tag-popover { width: 240px; max-width: calc(100vw - 24px); padding: 10px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow-card); }
+.task-tag-title { font-size: var(--type-secondary); font-weight: 600; }
+.task-tag-search { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; color: var(--text-muted); }
+.task-tag-search input { width: 100%; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text); font-size: var(--type-secondary); }
+.task-tag-search:focus-within { border-color: var(--blue); }
+.task-tag-options { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; gap: 2px; }
+.task-tag-options button { display: flex; align-items: center; gap: 6px; padding: 7px 8px; border: 0; border-radius: 4px; color: var(--text-secondary); background: transparent; text-align: left; font-size: var(--type-secondary); }
+.task-tag-options button span { flex: 1; overflow-wrap: anywhere; }
+.task-tag-options button:hover, .task-tag-options button:focus-visible { background: var(--blue-soft); color: var(--blue); }
+.task-tag-options button:disabled { opacity: .5; }
+.task-tag-options p, .task-tag-popover small { margin: 4px 0; color: var(--text-muted); font-size: var(--type-caption); }
+
+.tag-editor-selection { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.tag-editor-selection > [data-slot=popover-trigger] { display: inline-flex; align-items: center; gap: 4px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text-secondary); font-size: var(--type-secondary); }
+.tag-editor-selection > [data-slot=popover-trigger]:hover:not(:disabled) { background: var(--blue-soft); color: var(--blue); }
+
+.capture-category-control .app-select, .capture-tag-control input { flex: 1; min-width: 0; width: 100%; }
+.capture-tag-control input { height: 28px; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text); font: inherit; }
+.capture-tag-control input::placeholder { color: var(--text-muted); }
+.capture-tag-control input:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }

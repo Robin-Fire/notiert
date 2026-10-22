@@ -1,0 +1,309 @@
+{
+  "version": 1,
+  "datasetId": "api-coverage-starter",
+  "columns": [
+    {
+      "id": "service",
+      "name": "Service",
+      "type": "text",
+      "hidden": false
+    },
+    {
+      "id": "area",
+      "name": "Area",
+      "type": "text",
+      "hidden": false
+    },
+    {
+      "id": "extension",
+      "name": "Extension",
+      "type": "text",
+      "hidden": false
+    },
+    {
+      "id": "criticality",
+      "name": "Criticality",
+      "type": "select",
+      "options": [
+        "Critical",
+        "High",
+        "Normal"
+      ],
+      "hidden": false
+    },
+    {
+      "id": "assessment",
+      "name": "Assessment",
+      "type": "select",
+      "options": [
+        "Not assessed",
+        "Partially assessed",
+        "Assessed"
+      ],
+      "hidden": false
+    },
+    {
+      "id": "coverage0",
+      "name": "Core behavior",
+      "type": "select",
+      "options": [
+        "Unknown",
+        "Missing",
+        "Partial",
+        "Target met",
+        "N/A"
+      ],
+      "hidden": false
+    },
+    {
+      "id": "coverage1",
+      "name": "Validation",
+      "type": "select",
+      "options": [
+        "Unknown",
+        "Missing",
+        "Partial",
+        "Target met",
+        "N/A"
+      ],
+      "hidden": true
+    },
+    {
+      "id": "coverage3",
+      "name": "Business rules",
+      "type": "select",
+      "options": [
+        "Unknown",
+        "Missing",
+        "Partial",
+        "Target met",
+        "N/A"
+      ],
+      "hidden": true
+    },
+    {
+      "id": "coverage4",
+      "name": "Dependency failures",
+      "type": "select",
+      "options": [
+        "Unknown",
+        "Missing",
+        "Partial",
+        "Target met",
+        "N/A"
+      ],
+      "hidden": true
+    },
+    {
+      "id": "coverage6",
+      "name": "Contracts",
+      "type": "select",
+      "options": [
+        "Unknown",
+        "Missing",
+        "Partial",
+        "Target met",
+        "N/A"
+      ],
+      "hidden": true
+    },
+    {
+      "id": "gap",
+      "name": "Comment",
+      "type": "text",
+      "hidden": false
+    },
+    {
+      "id": "next",
+      "name": "Next action / ticket",
+      "type": "text",
+      "hidden": true
+    },
+    {
+      "id": "priority",
+      "name": "Next priority",
+      "type": "select",
+      "options": [
+        "Critical",
+        "High",
+        "Normal"
+      ],
+      "hidden": false
+    },
+    {
+      "id": "evidence",
+      "name": "Evidence / rationale",
+      "type": "text",
+      "hidden": true
+    },
+    {
+      "id": "reviewed",
+      "name": "Last reviewed",
+      "type": "date",
+      "hidden": true
+    }
+  ],
+  "rows": [
+    {
+      "id": "86fde862-1f24-459e-a212-3b75190c9643",
+      "values": {
+        "service": "payments-api",
+        "criticality": "Critical",
+        "assessment": "Partially assessed",
+        "coverage0": "Target met",
+        "coverage1": "Unknown",
+        "coverage3": "Unknown",
+        "coverage4": "Unknown",
+        "coverage6": "Unknown",
+        "gap": "Duplicate requests: no double-charge assertion",
+        "next": "",
+        "priority": "Critical",
+        "evidence": "",
+        "reviewed": "",
+        "area": "Commerce",
+        "extension": "Checkout"
+      }
+    },
+    {
+      "id": "d80ec7bb-6d27-420c-9b88-280ab0e45bc1",
+      "values": {
+        "service": "identity-service",
+        "criticality": "Critical",
+        "assessment": "Assessed",
+        "coverage0": "Target met",
+        "coverage1": "Unknown",
+        "coverage3": "Unknown",
+        "coverage4": "Unknown",
+        "coverage6": "Unknown",
+        "gap": "Concurrent token refresh needs coverage",
+        "next": "",
+        "priority": "High",
+        "evidence": "",
+        "reviewed": "",
+        "area": "Platform",
+        "extension": "Identity"
+      }
+    },
+    {
+      "id": "40d97cae-0645-4fec-ada9-1940b77d6324",
+      "values": {
+        "service": "order-service",
+        "criticality": "Critical",
+        "assessment": "Partially assessed",
+        "coverage0": "Partial",
+        "coverage1": "Unknown",
+        "coverage3": "Unknown",
+        "coverage4": "Unknown",
+        "coverage6": "Unknown",
+        "gap": "Partial fulfillment rollback is untested",
+        "next": "",
+        "priority": "Critical",
+        "evidence": "",
+        "reviewed": "",
+        "area": "Commerce",
+        "extension": "Checkout"
+      }
+    },
+    {
+      "id": "56b0a961-0647-43ec-ba3d-064843068e9f",
+      "values": {
+        "service": "notification-service",
+        "criticality": "High",
+        "assessment": "Partially assessed",
+        "coverage0": "Partial",
+        "coverage1": "Unknown",
+        "coverage3": "Unknown",
+        "coverage4": "Unknown",
+        "coverage6": "Unknown",
+        "gap": "Retry and duplicate-delivery behavior",
+        "next": "",
+        "priority": "High",
+        "evidence": "",
+        "reviewed": "",
+        "area": "Platform",
+        "extension": "Messaging"
+      }
+    },
+    {
+      "id": "ebb6d557-6b00-47ba-ac2b-e211e9ff30ae",
+      "values": {
+        "service": "catalog-api",
+        "criticality": "Normal",
+        "assessment": "Assessed",
+        "coverage0": "Target met",
+        "coverage1": "Unknown",
+        "coverage3": "Unknown",
+        "coverage4": "Unknown",
+        "coverage6": "Unknown",
+        "gap": "Pagination boundary values",
+        "next": "",
+        "priority": "Normal",
+        "evidence": "",
+        "reviewed": "",
+        "area": "Commerce",
+        "extension": "Discovery"
+      }
+    },
+    {
+      "id": "7057bc98-c996-4b9b-9c07-5c44038b4181",
+      "values": {
+        "service": "export-service",
+        "criticality": "High",
+        "assessment": "Not assessed",
+        "coverage0": "Unknown",
+        "coverage1": "Unknown",
+        "coverage3": "Unknown",
+        "coverage4": "Unknown",
+        "coverage6": "Unknown",
+        "gap": "Initial coverage assessment needed",
+        "next": "",
+        "priority": "High",
+        "evidence": "",
+        "reviewed": "",
+        "area": "Analytics",
+        "extension": "Reporting"
+      }
+    },
+    {
+      "id": "04481056-eaab-4d80-a2b3-4e2e07f2af63",
+      "values": {
+        "service": "search-api",
+        "criticality": "Normal",
+        "assessment": "Partially assessed",
+        "coverage0": "Target met",
+        "coverage1": "Unknown",
+        "coverage3": "Unknown",
+        "coverage4": "Unknown",
+        "coverage6": "Unknown",
+        "gap": "Tenant isolation for search suggestions",
+        "next": "",
+        "priority": "High",
+        "evidence": "",
+        "reviewed": "",
+        "area": "Commerce",
+        "extension": "Discovery"
+      }
+    },
+    {
+      "id": "c1ed2c27-f8f1-4f04-94e3-302902eb7c39",
+      "values": {
+        "service": "audit-service",
+        "criticality": "High",
+        "assessment": "Not assessed",
+        "coverage0": "Unknown",
+        "coverage1": "Unknown",
+        "coverage3": "Unknown",
+        "coverage4": "Unknown",
+        "coverage6": "Unknown",
+        "gap": "Initial coverage assessment needed",
+        "next": "",
+        "priority": "High",
+        "evidence": "",
+        "reviewed": "",
+        "area": "Platform",
+        "extension": "Governance"
+      }
+    }
+  ],
+  "example": true
+}

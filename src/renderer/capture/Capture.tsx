@@ -8,7 +8,7 @@ import {
   type CompositionEvent,
   type KeyboardEvent
 } from 'react'
-import { AlertCircle, ArrowUpRight, Copy, CornerDownLeft, Folder, RotateCcw, X } from 'lucide-react'
+import { AlertCircle, ArrowUpRight, Copy, CornerDownLeft, Folder, RotateCcw, Tag, X } from 'lucide-react'
 import type { CaptureState, Category, Subcategory } from '../../shared/contracts'
 
 export function Capture() {
@@ -24,6 +24,8 @@ export function Capture() {
   })
   const [subcategories, setSubcategories] = useState<Subcategory[]>([])
   const captureTags = useRef<string[]>([])
+  const [tagDraft, setTagDraft] = useState('')
+  const tagDraftRef = useRef('')
   const subcategoryId = useRef<string | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
   const [body, setBody] = useState('')
@@ -111,6 +113,15 @@ export function Capture() {
     return () => observer.disconnect()
   }, [resizeCapture])
 
+  const commitTags = () => {
+    const names = [...captureTags.current, ...tagDraftRef.current.split(',')]
+    const tags = [...new Map(names.map((name) => name.trim().replace(/^#+/, '').replace(/\s+/g, ' ').slice(0, 40)).filter(Boolean).map((name): [string, string] => [name.toLocaleLowerCase(), name])).values()].slice(0, 20)
+    captureTags.current = tags
+    tagDraftRef.current = ''
+    setTagDraft('')
+    setState((current) => ({ ...current, tags }))
+  }
+
   const persistDraft = useCallback(
     async (draft: string, selectedCategory = categoryId.current) => {
       if (!state.available || saving) return
@@ -131,6 +142,7 @@ export function Capture() {
 
   const flushDraft = useCallback(async () => {
     clearTimeout(draftTimer.current)
+    commitTags()
     await persistDraft(bodyRef.current)
   }, [persistDraft])
 
@@ -147,6 +159,7 @@ export function Capture() {
   useEffect(() => {
     const unsubscribe = window.captured.capture.onQuitRequest(() => {
       clearTimeout(draftTimer.current)
+      commitTags()
       const draft = bodyRef.current
       void window.captured.capture
         .flushBeforeQuit({
@@ -193,6 +206,7 @@ export function Capture() {
       !state.available
     )
       return
+    commitTags()
     savingLock.current = true
     clearTimeout(draftTimer.current)
     setSaving(true)
@@ -376,49 +390,55 @@ export function Capture() {
               <AppSelect
                 aria-label="Capture category"
                 disabled={saving}
-                value={state.categoryId ?? ''}
+                value={state.subcategoryId ? `subcategory:${state.subcategoryId}` : state.categoryId ?? ''}
                 onChange={(event) => {
-                  const selected = event.target.value || null
+                  const value = event.target.value
+                  const subcategory = value.startsWith('subcategory:')
+                    ? subcategories.find((item) => item.id === value.slice(12))
+                    : undefined
+                  const selected = subcategory?.categoryId ?? (value || null)
                   categoryId.current = selected
-                  subcategoryId.current = null
-                  setState((current) => ({ ...current, categoryId: selected, subcategoryId: null }))
+                  subcategoryId.current = subcategory?.id ?? null
+                  setState((current) => ({ ...current, categoryId: selected, subcategoryId: subcategoryId.current }))
                   void persistDraft(bodyRef.current, selected)
                 }}
               >
                 <option value="">Unassigned</option>
                 {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
+                  <optgroup key={category.id} label={category.name}>
+                    <option value={category.id}>{category.name}</option>
+                    {subcategories.filter((item) => item.categoryId === category.id).map((item) => (
+                      <option key={item.id} value={`subcategory:${item.id}`}>
+                        {category.name} / {item.name}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </AppSelect>
             </label>
           )}
-          {state.categoryId && (
-            <label className="capture-category-control">
-              <Folder size={13} />
-              <span>Subcategory</span>
-              <AppSelect
-                aria-label="Capture subcategory"
-                disabled={saving}
-                value={state.subcategoryId ?? ''}
-                onChange={(event) => {
-                  subcategoryId.current = event.target.value || null
-                  setState((current) => ({ ...current, subcategoryId: subcategoryId.current }))
+          <label className="capture-category-control capture-tag-control">
+            <Tag size={13} />
+            <span>Tags</span>
+            <input
+              aria-label="Capture tags"
+              placeholder={state.tags?.length === 20 ? '20 tags maximum' : 'Add tags…'}
+              value={tagDraft}
+              disabled={saving || !state.available || (state.tags?.length ?? 0) >= 20}
+              onChange={(event) => {
+                tagDraftRef.current = event.target.value
+                setTagDraft(event.target.value)
+              }}
+              onBlur={() => { commitTags(); void persistDraft(bodyRef.current) }}
+              onKeyDown={(event) => {
+                if ((event.key === 'Enter' || event.key === ',') && !event.nativeEvent.isComposing) {
+                  event.preventDefault()
+                  commitTags()
                   void persistDraft(bodyRef.current)
-                }}
-              >
-                <option value="">No subcategory</option>
-                {subcategories
-                  .filter((item) => item.categoryId === state.categoryId)
-                  .map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-              </AppSelect>
-            </label>
-          )}
+                }
+              }}
+            />
+          </label>
           {!!state.tags?.length && (
             <div className="capture-context-tags" aria-label="Capture tags">
               {state.tags.map((tag) => (

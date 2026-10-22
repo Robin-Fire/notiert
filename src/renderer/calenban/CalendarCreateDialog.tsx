@@ -17,7 +17,6 @@ export function CalendarCreateDialog({ draft, onClose, onMeeting, onTask }: { dr
   const [categories, setCategories] = useState<Category[]>([])
   const [tagOptions, setTagOptions] = useState<TagRecord[]>([])
   const [tags, setTags] = useState<string[]>([])
-  const [tagDraft, setTagDraft] = useState('')
   const [taxonomyLoading, setTaxonomyLoading] = useState(true)
   const [start, setStart] = useState(localDateTime(draft.start.getTime()))
   const [end, setEnd] = useState(localDateTime(draft.end.getTime()))
@@ -53,12 +52,12 @@ export function CalendarCreateDialog({ draft, onClose, onMeeting, onTask }: { dr
     const startAt = new Date(start).getTime(), endAt = new Date(end).getTime()
     if (!draft.ready && (!Number.isFinite(startAt) || (!Number.isFinite(endAt) || endAt <= startAt))) { setError('Choose valid start and end times.'); return }
     setBusy(true); setError('')
-    try { const message = await onTask({ body, categoryId, subcategoryId, tags: collectTags(tags, tagDraft), placement: draft.ready ? { kind: 'ready' } : { kind: 'timed', startAt, endAt } }); if (message) setError(message) } finally { setBusy(false) }
+    try { const message = await onTask({ body, categoryId, subcategoryId, tags: collectTags(tags), placement: draft.ready ? { kind: 'ready' } : { kind: 'timed', startAt, endAt } }); if (message) setError(message) } finally { setBusy(false) }
   }}>
     {!draft.ready && switcher}<div className="event-dialog-kicker">{draft.ready ? 'READY TASK' : 'SCHEDULED TASK'}</div><h2 id="create-task-title">Add a task</h2>
     <label>Task<textarea className="text-field" value={body} disabled={busy} required maxLength={50000} onChange={(event) => setBody(event.target.value)} /></label>
     <CategoryPicker categories={categories} subcategories={taxonomy.subcategories} categoryId={categoryId} subcategoryId={subcategoryId} onChange={(category,subcategory)=>{setCategoryId(category);setSubcategoryId(subcategory)}} disabled={busy||taxonomyLoading}/>
-    <div className="task-detail-tags"><span>Tags</span><TagEditor tags={tags} draft={tagDraft} onTagsChange={setTags} onDraftChange={setTagDraft} suggestions={tagOptions.map((tag) => tag.name)} disabled={busy} /></div>
+    <div className="task-detail-tags"><span>Tags</span><TagEditor tags={tags} onTagsChange={setTags} suggestions={tagOptions.map((tag) => tag.name)} disabled={busy} /></div>
     {!draft.ready && <><div className="event-form-times"><label>Starts<input className="text-field" type="datetime-local" value={start} disabled={busy} required onChange={(event) => setStart(event.target.value)} /></label>{<label>Ends<input className="text-field" type="datetime-local" value={end} disabled={busy} required onChange={(event) => setEnd(event.target.value)} /></label>}</div>
 </>}
     {error && <p className="inline-error" role="alert">{error}</p>}<div className="dialog-actions"><button type="button" className="button secondary" disabled={busy} onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || !body.trim()}>{busy ? 'Saving…' : 'Add task'}</button></div>

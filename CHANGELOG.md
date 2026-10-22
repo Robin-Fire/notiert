@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.1.17 - 2026-10-22
+
+- Include the pending task interface improvements omitted from 0.1.16.
+- Show priority and tag actions on hover in task cards and table rows.
+- Use a shared tag popover in task and calendar forms, with inline hash tags.
+- Add tags to quick capture and combine category and subcategory into one picker.
+- Add copying attached images to the clipboard.
+- Improve drag scrolling and ordering, hide empty Unsorted columns, and simplify task controls.
+- Include the standalone service coverage register and its documentation.
+
 ## 0.1.16 - 2026-10-22
 
 - Count only open tasks in sidebar tag and subcategory counters.

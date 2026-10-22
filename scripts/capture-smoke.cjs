@@ -29,6 +29,9 @@ app.whenReady().then(async () => {
   const createdCategory = await notes.webContents.executeJavaScript("window.captured.items.createCategory('Capture smoke')")
   if (!createdCategory.ok) throw new Error(`Category creation failed: ${createdCategory.message}`)
   const categoryId = createdCategory.value.id
+  const subcategory = await notes.webContents.executeJavaScript(`window.captured.items.createSubcategory({ name: 'Nested capture', categoryId: '${categoryId}' })`)
+  if (!subcategory.ok) throw new Error('Subcategory creation failed')
+  const subcategoryId = subcategory.value.id
   await notes.webContents.executeJavaScript("document.querySelector('.sidebar-capture').click()")
   for (let attempt = 0; attempt < 50 && !findWindow('capture'); attempt++) await wait(100)
   const capture = findWindow('capture')
@@ -44,7 +47,15 @@ app.whenReady().then(async () => {
     await wait(100)
   }
   await selectOption(code=>capture.webContents.executeJavaScript(code), '[aria-label="Capture category"]', categoryId)
+  await selectOption(code=>capture.webContents.executeJavaScript(code), '[aria-label="Capture category"]', `subcategory:${subcategoryId}`)
+  await capture.webContents.executeJavaScript("document.querySelector('input[aria-label=\"Capture tags\"]').focus()")
+  await capture.webContents.executeJavaScript(`(() => { const input = document.querySelector('input[aria-label="Capture tags"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'focus, follow up'); input.dispatchEvent(new Event('input', { bubbles: true })); })()` )
+  await wait(150)
+  await capture.webContents.executeJavaScript(`document.querySelector('input[aria-label="Capture tags"]').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, cancelable: true}))`)
   await capture.webContents.executeJavaScript("document.querySelector('.capture-input').focus()")
+  await wait(300)
+  const draft = await capture.webContents.executeJavaScript("window.captured.capture.getState()")
+  if (!draft.ok || draft.value.subcategoryId !== subcategoryId || draft.value.tags.join(',') !== 'focus,follow up') throw new Error(`Capture metadata not persisted: ${JSON.stringify(draft)}`)
   capture.webContents.insertText('Capture smoke test')
   await wait(400)
   const before = await capture.webContents.executeJavaScript("({ text: document.querySelector('.capture-input').value, disabled: document.querySelector('.capture-submit')?.disabled, error: document.querySelector('.capture-alert')?.innerText })")
@@ -56,11 +67,14 @@ app.whenReady().then(async () => {
   const db = new Database(path.join(profile, 'captured.sqlite'), { readonly: true })
   const count = db.prepare("SELECT count(*) AS count FROM notes WHERE kind='task' AND body='Capture smoke test'").get().count
   const categorizedCount = db.prepare("SELECT count(*) AS count FROM notes WHERE kind='task' AND body='Capture smoke test' AND project_id=?").get(categoryId).count
+  const metadata = db.prepare("SELECT subcategory_id FROM notes WHERE body='Capture smoke test'").get()
+  const tags = db.prepare("SELECT t.name FROM item_tags t JOIN note_tags nt ON nt.tag_id=t.id JOIN notes n ON n.id=nt.note_id WHERE n.body='Capture smoke test' ORDER BY t.name").all().map(row => row.name)
   db.close()
+  if (metadata.subcategory_id !== subcategoryId || tags.join(',') !== 'focus,follow up') throw new Error('Saved capture metadata mismatch')
   if (count !== 1 || categorizedCount !== 1) throw new Error(`Capture was not saved with its category: ${JSON.stringify({ after, count, categorizedCount })}`)
   let visible = false
   for (let attempt = 0; attempt < 30; attempt++) {
-    visible = await notes.webContents.executeJavaScript("Boolean([...document.querySelectorAll('.tasks-card-body')].some((item) => item.textContent === 'Capture smoke test'))")
+    visible = await notes.webContents.executeJavaScript("Boolean([...document.querySelectorAll('.tasks-card-body, .backlog-task-title')].some((item) => item.textContent === 'Capture smoke test'))")
     if (visible) break
     await wait(100)
   }
@@ -68,7 +82,7 @@ app.whenReady().then(async () => {
   await notes.webContents.executeJavaScript("document.querySelector('.sidebar-capture').click()")
   await wait(250)
   const rememberedCategory = await capture.webContents.executeJavaScript("document.querySelector('[aria-label=\"Capture category\"]').value")
-  if (rememberedCategory !== categoryId) throw new Error('Capture must remember its category after saving and reopening')
+  if (rememberedCategory !== `subcategory:${subcategoryId}`) throw new Error('Capture must remember its category after saving and reopening')
   const pasted = await capture.webContents.executeJavaScript(`(() => {
     const base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl8n+QAAAAASUVORK5CYII='
     const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
@@ -88,17 +102,17 @@ app.whenReady().then(async () => {
   await wait(150)
   await notes.webContents.executeJavaScript("window.captured.windows.openCapture()")
   await wait(200)
-  if (await capture.webContents.executeJavaScript("document.querySelector('[aria-label=\"Capture category\"]').value") !== categoryId) throw new Error('Image-only drafts must keep the session category')
+  if (await capture.webContents.executeJavaScript("document.querySelector('[aria-label=\"Capture category\"]').value") !== `subcategory:${subcategoryId}`) throw new Error('Image-only drafts must keep the session category')
   await capture.webContents.executeJavaScript("document.querySelector('.capture-submit').click()")
   await wait(350)
   const imageCount = dbImageCount(profile)
   if (imageCount !== 1) throw new Error(`Image-only capture was not saved: ${imageCount}`)
   for (let attempt = 0; attempt < 30; attempt++) {
-    const hasRow = await notes.webContents.executeJavaScript("Boolean([...document.querySelectorAll('.tasks-card-body')].find((item) => item.textContent.includes('Image capture')))")
+    const hasRow = await notes.webContents.executeJavaScript("Boolean([...document.querySelectorAll('.tasks-card-body, .backlog-task-title')].find((item) => item.textContent.includes('Image capture')))")
     if (hasRow) break
     await wait(100)
   }
-  await notes.webContents.executeJavaScript("[...document.querySelectorAll('.tasks-card-body')].find((item) => item.textContent.includes('Image capture')).click()")
+  await notes.webContents.executeJavaScript("[...document.querySelectorAll('.tasks-card-body, .backlog-task-title')].find((item) => item.textContent.includes('Image capture')).click()")
   await notes.webContents.executeJavaScript("(() => { const button=document.querySelector('.task-detail-dialog .image-section-toggle'); if(button?.getAttribute('aria-expanded')==='false')button.click(); })()")
   for (let attempt = 0; attempt < 30; attempt++) {
     const rendered = await notes.webContents.executeJavaScript("Boolean(document.querySelector('.task-detail-dialog .attachment-thumbnails img'))")

@@ -1,5 +1,5 @@
 import { AppSelect } from '../components/AppSelect'
-import { BacklogTagPicker } from '../components/BacklogTagPicker'
+import { TaskTagPicker } from '../components/TaskTagPicker'
 import './tasks.css'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -123,11 +123,6 @@ export function TasksView({
   const [undo, setUndo] = useState<TaskWorkspaceUndo | null>(null)
   const [completionUndo, setCompletionUndo] = useState<TaskCompletionUndo | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
-  const [selecting, setSelecting] = useState(false)
-  const [selected, setSelected] = useState<string[]>([])
-  useEffect(() => {
-    setSelected([])
-  }, [search, category, subcategory, tagFilter, completed])
   const [notice, setNotice] = useState('')
   const [active, setActive] = useState<TaskWorkspaceItem | null>(null)
   const [create, setCreate] = useState<Destination | null>(null)
@@ -224,13 +219,9 @@ export function TasksView({
   }, [])
   const counts = (pages.unplanned ?? Object.values(pages)[0])?.counts ?? emptyCounts
   const items = useMemo(() => horizons.flatMap((h) => pages[h]?.items ?? []), [pages])
-  useEffect(() => {
-    const visible = new Set(items.map((item) => item.id))
-    setSelected((ids) => (ids.every((id) => visible.has(id)) ? ids : ids.filter((id) => visible.has(id))))
-  }, [items])
   const taskItems = items
   const total = Object.values(counts).reduce((a, b) => a + b, 0)
-  const visibleHorizons = horizons
+  const visibleHorizons = horizons.filter(horizon => horizon !== 'unplanned' || counts.unplanned > 0)
   const categoryMap = useMemo(() => new Map(categories.map((item) => [item.id, item.name])), [categories])
   const categoryColors = useMemo(
     () => new Map(categories.map((category) => [category.id, category.color])),
@@ -368,9 +359,26 @@ export function TasksView({
       return next
     })
   }
-  function selectionFor(item: TaskWorkspaceItem) {
-    if (!selecting) return undefined
-    return <input type="checkbox" aria-label={`Select ${item.body.split('\n')[0] || 'task'}`} checked={selected.includes(item.id)} disabled={busy || (selected.length >= 100 && !selected.includes(item.id))} onChange={event => setSelected(ids => event.target.checked ? [...ids, item.id] : ids.filter(id => id !== item.id))} />
+  function tagPickerFor(item: TaskWorkspaceItem) {
+    return (
+      <TaskTagPicker
+        tags={item.tags}
+        suggestions={tags.map((tag) => tag.name)}
+        label={item.body.split('\n')[0] || 'task'}
+        disabled={busy}
+        onSave={async (selectedTags) => {
+          let saved = false
+          await mutate(async () => {
+            resultValue(await window.captured.items.setTags({ id: item.id, tags: selectedTags }))
+            saved = true
+          })
+          return saved
+        }}
+      />
+    )
+  }
+  function quickActionsFor(item: TaskWorkspaceItem) {
+    return <TaskQuickActions item={item} busy={busy} onPlan={horizon => move(item, { horizon })} tagPicker={tagPickerFor(item)} />
   }
   function card(item: TaskWorkspaceItem, categoryId?: string | null) {
     return (
@@ -383,26 +391,8 @@ export function TasksView({
         categoryName={categoryMap.get(item.categoryId ?? '') ?? 'Unassigned'}
         subcategory={subcategoryMap.get(item.subcategoryId ?? '')}
         busy={busy}
-        onPlan={item.horizon === 'unplanned' ? (horizon) => move(item, { horizon }) : undefined}
-        tagPicker={
-          item.horizon === 'unplanned' ? (
-            <BacklogTagPicker
-              tags={item.tags}
-              suggestions={tags.map((tag) => tag.name)}
-              label={item.body.split('\n')[0] || 'task'}
-              disabled={busy}
-              onSave={async (selectedTags) => {
-                let saved = false
-                await mutate(async () => {
-                  resultValue(await window.captured.items.setTags({ id: item.id, tags: selectedTags }))
-                  saved = true
-                })
-                return saved
-              }}
-            />
-          ) : undefined
-        }
-        selection={selectionFor(item)}
+        onPlan={(horizon) => move(item, { horizon })}
+        tagPicker={tagPickerFor(item)}
         onOpen={() => setDetail(item)}
         onComplete={() => complete(item)}
       />
@@ -473,7 +463,6 @@ export function TasksView({
           <Plus size={14} /> Add task
         </button>
       </header>
-      <p className="tasks-priority-help">Unsorted captures → Now · Next · Soon · Later. Move tasks as your priorities change.</p>
       <div className="tasks-toolbar">
         <label className="search-box">
           <Search size={14} />
@@ -556,66 +545,6 @@ export function TasksView({
           {completed ? 'Show open tasks' : 'Completed'}
         </button>
       </div>
-      {!completed && !search && (
-        <div className="tasks-bulk-toolbar" role="group" aria-label="Bulk task priorities">
-          <button
-            type="button"
-            className="button secondary small"
-            disabled={busy}
-            aria-pressed={selecting}
-            onClick={() => {
-              setSelecting((value) => !value)
-              setSelected([])
-            }}
-          >
-            {selecting ? 'Cancel selection' : 'Select items'}
-          </button>
-          {selecting && (
-            <>
-              <button
-                type="button"
-                className="button secondary small"
-                disabled={busy}
-                title="Select up to 100 loaded tasks"
-                onClick={() => setSelected(items.slice(0, 100).map((item) => item.id))}
-              >
-                Select visible
-              </button>
-              <span>{selected.length} selected</span>
-              {horizons.map((horizon) => (
-                <button
-                  type="button"
-                  key={horizon}
-                  className="button secondary small"
-                  disabled={busy || !selected.length}
-                  onClick={() =>
-                    void mutate(async () => {
-                      const chosen = items.filter((item) => selected.includes(item.id))
-                      resultValue(
-                        await window.captured.taskWorkspace.moveMany(
-                          chosen.map((item) => ({
-                            id: item.id,
-                            expectedRevision: item.revision,
-                            intention: intentionFor(horizon, today),
-                            today,
-                            beforeId: null,
-                            tags: item.tags
-                          }))
-                        )
-                      )
-                      setSelected([])
-                      setSelecting(false)
-                      setNotice(`Moved ${chosen.length} tasks to ${horizonLabels[horizon]}.`)
-                    })
-                  }
-                >
-                  {horizonLabels[horizon]}
-                </button>
-              ))}
-            </>
-          )}
-        </div>
-      )}
       {hasFilters && (
         <div className="tasks-active-filters" aria-label="Active task filters">
           {query.trim() && (
@@ -656,7 +585,7 @@ export function TasksView({
                 }))
               }
             >
-              Tag: {tag} <X size={12} />
+              Tag: #{tag.replace(/^#+/, '')} <X size={12} />
             </button>
           ))}
           {tagFilter.excluded.map((tag) => (
@@ -670,7 +599,7 @@ export function TasksView({
                 }))
               }
             >
-              Hide: {tag} <X size={12} />
+              Hide: #{tag.replace(/^#+/, '')} <X size={12} />
             </button>
           ))}
           <button type="button" className="tasks-clear-filters" onClick={clearFilters}>
@@ -755,6 +684,8 @@ export function TasksView({
       ) : (
         <DndContext
           sensors={sensors}
+          // Only the task page should move; scrolling the document can displace the app shell.
+          autoScroll={{ canScroll: (element) => element.classList.contains('tasks-page') }}
           collisionDetection={taskCollision}
           onDragStart={(event) => setActive(items.find((item) => item.id === event.active.id) ?? null)}
           onDragCancel={() => setActive(null)}
@@ -770,13 +701,14 @@ export function TasksView({
                 <thead>
                   <tr>
                     <th scope="col">Task</th>
-                    <th scope="col">Category</th>
-                    <th scope="col">Tags</th>
+                    <th scope="col">Category and tags</th>
+                    <th scope="col">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((item) => (
                     <TaskTableRow
+                      actions={quickActionsFor(item)}
                       key={item.id}
                       item={item}
                       searchResult
@@ -816,10 +748,10 @@ export function TasksView({
                     .filter((item) => item.horizon === horizon)
                     .map((item) => (
                       <TaskTableRow
+                        actions={quickActionsFor(item)}
                         categoryColor={categoryColors.get(item.categoryId ?? '')}
                         key={item.id}
                         item={item}
-                        selection={selectionFor(item)}
                         categoryName={categoryMap.get(item.categoryId ?? '') ?? 'Unassigned'}
                         subcategory={subcategoryMap.get(item.subcategoryId ?? '')}
                         busy={busy}
@@ -1004,7 +936,7 @@ function TaskDragPreview({
       <div className="tasks-table-tags">
         {labels.map((tag) => (
           <span className="tasks-table-tag" key={tag}>
-            {tag}
+            #{tag.replace(/^#+/, '')}
           </span>
         ))}
       </div>
@@ -1097,8 +1029,8 @@ function TaskTableGroup({
         <thead>
           <tr>
             <th scope="col">Task</th>
-            <th scope="col">Category</th>
-            <th scope="col">Tags</th>
+            <th scope="col">Category and tags</th>
+            <th scope="col">Actions</th>
           </tr>
         </thead>
         <tbody ref={setNodeRef} data-horizon={horizon}>
@@ -1123,8 +1055,8 @@ function TaskTableGroup({
 }
 
 function TaskTableRow({
+  actions,
   searchResult = false,
-  selection,
   categoryColor,
   item,
   categoryName,
@@ -1133,8 +1065,8 @@ function TaskTableRow({
   onOpen,
   onComplete
 }: {
-  selection?: React.ReactNode
   searchResult?: boolean
+  actions?: React.ReactNode
   categoryColor?: string
   backlog?: boolean
   item: TaskWorkspaceItem
@@ -1155,11 +1087,11 @@ function TaskTableRow({
       ref={setNodeRef}
       data-task-id={item.id}
       className={`${item.completedAt !== null ? 'is-completed' : ''} ${isDragging ? 'is-dragging' : ''} ${isOver && !isDragging ? (activeIndex >= 0 && activeIndex < index ? 'drop-after' : 'drop-before') : ''}`}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
+      style={{ transform: isDragging ? undefined : CSS.Transform.toString(transform), transition }}
     >
       <td>
         <div className="tasks-table-task">
-          {selection ?? (item.kind === 'task' && (
+          {item.kind === 'task' && (
             <input
               className="backlog-completion-toggle"
               type="checkbox"
@@ -1168,7 +1100,7 @@ function TaskTableRow({
               disabled={busy}
               onChange={onComplete}
             />
-          ))}
+          )}
           {!searchResult && (
             <button
               type="button"
@@ -1208,14 +1140,11 @@ function TaskTableRow({
           {categoryName}
         </span>
         {subcategory && <span className="tasks-table-subcategory">{subcategory.name}</span>}
+        <span className="tasks-category-tags">
+          {item.tags.map(tag => <span className="tasks-table-tag" key={tag}>#{tag.replace(/^#+/, '')}</span>)}
+        </span>
       </td>
-      <td className="tasks-table-tags">
-        {item.tags.map((tag) => (
-          <span className="tasks-table-tag" key={tag}>
-            {tag}
-          </span>
-        ))}
-      </td>
+      <td className="tasks-table-tags">{actions}</td>
     </tr>
   )
 }
@@ -1300,7 +1229,6 @@ function TaskCard({
   categoryId,
   onPlan,
   tagPicker,
-  selection,
   onOpen,
   onComplete
 }: {
@@ -1312,7 +1240,6 @@ function TaskCard({
   busy: boolean
   categoryId?: string | null
   tagPicker?: React.ReactNode
-  selection?: React.ReactNode
   onPlan?: (horizon: Horizon) => void
   onOpen: () => void
   onComplete: () => void
@@ -1327,7 +1254,7 @@ function TaskCard({
     <article
       ref={setNodeRef}
       data-task-id={item.id}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
+      style={{ transform: isDragging ? undefined : CSS.Transform.toString(transform), transition }}
       className={`tasks-card ${isDragging ? 'is-dragging' : ''} ${isOver && !isDragging ? (activeIndex >= 0 && activeIndex < index ? 'drop-after' : 'drop-before') : ''}`}
     >
       <div className="tasks-card-heading">
@@ -1341,62 +1268,66 @@ function TaskCard({
         >
           <GripVertical size={13} />
         </button>
-        {selection ?? (
-          <input
-            type="checkbox"
-            aria-label={`${item.completedAt ? 'Reopen' : 'Complete'} ${item.body.split('\n')[0] || 'task'}`}
-            checked={item.completedAt !== null}
-            disabled={busy}
-            onChange={onComplete}
-          />
-        )}
+        <input
+          type="checkbox"
+          aria-label={`${item.completedAt ? 'Reopen' : 'Complete'} ${item.body.split('\n')[0] || 'task'}`}
+          checked={item.completedAt !== null}
+          disabled={busy}
+          onChange={onComplete}
+        />
         <button type="button" className="tasks-card-body" disabled={busy} onClick={onOpen}>
           {item.body.trim() || (item.images.length ? 'Image capture' : 'Untitled task')}
         </button>
       </div>
-      <div className="tasks-card-meta">
-        <span
-          className="tasks-category-label"
-          style={
-            categoryColor
-              ? {
-                  color: categoryColor,
-                  backgroundColor: `color-mix(in srgb, ${categoryColor} 14%, var(--surface))`
-                }
-              : undefined
-          }
-        >
-          {categoryName}
-        </span>
-        {subcategory && <span style={{ color: subcategory.color }}>{subcategory.name}</span>}
-        <ImageIndicator count={item.images.length} />
-      </div>
-
       <ScheduledIndicator item={item} />
-      {tagPicker ??
-        (!!item.tags.length && (
-          <div className="tasks-card-tags">
-            {item.tags.map((tag) => (
-              <span key={tag} style={{ color: tagColors.get(tag.toLocaleLowerCase()) }}>
-                #{tag}
-              </span>
-            ))}
-          </div>
-        ))}
-      {onPlan && item.completedAt === null && (
-        <div className="tasks-card-actions">
-          {onPlan && (
-            <>
-              {horizons.filter(horizon => horizon !== item.horizon).map((horizon) => (
-                <button key={horizon} type="button" disabled={busy} onClick={() => onPlan(horizon)}>
-                  {horizonLabels[horizon]}
-                </button>
-              ))}
-            </>
+      <div className="tasks-inline-meta">
+        <div className="tasks-card-meta">
+          <span
+            className="tasks-category-label"
+            style={
+              categoryColor
+                ? {
+                    color: categoryColor,
+                    backgroundColor: `color-mix(in srgb, ${categoryColor} 14%, var(--surface))`
+                  }
+                : undefined
+            }
+          >
+            {categoryName}
+          </span>
+          {subcategory && <span style={{ color: subcategory.color }}>{subcategory.name}</span>}
+          <ImageIndicator count={item.images.length} />
+          {!!item.tags.length && (
+            <div className="tasks-card-tags">
+              {item.tags.map(tag => <span key={tag} style={{ color: tagColors.get(tag.toLocaleLowerCase()) }}>#{tag.replace(/^#+/, '')}</span>)}
+            </div>
           )}
         </div>
-      )}
+        {onPlan && <TaskQuickActions item={item} busy={busy} onPlan={onPlan} tagPicker={tagPicker} />}
+      </div>
+
     </article>
+  )
+}
+
+function TaskQuickActions({ item, busy, onPlan, tagPicker }: {
+  item: TaskWorkspaceItem
+  busy: boolean
+  onPlan: (horizon: Horizon) => void
+  tagPicker?: React.ReactNode
+}) {
+  const label = item.body.split('\n')[0] || 'task'
+  return (
+    <div className="tasks-quick-actions">
+      <div className="tasks-quick-buttons" role="group" aria-label={`Quick actions for ${label}`}>
+        <div className="tasks-priority-buttons">
+        {item.completedAt === null && horizons.filter(horizon => horizon !== item.horizon).map(horizon => (
+          <button key={horizon} type="button" disabled={busy} title={`Move to ${horizonLabels[horizon]}`} aria-label={`Move ${label} to ${horizonLabels[horizon]}`} onClick={() => onPlan(horizon)}>{horizonLabels[horizon]}</button>
+        ))}
+        </div>
+        {tagPicker}
+      </div>
+    </div>
   )
 }
 
@@ -1509,8 +1440,7 @@ function CreateTaskDialog({
   const [body, setBody] = useState(''),
     [category, setCategory] = useState(destination.categoryId ?? '')
   const [subcategoryId, setSubcategoryId] = useState<string | null>(null),
-    [labels, setLabels] = useState<string[]>([]),
-    [tagDraft, setTagDraft] = useState('')
+    [labels, setLabels] = useState<string[]>([])
   const [horizon, setHorizon] = useState<Horizon>(
     destination.horizon
   )
@@ -1532,7 +1462,7 @@ function CreateTaskDialog({
             category || null,
             intentionFor(horizon, today),
             subcategoryId,
-            collectTags(labels, tagDraft)
+            collectTags(labels)
           ).finally(() => setBusy(false))
         }}
       >
@@ -1560,9 +1490,7 @@ function CreateTaskDialog({
         />
         <TagEditor
           tags={labels}
-          draft={tagDraft}
           onTagsChange={setLabels}
-          onDraftChange={setTagDraft}
           suggestions={tags.map((tag) => tag.name)}
           disabled={busy}
         />

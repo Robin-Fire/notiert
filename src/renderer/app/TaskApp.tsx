@@ -169,7 +169,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   const [browserCaptureOpen, setBrowserCaptureOpen] = useState(false)
   const [browserCaptureText, setBrowserCaptureText] = useState('')
   const [browserCaptureTags, setBrowserCaptureTags] = useState<string[]>([])
-  const [browserCaptureTagDraft, setBrowserCaptureTagDraft] = useState('')
   const [browserCaptureSubcategoryId, setBrowserCaptureSubcategoryId] = useState<string | null>(null)
   const [browserCaptureCategoryId, setBrowserCaptureCategoryId] = useState<string | null>(null)
   const [recordingShortcut, setRecordingShortcut] = useState(false)
@@ -438,12 +437,11 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
           captureKind: 'task',
           categoryId: browserCaptureCategoryId,
           subcategoryId: browserCaptureSubcategoryId,
-          tags: collectTags(browserCaptureTags, browserCaptureTagDraft)
+          tags: collectTags(browserCaptureTags)
         })
       )
       setBrowserCaptureText('')
       setBrowserCaptureTags([])
-      setBrowserCaptureTagDraft('')
       setBrowserCaptureOpen(false)
       nav('inbox')
     } catch (reason) {
@@ -1641,9 +1639,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
             </label>
             <TagEditor
               tags={browserCaptureTags}
-              draft={browserCaptureTagDraft}
               onTagsChange={setBrowserCaptureTags}
-              onDraftChange={setBrowserCaptureTagDraft}
               suggestions={availableTags}
             />
             <div className="dialog-actions">

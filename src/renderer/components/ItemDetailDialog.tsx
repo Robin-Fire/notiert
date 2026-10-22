@@ -35,7 +35,6 @@ export function ItemDetailDialog({
   const [subcategoryId, setSubcategoryId] = useState(task.subcategoryId ?? null)
   const [body, setBody] = useState(task.body)
   const [tags, setTags] = useState(initialTags ?? task.tags)
-  const [tagDraft, setTagDraft] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const imageEdit = useImagePaste(setError)
@@ -91,7 +90,7 @@ export function ItemDetailDialog({
     imageEdit.pending ||
     imageEdit.images.map((image) => image.id).join() !== task.images.map((image) => image.id).join() ||
     body !== task.body ||
-    collectTags(tags, tagDraft).join('\u0000') !== task.tags.join('\u0000')
+    collectTags(tags).join('\u0000') !== task.tags.join('\u0000')
 
   useEffect(() => {
     const background: { element: HTMLElement; inert: boolean }[] = []
@@ -170,7 +169,7 @@ export function ItemDetailDialog({
           body,
           categoryId,
           subcategoryId,
-          tags: collectTags(tags, tagDraft),
+          tags: collectTags(tags),
           images: imageEdit.images,
           ...(planChanged ? { plan: { today, intention: plannedIntention } } : {}),
           ...(placementChanged ? { placement } : {})
@@ -257,9 +256,7 @@ export function ItemDetailDialog({
             <span>Tags</span>
             <TagEditor
               tags={tags}
-              draft={tagDraft}
               onTagsChange={setTags}
-              onDraftChange={setTagDraft}
               suggestions={taxonomy.tags.length ? taxonomy.tags.map((tag) => tag.name) : suggestions}
               disabled={busy}
             />
