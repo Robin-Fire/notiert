@@ -1,6 +1,6 @@
 {
   "name": "captured",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "A quiet, local desktop utility for capturing thoughts.",
   "main": "out/main/index.js",
   "author": "captured",

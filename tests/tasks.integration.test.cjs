@@ -1104,3 +1104,18 @@ test('new tasks default to Unsorted and priority choices contain only the five f
     assert.equal(screen.queryByRole('textbox', { name: 'Task plan date' }), null)
   } finally { app.unmount() }
 })
+
+test('sidebar restores category and tag expansion after remount', async () => {
+  const first = setup({ taxonomy: async () => ({ ok: true, value: { categories: [{ id: 'work', name: 'Work', color: '#85858e' }], subcategories: [{ id: 'project', categoryId: 'work', name: 'Project', color: '#85858e', count: 1 }], tags: [{ id: 'tag', name: 'Waiting', color: '#85858e', count: 1 }] } }) })
+  fireEvent.click(await screen.findByRole('button', { name: 'Collapse Work' }))
+  fireEvent.click(screen.getByRole('button', { name: /^Tags$/ }))
+  first.unmount()
+  const second = render(React.createElement(TaskApp))
+  assert.equal((await screen.findByRole('button', { name: 'Expand Work' })).getAttribute('aria-expanded'), 'false')
+  assert.equal(screen.getByRole('button', { name: /^Tags$/ }).getAttribute('aria-expanded'), 'false')
+  fireEvent.click(screen.getByRole('button', { name: /^Categories$/ }))
+  second.unmount()
+  const third = render(React.createElement(TaskApp))
+  assert.equal((await screen.findByRole('button', { name: /^Categories$/ })).getAttribute('aria-expanded'), 'false')
+  third.unmount()
+})

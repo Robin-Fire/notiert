@@ -357,11 +357,11 @@ export class Store {
   }
 
   taxonomy(): { categories: Category[]; subcategories: Subcategory[]; tags: TagRecord[] } {
-    const categories = this.db.prepare('SELECT c.id,c.name,c.color,(SELECT count(*) FROM notes n WHERE n.project_id=c.id AND n.subcategory_id IS NULL AND n.deleted_at IS NULL) AS noSubcategoryCount FROM categories c ORDER BY c.position,c.name COLLATE NOCASE').all() as Category[]
+    const categories = this.db.prepare(`SELECT c.id,c.name,c.color,(SELECT count(*) FROM notes n WHERE n.project_id=c.id AND n.subcategory_id IS NULL AND n.deleted_at IS NULL AND n.kind='task' AND n.task_status='open') AS noSubcategoryCount FROM categories c ORDER BY c.position,c.name COLLATE NOCASE`).all() as Category[]
     const rows = this.db.prepare(`SELECT t.id,t.name,NULL AS categoryId,t.color,count(n.id) AS count
-      FROM item_tags t LEFT JOIN note_tags nt ON nt.tag_id=t.id LEFT JOIN notes n ON n.id=nt.note_id AND n.deleted_at IS NULL
+      FROM item_tags t LEFT JOIN note_tags nt ON nt.tag_id=t.id LEFT JOIN notes n ON n.id=nt.note_id AND n.deleted_at IS NULL AND n.kind='task' AND n.task_status='open'
       GROUP BY t.id ORDER BY t.position,t.name COLLATE NOCASE`).all() as TagRecord[]
-    const subcategories = this.db.prepare('SELECT s.id,s.name,s.category_id AS categoryId,s.color,count(n.id) AS count FROM subcategories s LEFT JOIN notes n ON n.subcategory_id=s.id AND n.deleted_at IS NULL GROUP BY s.id ORDER BY s.category_id,s.position,s.name COLLATE NOCASE').all() as Subcategory[]
+    const subcategories = this.db.prepare(`SELECT s.id,s.name,s.category_id AS categoryId,s.color,count(n.id) AS count FROM subcategories s LEFT JOIN notes n ON n.subcategory_id=s.id AND n.deleted_at IS NULL AND n.kind='task' AND n.task_status='open' GROUP BY s.id ORDER BY s.category_id,s.position,s.name COLLATE NOCASE`).all() as Subcategory[]
     return { categories, subcategories, tags: rows }
   }
 

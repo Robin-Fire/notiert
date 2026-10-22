@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.1.16 - 2026-10-22
+
+- Count only open tasks in sidebar tag and subcategory counters.
+- Refresh sidebar counters when completing or reopening tasks.
+- Remember expanded and collapsed sidebar sections and categories across restarts.
+
 ## 0.1.15 - 2026-10-18
 
 - Combine Backlog and Tasks into one Tasks page with Unsorted, Now, Next, Soon, and Later priority buckets.

@@ -260,3 +260,29 @@ test('category colors persist through rename, reopen, and backups', async () => 
     assert.equal(f.store.taxonomy().categories.find(item => item.id === category.id).color, '#ef4444')
   } finally { f.close() }
 })
+test('taxonomy counters include only open tasks and update after completion and reopening', () => {
+  const f = fixture()
+  try {
+    const category = f.store.createCategory('Counts')
+    const sub = f.store.createSubcategory('Project', category.id)
+    const open = create(f.store, 'Open', category.id, ['Counted'], 'task')
+    const done = create(f.store, 'Done', category.id, ['Counted'], 'task')
+    const trashed = create(f.store, 'Trashed', category.id, ['Counted'], 'task')
+    const inbox = create(f.store, 'Capture', category.id, ['Counted'], 'inbox')
+    for (const id of [open, done, trashed, inbox]) {
+      const item = f.store.getItem(id)
+      f.store.updateItem(id, item.revision, item.body, item.tags, undefined, undefined, sub.id)
+    }
+    f.store.setTaskCompleted(done, true)
+    f.store.trash([trashed])
+    const counts = () => {
+      const taxonomy = f.store.taxonomy()
+      return [taxonomy.tags.find(tag => tag.name === 'Counted').count, taxonomy.subcategories.find(item => item.id === sub.id).count]
+    }
+    assert.deepEqual(counts(), [1, 1])
+    f.store.setTaskCompleted(open, true)
+    assert.deepEqual(counts(), [0, 0])
+    f.store.setTaskCompleted(done, false)
+    assert.deepEqual(counts(), [1, 1])
+  } finally { f.close() }
+})
