@@ -708,6 +708,7 @@ export function TasksView({
                 <tbody>
                   {items.map((item) => (
                     <TaskTableRow
+                      tagColors={tagColors}
                       actions={quickActionsFor(item)}
                       key={item.id}
                       item={item}
@@ -748,6 +749,7 @@ export function TasksView({
                     .filter((item) => item.horizon === horizon)
                     .map((item) => (
                       <TaskTableRow
+                        tagColors={tagColors}
                         actions={quickActionsFor(item)}
                         categoryColor={categoryColors.get(item.categoryId ?? '')}
                         key={item.id}
@@ -828,6 +830,7 @@ export function TasksView({
             {active && (
               <TaskDragPreview
                 item={active}
+                tagColors={tagColors}
                 categoryName={categoryMap.get(active.categoryId ?? '') ?? 'Unassigned'}
                 subcategory={subcategoryMap.get(active.subcategoryId ?? '')}
                 backlog={false}
@@ -891,6 +894,7 @@ export function TasksView({
 }
 
 function TaskDragPreview({
+  tagColors,
   item,
   categoryName,
   subcategory,
@@ -902,6 +906,7 @@ function TaskDragPreview({
   subcategory?: Subcategory
   backlog: boolean
   row: boolean
+  tagColors: Map<string, string>
 }) {
   if (!row)
     return (
@@ -935,7 +940,7 @@ function TaskDragPreview({
       )}
       <div className="tasks-table-tags">
         {labels.map((tag) => (
-          <span className="tasks-table-tag" key={tag}>
+          <span className="tasks-table-tag" key={tag} style={{ color: tagColors.get(tag.toLocaleLowerCase()) }}>
             #{tag.replace(/^#+/, '')}
           </span>
         ))}
@@ -1055,6 +1060,7 @@ function TaskTableGroup({
 }
 
 function TaskTableRow({
+  tagColors,
   actions,
   searchResult = false,
   categoryColor,
@@ -1065,6 +1071,7 @@ function TaskTableRow({
   onOpen,
   onComplete
 }: {
+  tagColors: Map<string, string>
   searchResult?: boolean
   actions?: React.ReactNode
   categoryColor?: string
@@ -1141,7 +1148,7 @@ function TaskTableRow({
         </span>
         {subcategory && <span className="tasks-table-subcategory">{subcategory.name}</span>}
         <span className="tasks-category-tags">
-          {item.tags.map(tag => <span className="tasks-table-tag" key={tag}>#{tag.replace(/^#+/, '')}</span>)}
+          {item.tags.map(tag => <span className="tasks-table-tag" key={tag} style={{ color: tagColors.get(tag.toLocaleLowerCase()) }}>#{tag.replace(/^#+/, '')}</span>)}
         </span>
       </td>
       <td className="tasks-table-tags">{actions}</td>

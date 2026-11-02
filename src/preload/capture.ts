@@ -4,6 +4,7 @@ import type { capturedApi } from '../shared/contracts'
 const capture: Pick<capturedApi, 'capture'> & { windows: Omit<capturedApi['windows'], 'onView' | 'ready'> } = {
   capture: {
     getState: () => ipcRenderer.invoke('capture:get-state'),
+    tags: () => ipcRenderer.invoke('capture:tags'),
     subcategories: () => ipcRenderer.invoke('capture:subcategories'),
   categories: () => ipcRenderer.invoke('capture:categories'),
     updateDraft: (input) => ipcRenderer.invoke('capture:update-draft', input),

@@ -1,3 +1,4 @@
+import { TaskTagPicker } from '../components/TaskTagPicker'
 import { AppSelect } from '../components/AppSelect'
 import {
   useCallback,
@@ -24,8 +25,9 @@ export function Capture() {
   })
   const [subcategories, setSubcategories] = useState<Subcategory[]>([])
   const captureTags = useRef<string[]>([])
-  const [tagDraft, setTagDraft] = useState('')
-  const tagDraftRef = useRef('')
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([])
+  const [tagsOpen, setTagsOpen] = useState(false)
+  const [categoryOpen, setCategoryOpen] = useState(false)
   const subcategoryId = useRef<string | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
   const [body, setBody] = useState('')
@@ -60,6 +62,8 @@ export function Capture() {
         if (result.ok) setCategories(result.value)
         const subs = await window.captured.capture.subcategories()
         if (subs.ok) setSubcategories(subs.value)
+        const tags = await window.captured.capture.tags()
+        if (tags.ok) setTagSuggestions(tags.value)
       } catch {
         /* Keep capture usable if taxonomy is temporarily unavailable. */
       }
@@ -106,21 +110,12 @@ export function Capture() {
     if (!content) return
     // Measure the actual layout, including wrapped tags and storage messages.
     const updateHeight = () =>
-      resizeCapture(Math.min(320, Math.max(88, Math.ceil(content.getBoundingClientRect().height) + 17)))
+      resizeCapture(Math.min(480, Math.max(280, Math.ceil(content.getBoundingClientRect().height) + 17)))
     const observer = new ResizeObserver(updateHeight)
     observer.observe(content)
     updateHeight()
     return () => observer.disconnect()
   }, [resizeCapture])
-
-  const commitTags = () => {
-    const names = [...captureTags.current, ...tagDraftRef.current.split(',')]
-    const tags = [...new Map(names.map((name) => name.trim().replace(/^#+/, '').replace(/\s+/g, ' ').slice(0, 40)).filter(Boolean).map((name): [string, string] => [name.toLocaleLowerCase(), name])).values()].slice(0, 20)
-    captureTags.current = tags
-    tagDraftRef.current = ''
-    setTagDraft('')
-    setState((current) => ({ ...current, tags }))
-  }
 
   const persistDraft = useCallback(
     async (draft: string, selectedCategory = categoryId.current) => {
@@ -142,13 +137,12 @@ export function Capture() {
 
   const flushDraft = useCallback(async () => {
     clearTimeout(draftTimer.current)
-    commitTags()
     await persistDraft(bodyRef.current)
   }, [persistDraft])
 
   useEffect(() => {
     const onEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape' || !document.querySelector('.capture-card')) return
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('[data-slot=popover-content]') || !document.querySelector('.capture-card')) return
       event.preventDefault()
       void flushDraft().finally(() => window.captured.capture.dismiss('escape'))
     }
@@ -159,7 +153,6 @@ export function Capture() {
   useEffect(() => {
     const unsubscribe = window.captured.capture.onQuitRequest(() => {
       clearTimeout(draftTimer.current)
-      commitTags()
       const draft = bodyRef.current
       void window.captured.capture
         .flushBeforeQuit({
@@ -206,7 +199,6 @@ export function Capture() {
       !state.available
     )
       return
-    commitTags()
     savingLock.current = true
     clearTimeout(draftTimer.current)
     setSaving(true)
@@ -338,7 +330,7 @@ export function Capture() {
   return (
     <main className="capture-shell" aria-label="Capture a thought">
       <div className="capture-card">
-        <div className="capture-content" ref={contentRef}>
+        <div className="capture-content" ref={contentRef} style={{ minHeight: tagsOpen || categoryOpen ? 463 : 263 }}>
           <header className="capture-header">
             <span className="wordmark">captured</span>
             <span className="capture-heading">Quick capture</span>
@@ -389,6 +381,7 @@ export function Capture() {
               <span>Category</span>
               <AppSelect
                 aria-label="Capture category"
+                onOpenChange={setCategoryOpen}
                 disabled={saving}
                 value={state.subcategoryId ? `subcategory:${state.subcategoryId}` : state.categoryId ?? ''}
                 onChange={(event) => {
@@ -417,28 +410,18 @@ export function Capture() {
               </AppSelect>
             </label>
           )}
-          <label className="capture-category-control capture-tag-control">
+          <div className="capture-category-control capture-tag-control">
             <Tag size={13} />
             <span>Tags</span>
-            <input
-              aria-label="Capture tags"
-              placeholder={state.tags?.length === 20 ? '20 tags maximum' : 'Add tags…'}
-              value={tagDraft}
-              disabled={saving || !state.available || (state.tags?.length ?? 0) >= 20}
-              onChange={(event) => {
-                tagDraftRef.current = event.target.value
-                setTagDraft(event.target.value)
-              }}
-              onBlur={() => { commitTags(); void persistDraft(bodyRef.current) }}
-              onKeyDown={(event) => {
-                if ((event.key === 'Enter' || event.key === ',') && !event.nativeEvent.isComposing) {
-                  event.preventDefault()
-                  commitTags()
-                  void persistDraft(bodyRef.current)
-                }
-              }}
-            />
-          </label>
+            <TaskTagPicker tags={state.tags ?? []} suggestions={tagSuggestions} label="quick capture"
+              disabled={saving || !state.available} onOpenChange={setTagsOpen}
+              onSave={async (tags) => {
+                captureTags.current = tags
+                setState((current) => ({ ...current, tags }))
+                await persistDraft(bodyRef.current)
+                return true
+              }} />
+          </div>
           {!!state.tags?.length && (
             <div className="capture-context-tags" aria-label="Capture tags">
               {state.tags.map((tag) => (

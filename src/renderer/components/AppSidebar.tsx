@@ -2,7 +2,6 @@ import type { ComponentProps } from 'react'
 import {
   CalendarDays,
   FolderKanban,
-  Info,
   Plus,
   Settings as SettingsIcon,
   Trash2
@@ -28,13 +27,11 @@ export function AppSidebar({
   view,
   nav,
   settings,
-  reviewCount,
   taxonomy
 }: {
   view: ViewName
   nav: (view: ViewName) => void
   settings: Settings | null
-  reviewCount: number
   taxonomy: ComponentProps<typeof TaxonomyNav>
 }) {
   return (
@@ -71,13 +68,6 @@ export function AppSidebar({
         )}
       </nav>
       <TaxonomyNav {...taxonomy} />
-      <nav className="side-nav">
-        <button className={view === 'review' ? 'active' : ''} onClick={() => nav('review')}>
-          <Info size={15} />
-          <span>Review subcategories</span>
-          <span className="side-count">{reviewCount || ''}</span>
-        </button>
-      </nav>
       <nav className="side-nav" aria-label="Trash">
         <button className={view === 'trash' ? 'active' : ''} onClick={() => nav('trash')}>
           <Trash2 size={16} />

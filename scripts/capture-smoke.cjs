@@ -18,6 +18,7 @@ app.whenReady().then(async () => {
   for (let attempt = 0; attempt < 50 && !findWindow('index'); attempt++) await wait(100)
   const notes = findWindow('index')
   if (!notes) throw new Error('Task window did not load')
+  notes.setSize(1400, 850)
   const originalExecute = notes.webContents.executeJavaScript.bind(notes.webContents)
   notes.webContents.executeJavaScript = async code => { try { return await originalExecute(code) } catch (error) { console.error('Failed main-window capture smoke step:', code); throw error } }
   for (let attempt = 0; attempt < 50; attempt++) {
@@ -48,10 +49,16 @@ app.whenReady().then(async () => {
   }
   await selectOption(code=>capture.webContents.executeJavaScript(code), '[aria-label="Capture category"]', categoryId)
   await selectOption(code=>capture.webContents.executeJavaScript(code), '[aria-label="Capture category"]', `subcategory:${subcategoryId}`)
-  await capture.webContents.executeJavaScript("document.querySelector('input[aria-label=\"Capture tags\"]').focus()")
-  await capture.webContents.executeJavaScript(`(() => { const input = document.querySelector('input[aria-label="Capture tags"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'focus, follow up'); input.dispatchEvent(new Event('input', { bubbles: true })); })()` )
+  await capture.webContents.executeJavaScript("document.querySelector('[aria-label=\"Edit tags for quick capture\"]').click()")
+  await wait(250)
+  for (const tag of ['focus', 'follow up']) {
+    await capture.webContents.executeJavaScript(`(() => { const input = document.querySelector('.task-tag-search input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(tag)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
+    await wait(100)
+    await capture.webContents.executeJavaScript("document.querySelector('.task-tag-search input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))")
+    await wait(150)
+  }
+  await capture.webContents.executeJavaScript("document.querySelector('.task-tag-search input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))")
   await wait(150)
-  await capture.webContents.executeJavaScript(`document.querySelector('input[aria-label="Capture tags"]').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, cancelable: true}))`)
   await capture.webContents.executeJavaScript("document.querySelector('.capture-input').focus()")
   await wait(300)
   const draft = await capture.webContents.executeJavaScript("window.captured.capture.getState()")

@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react'
 import { Check, Hash, Plus, Search } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from './ui/popover'
 
-export function TaskTagPicker({ tags, suggestions, label, disabled, onSave }: {
+export function TaskTagPicker({ tags, suggestions, label, disabled, onSave, onOpenChange }: {
   tags: string[]
   suggestions: string[]
   label: string
   disabled: boolean
+  onOpenChange?: (open: boolean) => void
   onSave: (tags: string[]) => Promise<boolean>
 }) {
   const [open, setOpen] = useState(false)
@@ -24,11 +25,11 @@ export function TaskTagPicker({ tags, suggestions, label, disabled, onSave }: {
     try { if (await onSave(next)) setQuery('') } finally { setSaving(false) }
   }
   return (
-    <Popover open={open} onOpenChange={value => { setOpen(value); if (!value) setQuery('') }}>
+    <Popover open={open} onOpenChange={value => { setOpen(value); onOpenChange?.(value); if (!value) setQuery('') }}>
       <PopoverTrigger disabled={disabled && !open} aria-label={`Edit tags for ${label}`}><Hash size={11} /> Tags</PopoverTrigger>
       <PopoverContent onKeyDown={event => event.stopPropagation()} align="end" className="task-tag-popover" aria-label={`Tags for ${label}`}>
         <PopoverTitle className="task-tag-title">Tags</PopoverTitle>
-        <label className="task-tag-search"><Search size={13} /><input autoFocus aria-label={`Find or create tags for ${label}`} placeholder="Find or create a tag…" value={query} maxLength={40} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && canCreate) { event.preventDefault(); void toggle(name) } }} /></label>
+        <label className="task-tag-search"><Search size={13} /><input autoFocus aria-label={`Find or create tags for ${label}`} placeholder="Find or create a tag..." value={query} maxLength={40} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && canCreate) { event.preventDefault(); void toggle(name) } }} /></label>
         <div className="task-tag-options" aria-label="Available tags">
           {matching.map(tag => <button key={tag} type="button" role="checkbox" aria-checked={tags.includes(tag)} disabled={disabled || saving || (!tags.includes(tag) && tags.length >= 20)} onClick={() => void toggle(tag)}><span>#{tag.replace(/^#+/, '')}</span>{tags.includes(tag) && <Check size={13} />}</button>)}
           {canCreate && <button type="button" disabled={disabled || saving || tags.length >= 20} onClick={() => void toggle(name)}><Plus size={13} /><span>Create #{name}</span></button>}

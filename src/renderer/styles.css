@@ -1037,3 +1037,6 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .capture-tag-control input { height: 28px; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text); font: inherit; }
 .capture-tag-control input::placeholder { color: var(--text-muted); }
 .capture-tag-control input:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+
+.capture-tag-control > button { padding: 5px 9px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text-secondary); font: inherit; }
+.task-tag-popover { max-height: calc(var(--available-height, 100vh) - 12px); overflow-y: auto; }

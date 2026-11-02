@@ -112,7 +112,7 @@ function placeCapture() {
 function createCaptureWindow() {
   if (captureWindow && !captureWindow.isDestroyed()) return captureWindow
   captureWindow = new BrowserWindow({
-    width: CAPTURE_WIDTH, height: 88, minWidth: 378, minHeight: 88, maxWidth: 1600, maxHeight: 340,
+    width: CAPTURE_WIDTH, height: 88, minWidth: 378, minHeight: 88, maxWidth: 1600, maxHeight: 480,
     show: false, frame: false, resizable: false, movable: false, minimizable: false, maximizable: false,
     skipTaskbar: true, alwaysOnTop: true, transparent: true, backgroundColor: '#00000000', hasShadow: false,
     webPreferences: { preload: path.join(__dirname, '../preload/capture.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
@@ -323,6 +323,7 @@ function registerIpc() {
     return captureState()
   })
   roleHandler('capture:categories', 'capture', () => requireStore().taxonomy().categories)
+  roleHandler('capture:tags', 'capture', () => requireStore().listTags())
   roleHandler('capture:subcategories', 'capture', () => requireStore().taxonomy().subcategories)
   roleHandler('capture:update-draft', 'capture', (_event, raw) => {
     const input = raw as { body: string; generation: number; revision: number; categoryId?: string | null; subcategoryId?: string | null; tags?:string[]; captureKind?: 'task' }
@@ -477,7 +478,7 @@ function registerIpc() {
     const win = captureWindow
     if (!win) return
     const display = displayForCapture()
-    const height = Math.round(Math.min(Math.max(88, rawHeight), Math.min(320, display.workArea.height - 24)))
+    const height = Math.round(Math.min(Math.max(88, rawHeight), Math.min(480, display.workArea.height - 24)))
     const current = win.getBounds()
     if (current.height === height) return
     const { x, y, width, height: workHeight } = display.workArea

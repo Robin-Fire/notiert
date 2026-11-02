@@ -149,6 +149,7 @@ export type capturedApi = {
     getState(): Promise<ApiResult<CaptureState>>
     categories(): Promise<ApiResult<Category[]>>
     subcategories(): Promise<ApiResult<Subcategory[]>>
+    tags(): Promise<ApiResult<string[]>>
     updateDraft(input: { body: string; generation: number; revision: number; categoryId: string | null; subcategoryId?: string | null; tags?:string[]; captureKind?: 'task' }): Promise<ApiResult<{ revision: number }>>
     flushBeforeQuit(input: { body: string; generation: number; revision: number; categoryId: string | null; subcategoryId?: string | null; tags?:string[]; captureKind?: 'task' }): Promise<ApiResult<{ revision: number }>>
     submit(input: z.infer<typeof CaptureSubmitSchema>): Promise<ApiResult<{ id: string }>>

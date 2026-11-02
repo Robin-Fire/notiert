@@ -986,7 +986,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
         view={view}
         nav={nav}
         settings={settings}
-        reviewCount={reviewCount}
         taxonomy={{
           categories,
           subcategories,

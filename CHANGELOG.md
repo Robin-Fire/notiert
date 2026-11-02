@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.1.18 - 2026-11-02
+
+- Show assigned tag colors in Tasks table rows, search results, and drag previews.
+- Remove Review subcategories from the sidebar.
+- Use the shared tag picker in quick capture and expand the window for open pickers.
+- Update application dependencies and the service coverage register.
+
 ## 0.1.17 - 2026-10-22
 
 - Include the pending task interface improvements omitted from 0.1.16.

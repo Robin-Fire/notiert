@@ -566,9 +566,10 @@ test('subcategory navigation filters by ID and editor category changes preserve 
 test('migration review supports explicit empty assignment and keeps Trash separate', async () => {
   const categoryId='77777777-7777-4777-8777-777777777777',subcategoryId='88888888-8888-4888-8888-888888888888'
   let resolved
-  const app=setup({taxonomy:async()=>({ok:true,value:{categories:[{id:categoryId,name:'Work'}],subcategories:[{id:subcategoryId,name:'Project',categoryId,color:'#85858e',count:1}],tags:[]}}),itemsApi:{migrationReview:async()=>({ok:true,value:[{noteId,reason:'multiple-matching-subcategories',candidates:[subcategoryId]},{noteId:captureId,reason:'foreign-category-labels',candidates:[subcategoryId]}]}),get:async id=>({ok:true,value:{...makeNote(id,id===noteId?'Ambiguous task':'Deleted task','task',categoryId),deletedAt:id===captureId?1:null}}),resolveMigrationReview:async input=>{resolved=input;return {ok:true,value:undefined}}}})
+  const app=setup({taxonomy:async()=>({ok:true,value:{categories:[{id:categoryId,name:'Work'}],subcategories:[{id:subcategoryId,name:'Project',categoryId,color:'#85858e',count:1}],tags:[]}}),itemsApi:{migrationStatus:async()=>({ok:true,value:{upgraded:true,acknowledged:false}}),migrationReview:async()=>({ok:true,value:[{noteId,reason:'multiple-matching-subcategories',candidates:[subcategoryId]},{noteId:captureId,reason:'foreign-category-labels',candidates:[subcategoryId]}]}),get:async id=>({ok:true,value:{...makeNote(id,id===noteId?'Ambiguous task':'Deleted task','task',categoryId),deletedAt:id===captureId?1:null}}),resolveMigrationReview:async input=>{resolved=input;return {ok:true,value:undefined}}}})
   try {
-    fireEvent.click(await screen.findByRole('button',{name:/Review subcategories/}))
+    assert.equal(screen.queryByRole('button',{name:/Review subcategories/}),null)
+    fireEvent.click(await screen.findByRole('button',{name:'Review assignments'}))
     await screen.findByRole('button',{name:'Ambiguous task'})
     assert.equal(screen.queryByRole('button',{name:/Deleted task/}),null)
     fireEvent.click(screen.getByRole('checkbox',{name:'Include Trash'}))
