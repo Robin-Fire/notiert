@@ -47,9 +47,29 @@ app.whenReady().then(async () => {
     if (await capture.webContents.executeJavaScript("Boolean(document.querySelector('[aria-label=\"Capture category\"]'))")) break
     await wait(100)
   }
+  const cardBounds = async () => { const bounds = await capture.webContents.executeJavaScript(`(() => { const r = document.querySelector('.capture-card').getBoundingClientRect(); return { height: r.height, bottom: r.bottom } })()`); return { ...bounds, bottom: bounds.bottom + capture.getBounds().y } }
+  const initialCard = await cardBounds()
+  for (let i = 0; i < 12; i++) await notes.webContents.executeJavaScript(`window.captured.items.createCategory('Picker option ${i}')`)
+  await wait(200)
+  async function checkUpwardPicker(trigger, popup) {
+    capture.show(); capture.focus(); await wait(200)
+    await capture.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(trigger)}).click()`)
+    await wait(500)
+    const geometry = await capture.webContents.executeJavaScript(`(() => {
+      const popup = document.querySelector(${JSON.stringify(popup)}), trigger = document.querySelector(${JSON.stringify(trigger)})
+      const p = popup.getBoundingClientRect(), t = trigger.getBoundingClientRect(), card = document.querySelector('.capture-card').getBoundingClientRect()
+      return { side: popup.dataset.side, top: p.top, bottom: p.bottom, triggerTop: t.top, cardTop: card.top }
+    })()`)
+    if (geometry.side !== 'top' || geometry.bottom > geometry.triggerTop + 1 || geometry.top < 0) throw Error(`Picker must open above its trigger within the window: ${JSON.stringify(geometry)}`)
+    const expandedCard = await cardBounds()
+    if (Math.abs(expandedCard.height - initialCard.height) > 1 || Math.abs(expandedCard.bottom - initialCard.bottom) > 2) throw Error('Opening a picker moved or expanded the capture card: ' + JSON.stringify({ initialCard, expandedCard }))
+    return geometry
+  }
+  const categoryGeometry = await checkUpwardPicker('[aria-label="Capture category"]', '[data-slot="select-content"]')
+  if (categoryGeometry.top >= categoryGeometry.cardTop) throw Error('Long category dropdown should extend beyond the card')
   await selectOption(code=>capture.webContents.executeJavaScript(code), '[aria-label="Capture category"]', categoryId)
   await selectOption(code=>capture.webContents.executeJavaScript(code), '[aria-label="Capture category"]', `subcategory:${subcategoryId}`)
-  await capture.webContents.executeJavaScript("document.querySelector('[aria-label=\"Edit tags for quick capture\"]').click()")
+  await checkUpwardPicker('[aria-label="Edit tags for quick capture"]', '[data-slot="popover-content"]')
   await wait(250)
   for (const tag of ['focus', 'follow up']) {
     await capture.webContents.executeJavaScript(`(() => { const input = document.querySelector('.task-tag-search input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(tag)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)

@@ -184,6 +184,7 @@ export type capturedApi = {
     deleteTag(id: string): Promise<ApiResult<void>>
     get(id: string): Promise<ApiResult<(ItemRecord & { meetingTitle: string | null }) | PlannerTask | null>>
     image(id: string): Promise<ApiResult<string>>
+    copyImage(dataUrl: string): Promise<ApiResult<void>>
     update(input: z.infer<typeof ItemBodyUpdateSchema>): Promise<ApiResult<ItemRecord>>
     updateItem(input: ItemUpdate): Promise<ApiResult<ItemRecord & { meetingTitle: string | null }>>
     setCategory(input: z.infer<typeof ItemCategorySchema>): Promise<ApiResult<void>>

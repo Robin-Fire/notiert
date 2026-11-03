@@ -26,6 +26,7 @@ const api: Omit<capturedApi, 'capture'> = {
     update: (input) => ipcRenderer.invoke('items:update', input), updateItem: (input) => ipcRenderer.invoke('items:update-item', input), setCategory: (input) => ipcRenderer.invoke('items:set-category', input), trash: (ids) => ipcRenderer.invoke('items:trash', ids),
     setTags: (input) => ipcRenderer.invoke('items:set-tags', input),
     restore: (ids) => ipcRenderer.invoke('items:restore', ids), deletePermanently: (ids) => ipcRenderer.invoke('items:delete-permanently', ids),
+    copyImage: dataUrl => ipcRenderer.invoke('items:copy-image', dataUrl),
     copy: (ids) => ipcRenderer.invoke('items:copy', ids),
     emptyTrash: () => ipcRenderer.invoke('items:empty-trash'),
     onChanged: (callback) => { const listener = (_event: Electron.IpcRendererEvent, seq: number) => callback(seq); ipcRenderer.on('items:changed', listener); return () => ipcRenderer.removeListener('items:changed', listener) },

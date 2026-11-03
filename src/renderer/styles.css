@@ -57,7 +57,7 @@
   --color-muted-foreground: var(--text-secondary);
   --color-border: var(--border);
   --color-input: var(--border);
-  --color-ring: var(--blue);
+  --color-ring: var(--focus-ring);
   --color-primary: var(--blue);
   --color-primary-foreground: var(--accent-text);
   --color-secondary: var(--surface-raised);
@@ -86,6 +86,7 @@
 }
 
 :root {
+  --focus-ring: var(--text-secondary);
   --type-caption: 0.75rem;
   --type-secondary: 0.8125rem;
   --type-body: 0.875rem;
@@ -160,12 +161,14 @@ button, input, textarea, select { color: inherit; font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .52; }
 ::selection { background: #b9d0ff; color: #101014; }
-:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+:is(input, textarea, select, [data-slot=select-trigger]):focus-visible { outline-width: 1px; outline-offset: -1px; }
+:root .dialog-card :is(input, textarea, select, [data-slot=select-trigger]):focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
 kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place-items: center; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-raised); color: var(--text-secondary); font: var(--type-caption)/1 var(--font-mono); }
 
 /* The capture bar remains a single calm surface floating over the active work. */
-.capture-shell { width: 100%; height: 100%; padding: 6px 9px 9px; background: transparent; }
-.capture-card { position: relative; height: 100%; overflow-x: hidden; overflow-y: auto; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); color: var(--text); box-shadow: 0 2px 6px rgb(0 0 0 / 12%); scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.capture-shell { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; height: 100%; padding: 6px 9px 9px; background: transparent; }
+.capture-card { position: relative; flex: 0 1 auto; max-height: 100%; overflow-x: hidden; overflow-y: auto; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); color: var(--text); box-shadow: 0 2px 6px rgb(0 0 0 / 12%); scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
 .capture-content { display: flex; flex-direction: column; }
 .capture-header { display: flex; min-height: 42px; align-items: center; gap: 10px; padding: 7px 12px 5px 16px; }
 .capture-heading { padding-left: 10px; border-left: 1px solid var(--border); color: var(--text-secondary); font-size: var(--type-secondary); }
@@ -184,7 +187,7 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .capture-category-control > span { min-width: 70px; }
 .capture-category-control select { width: 100%; min-width: 0; height: 28px; padding: 0 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text-secondary); font: var(--type-secondary)/1.2 var(--font-sans); transition: border-color 120ms ease; }
 .capture-category-control select:hover { border-color: var(--border-strong); }
-.capture-category-control select:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.capture-category-control select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .capture-category-control select option { background: var(--surface); color: var(--text); }
 .capture-images { display: flex; min-height: 58px; flex: 0 0 58px; gap: 7px; overflow-x: auto; padding: 2px 15px 8px; }
 .capture-image { position: relative; width: 58px; height: 48px; flex: 0 0 58px; overflow: hidden; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-raised); }
@@ -351,7 +354,7 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .filter-pill { min-height: 25px; max-width: 180px; padding: 3px 10px; overflow: hidden; border: 1px solid var(--border); border-radius: 100px; background: var(--page); color: var(--text-secondary); font-size: var(--type-secondary); line-height: 16px; text-overflow: ellipsis; white-space: nowrap; transition: border-color 110ms ease, background 110ms ease, color 110ms ease; }
 .filter-pill:hover { border-color: var(--border-strong); color: var(--text); }
 .filter-pill.is-selected { border-color: var(--accent); background: var(--accent); color: var(--accent-text); }
-.filter-pill:focus-visible, .filter-clear:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.filter-pill:focus-visible, .filter-clear:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .filter-hint { padding-top: 5px; color: var(--text-muted); font-size: var(--type-secondary); }
 .filter-clear { flex: 0 0 auto; margin-left: auto; padding: 4px 2px; border: 0; background: transparent; color: var(--text-secondary); font-size: var(--type-secondary); text-decoration: underline; text-underline-offset: 2px; }
 .filter-clear:disabled { color: var(--text-muted); opacity: .6; text-decoration: none; cursor: default; }
@@ -508,7 +511,7 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .dialog-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 18px; }
 .dialog-actions .primary { min-width: 83px; }
 .setup-backdrop { background: rgb(8 8 10 / 44%); }
-.setup-dialog { width: min(100%, 440px); padding: 29px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 25px 90px rgb(0 0 0 / 27%); }
+.setup-dialog { max-height: calc(100dvh - 44px); overflow-y: auto; width: min(100%, 440px); padding: 29px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 25px 90px rgb(0 0 0 / 27%); }
 .setup-brand { display: flex; align-items: center; gap: 8px; font: var(--type-body) var(--font-mono); letter-spacing: -.04em; }
 .setup-brand small { margin-left: auto; color: var(--text-muted); font-size: var(--type-caption); letter-spacing: .08em; }
 .setup-dialog h2 { margin: 27px 0 9px; font-size: 25px; line-height: 1.15; font-weight: 600; letter-spacing: -.05em; }
@@ -725,19 +728,19 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .task-overlay { width: 240px; padding: 10px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); box-shadow: var(--shadow-card); color: var(--text); font-size: var(--type-secondary); }
 .planner-empty-note { padding: 12px 2px 3px; color: var(--text-muted); font-size: var(--type-caption); }
 .calendar-source-note { flex: 0 0 auto; padding-top: 8px; color: var(--text-muted); font-size: var(--type-caption); }
-.event-dialog { display: grid; gap: 10px; }
+.event-dialog { display: grid; width: min(100%, 480px); gap: 14px; }
 .event-dialog h2 { margin-bottom: 0; }
 .event-dialog label { display: grid; gap: 5px; color: var(--text-secondary); font-size: var(--type-caption); }
 .event-dialog .text-field { width: 100%; }
-.event-dialog-kicker { display: flex; align-items: center; gap: 6px; color: var(--blue); font: var(--type-caption) var(--font-mono); letter-spacing: .08em; }
-.event-form-times { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.event-dialog-kicker { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font: var(--type-caption) var(--font-mono); letter-spacing: .08em; }
+.event-form-times { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .all-day-choice { display: flex !important; grid-template-columns: auto 1fr !important; align-items: center; }
 .all-day-choice input { accent-color: var(--blue); }
 .event-dialog > p { margin: 0; color: var(--text-muted); font-size: var(--type-caption); line-height: 1.45; }
 .task-detail-dialog { display: grid; width: min(100%, 560px); gap: 10px; }
 .task-detail-dialog > label { display: grid; gap: 5px; color: var(--text-secondary); font-size: var(--type-caption); }
 .task-detail-tags { display: grid; gap: 5px; color: var(--text-secondary); font-size: var(--type-secondary); }
-.task-detail-editor { min-height: 230px; resize: vertical; }
+.task-detail-editor { width: 100%; min-height: 180px; margin: 0; resize: vertical; }
 .task-detail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .task-detail-actions > span { flex: 1 1 auto; }
 .task-detail-actions .danger-action { color: var(--red); }
@@ -747,7 +750,7 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .planner-undo-toast button { margin-left: 9px; padding: 2px 5px; border: 0; background: transparent; color: var(--blue); font-weight: 600; }
 .tag-editor { display: grid; min-width: 0; gap: 4px; }
 .tag-editor-field { display: flex; min-height: 34px; align-items: center; flex-wrap: wrap; gap: 4px; padding: 4px 7px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text-muted); }
-.tag-editor-field:focus-within { border-color: var(--border-strong); box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 10%, transparent); }
+.tag-editor-field:focus-within { border-color: var(--border-strong); box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 12%, transparent); }
 .tag-editor-field > svg { flex: 0 0 auto; }
 .tag-chip { display: inline-flex; max-width: 100%; align-items: center; gap: 3px; padding: 3px 4px 3px 7px; border-radius: 4px; background: var(--surface-raised); color: var(--text-secondary); font-size: var(--type-secondary); white-space: nowrap; }
 .tag-chip button { display: grid; width: 17px; height: 17px; flex: 0 0 auto; place-items: center; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--text-muted); }
@@ -1008,7 +1011,7 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 
 /* Keep the shared editor's single Save action visible while its fields scroll. */
 .dialog-card.task-detail-dialog { display: flex; flex-direction: column; overflow: hidden; }
-.task-detail-content { display: grid; gap: 10px; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 8px; }
+.task-detail-content { display: grid; align-content: start; gap: 14px; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 8px; }
 .task-detail-content > label { display: grid; gap: 5px; color: var(--text-secondary); font-size: var(--type-caption); }
 .task-detail-content > .task-move-time-block { display: flex; align-items: center; gap: 8px; }
 .task-detail-actions { flex-shrink: 0; background: var(--surface); }
@@ -1021,11 +1024,11 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .task-tag-title { font-size: var(--type-secondary); font-weight: 600; }
 .task-tag-search { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; color: var(--text-muted); }
 .task-tag-search input { width: 100%; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text); font-size: var(--type-secondary); }
-.task-tag-search:focus-within { border-color: var(--blue); }
+.task-tag-search:focus-within { border-color: var(--focus-ring); }
 .task-tag-options { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; gap: 2px; }
 .task-tag-options button { display: flex; align-items: center; gap: 6px; padding: 7px 8px; border: 0; border-radius: 4px; color: var(--text-secondary); background: transparent; text-align: left; font-size: var(--type-secondary); }
 .task-tag-options button span { flex: 1; overflow-wrap: anywhere; }
-.task-tag-options button:hover, .task-tag-options button:focus-visible { background: var(--blue-soft); color: var(--blue); }
+.task-tag-options button:hover, .task-tag-options button:focus-visible { background: var(--surface-raised); color: var(--text); }
 .task-tag-options button:disabled { opacity: .5; }
 .task-tag-options p, .task-tag-popover small { margin: 4px 0; color: var(--text-muted); font-size: var(--type-caption); }
 
@@ -1036,7 +1039,34 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .capture-category-control .app-select, .capture-tag-control input { flex: 1; min-width: 0; width: 100%; }
 .capture-tag-control input { height: 28px; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text); font: inherit; }
 .capture-tag-control input::placeholder { color: var(--text-muted); }
-.capture-tag-control input:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.capture-tag-control input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
-.capture-tag-control > button { padding: 5px 9px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text-secondary); font: inherit; }
+.capture-tag-control > button { height: 25px; min-height: 25px; padding: 2px 7px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 5px; background: transparent; color: var(--text-secondary); font-size: 11px; line-height: 1; }
+.capture-tag-control > button:hover:not(:disabled), .capture-tag-control > button[data-popup-open] { background: var(--surface-raised); color: var(--text); }
+.capture-tag-control > button svg { width: 11px; height: 11px; }
 .task-tag-popover { max-height: calc(var(--available-height, 100vh) - 12px); overflow-y: auto; }
+
+/* Shared dialog rhythm: aligned fields, quiet surfaces, and distinct action rows. */
+.dialog-card, .taxonomy-dialog { padding: 22px; border-radius: 10px; }
+.taxonomy-dialog { width: min(390px, calc(100vw - 32px)); max-height: calc(100dvh - 44px); overflow-y: auto; box-shadow: 0 20px 70px rgb(0 0 0 / 23%); }
+.taxonomy-dialog [data-slot=dialog-title] { padding-right: 24px; font-size: 16px; font-weight: 600; line-height: 1.4; }
+.taxonomy-dialog [data-slot=dialog-close] { top: 15px; right: 15px; color: var(--text-secondary); }
+[data-slot=dialog-overlay] { background: rgb(8 8 10 / 47%); backdrop-filter: blur(4px); }
+.dialog-card :is(label, .category-picker), .event-form-times > label { min-width: 0; }
+.dialog-card label .app-select, .dialog-card .text-field { width: 100%; min-width: 0; min-height: 33px; }
+.dialog-card .category-picker { gap: 12px; padding: 0; }
+.dialog-actions { flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 16px; border-top: 1px solid var(--border); }
+.dialog-actions .danger-action { margin-right: auto; color: var(--red); }
+.taxonomy-dialog-form .dialog-actions { margin-top: 2px; }
+.task-detail-actions { gap: 12px; padding-top: 14px; }
+.browser-capture-dialog { display: grid; gap: 14px; }
+.browser-capture-dialog > label { display: grid; gap: 5px; color: var(--text-secondary); font-size: var(--type-secondary); }
+.browser-capture-dialog textarea { margin: 0; }
+.browser-capture-dialog h2 { margin: 0; }
+@media (max-width: 520px) {
+  .modal-backdrop { padding: 16px; }
+  .dialog-card { max-width: 100%; padding: 18px; max-height: calc(100dvh - 32px); }
+  .event-form-times { grid-template-columns: minmax(0, 1fr); }
+  .dialog-card .category-picker { grid-template-columns: minmax(0, 1fr); }
+  .task-detail-secondary-actions, .task-detail-primary-actions { gap: 8px; }
+}

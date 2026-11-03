@@ -426,13 +426,20 @@ export function SettingsPanel({
       </section>
       {firstRun && (
         <div className="modal-backdrop setup-backdrop">
-          <div className="setup-dialog">
+          <div className="setup-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-title"
+            onKeyDown={(event) => {
+              if (event.key !== 'Tab') return
+              const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)')]
+              if (event.shiftKey && document.activeElement === controls[0]) { event.preventDefault(); controls.at(-1)?.focus() }
+              else if (!event.shiftKey && document.activeElement === controls.at(-1)) { event.preventDefault(); controls[0]?.focus() }
+            }}>
+
             <div className="setup-brand">
               <span className="brand-glyph">c</span>
               <span>captured</span>
               <small>FIRST RUN</small>
             </div>
-            <h2>
+            <h2 id="setup-title">
               Catch a thought.
               <br />
               Keep your place.
@@ -442,6 +449,7 @@ export function SettingsPanel({
             </p>
             <div className="setup-shortcuts">
               <button
+                autoFocus
                 className={onboardingShortcut === 'Control+N' ? 'selected' : ''}
                 onClick={() => setOnboardingShortcut('Control+N')}
               >

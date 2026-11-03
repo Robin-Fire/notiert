@@ -32,20 +32,8 @@ export function ItemImages({ images, expanded = false, onRemove, disabled = fals
     setCopied(null)
     setCopyNotice('')
     try {
-      const blob = await (await fetch(sources[id])).blob()
-      // Clipboard image writes require PNG, including for JPEG/WebP attachments.
-      const bitmap = await createImageBitmap(blob)
-      let png: Blob
-      try {
-        const canvas = document.createElement('canvas')
-        canvas.width = bitmap.width
-        canvas.height = bitmap.height
-        const context = canvas.getContext('2d')
-        if (!context) throw new Error('Image conversion unavailable')
-        context.drawImage(bitmap, 0, 0)
-        png = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('Image conversion failed')), 'image/png'))
-      } finally { bitmap.close() }
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })])
+      const result = await window.captured.items.copyImage(sources[id])
+      if (!result.ok) throw new Error(result.message)
       setCopied(id)
       setCopyNotice('Image copied to clipboard.')
     } catch { setCopyNotice('Could not copy image. Please try again.') }

@@ -108,14 +108,14 @@ export function Capture() {
   useLayoutEffect(() => {
     const content = contentRef.current
     if (!content) return
-    // Measure the actual layout, including wrapped tags and storage messages.
+    // Keep the card anchored while reserving transparent space for upward pickers.
     const updateHeight = () =>
-      resizeCapture(Math.min(480, Math.max(280, Math.ceil(content.getBoundingClientRect().height) + 17)))
+      resizeCapture(Math.min(480, Math.max(280, Math.ceil(content.getBoundingClientRect().height) + 17)) + (tagsOpen || categoryOpen ? 320 : 0))
     const observer = new ResizeObserver(updateHeight)
     observer.observe(content)
     updateHeight()
     return () => observer.disconnect()
-  }, [resizeCapture])
+  }, [resizeCapture, tagsOpen, categoryOpen])
 
   const persistDraft = useCallback(
     async (draft: string, selectedCategory = categoryId.current) => {
@@ -330,7 +330,7 @@ export function Capture() {
   return (
     <main className="capture-shell" aria-label="Capture a thought">
       <div className="capture-card">
-        <div className="capture-content" ref={contentRef} style={{ minHeight: tagsOpen || categoryOpen ? 463 : 263 }}>
+        <div className="capture-content" ref={contentRef} style={{ minHeight: 263 }}>
           <header className="capture-header">
             <span className="wordmark">captured</span>
             <span className="capture-heading">Quick capture</span>
@@ -381,6 +381,7 @@ export function Capture() {
               <span>Category</span>
               <AppSelect
                 aria-label="Capture category"
+                side="top"
                 onOpenChange={setCategoryOpen}
                 disabled={saving}
                 value={state.subcategoryId ? `subcategory:${state.subcategoryId}` : state.categoryId ?? ''}
@@ -413,7 +414,7 @@ export function Capture() {
           <div className="capture-category-control capture-tag-control">
             <Tag size={13} />
             <span>Tags</span>
-            <TaskTagPicker tags={state.tags ?? []} suggestions={tagSuggestions} label="quick capture"
+            <TaskTagPicker tags={state.tags ?? []} suggestions={tagSuggestions} label="quick capture" side="top"
               disabled={saving || !state.available} onOpenChange={setTagsOpen}
               onSave={async (tags) => {
                 captureTags.current = tags

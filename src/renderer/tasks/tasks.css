@@ -61,7 +61,7 @@
 .tasks-drag-row .tasks-table-tag { display: inline-block; }
 .tasks-drag-backlog > .tasks-table-tags { flex: 0 1 320px; }
 .tasks-drop-target { min-height: 38px; padding: 10px 12px; box-sizing: border-box; border: 1px dashed var(--border-strong); background: color-mix(in srgb, var(--blue-soft) 30%, var(--surface)); color: var(--text-muted); font-size: var(--type-caption); text-align: center; }
-.tasks-drop-target.is-over { background: var(--blue-soft); color: var(--blue); outline: 2px solid var(--blue); outline-offset: -2px; }
+.tasks-drop-target.is-over { background: var(--blue-soft); color: var(--blue); outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .tasks-group-table .tasks-drop-target td { height: 38px; padding: 10px 12px; }
 .backlog-group.is-dropzone, .tasks-section.is-dragging, .tasks-board.is-dragging .tasks-column.is-collapsed { border: 1px dashed var(--border-strong); }
 .backlog-group.is-over { border-color: var(--blue); background: var(--blue-soft); }
@@ -70,12 +70,12 @@
 .tasks-group-table tr.drop-before td { box-shadow: inset 0 2px var(--blue); }
 .tasks-group-table tr.drop-after td { box-shadow: inset 0 -2px var(--blue); }
 .tasks-more { display: flex; gap: 7px; flex-wrap: wrap; flex-shrink: 0; }
-.tasks-dialog { width: 430px; }
+.tasks-dialog { width: min(100%, 460px); }
 .tasks-dialog form { display: grid; gap: 12px; }
 .tasks-dialog label { display: grid; gap: 5px; font-size: var(--type-secondary); }
 .tasks-dialog textarea { min-height: 95px; resize: vertical; padding: 9px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 5px; }
 .tasks-dialog p { color: var(--text-muted); font-size: var(--type-secondary); }
-.tasks-page :is(button,input,select,textarea):focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.tasks-page :is(button,input,select,textarea):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 @media (max-width: 1000px) { .tasks-page { padding: 20px 14px 12px; } .tasks-layout-switch { margin-left: 0; } }
 @media (prefers-reduced-motion: reduce) { .tasks-card { transition: none !important; } }
 

@@ -2,7 +2,7 @@ import { horizonOf, horizonLabels } from '../shared/taskHorizons'
 import { TasksQuerySchema, TaskWorkspaceMoveSchema, TaskWorkspaceUndoSchema, TaskWorkspaceCreateSchema } from '../shared/contracts'
 import { z as Z } from 'zod'
 import { ItemUpdateSchema, TaskCompletionSchema, TaskCompletionUndoSchema } from '../shared/contracts'
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, Menu, powerMonitor, screen, shell, Tray, type Display } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, globalShortcut, Menu, nativeImage, powerMonitor, screen, shell, Tray, type Display } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -112,7 +112,7 @@ function placeCapture() {
 function createCaptureWindow() {
   if (captureWindow && !captureWindow.isDestroyed()) return captureWindow
   captureWindow = new BrowserWindow({
-    width: CAPTURE_WIDTH, height: 88, minWidth: 378, minHeight: 88, maxWidth: 1600, maxHeight: 480,
+    width: CAPTURE_WIDTH, height: 88, minWidth: 378, minHeight: 88, maxWidth: 1600, maxHeight: 800,
     show: false, frame: false, resizable: false, movable: false, minimizable: false, maximizable: false,
     skipTaskbar: true, alwaysOnTop: true, transparent: true, backgroundColor: '#00000000', hasShadow: false,
     webPreferences: { preload: path.join(__dirname, '../preload/capture.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
@@ -380,6 +380,12 @@ function registerIpc() {
   roleHandler('items:tag:delete', 'tasks', (_event, raw) => { requireStore().deleteTag(IdsSchema.element.parse(raw)); broadcastTaxonomyChange() })
   roleHandler('items:get', 'tasks', (_event, id) => requireStore().getItem(String(id)))
   roleHandler('items:image', 'tasks', (_event, id) => requireStore().getItemImage(String(id)))
+  roleHandler('items:copy-image', 'tasks', async (_event, raw) => {
+    const dataUrl = Z.string().max(7_000_000).regex(/^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/).parse(raw)
+    const image = nativeImage.createFromDataURL(dataUrl)
+    if (image.isEmpty()) throw new AppError('INVALID_IMAGE', 'This image could not be copied.')
+    await clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }) })])
+  })
   roleHandler('items:update', 'tasks', (_event, raw) => { const input = ItemBodyUpdateSchema.parse(raw); const result = requireStore().updateItemBody(input.id, input.expectedRevision, input.body); broadcastChange('tasks'); return result })
   roleHandler('items:update-item', 'tasks', (_event, raw) => {
     const result = requireStore().saveItem(ItemUpdateSchema.parse(raw))
@@ -478,7 +484,7 @@ function registerIpc() {
     const win = captureWindow
     if (!win) return
     const display = displayForCapture()
-    const height = Math.round(Math.min(Math.max(88, rawHeight), Math.min(480, display.workArea.height - 24)))
+    const height = Math.round(Math.min(Math.max(88, rawHeight), Math.min(800, display.workArea.height - 24)))
     const current = win.getBounds()
     if (current.height === height) return
     const { x, y, width, height: workHeight } = display.workArea

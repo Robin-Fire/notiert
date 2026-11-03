@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.1.19 - 2026-11-03
+
+- Fix copying attached task images through the native clipboard, including JPEG images.
+- Open Quick Capture category and tag pickers upward, with space beyond the capture card.
+- Make the Quick Capture tags button match the compact category picker.
+- Align modal fields and actions, improve scrolling and narrow layouts, and use neutral focus indicators.
+- Improve keyboard focus containment in capture and first-run dialogs.
+
 ## 0.1.18 - 2026-11-02
 
 - Show assigned tag colors in Tasks table rows, search results, and drag previews.
