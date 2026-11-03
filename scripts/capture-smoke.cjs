@@ -51,10 +51,21 @@ app.whenReady().then(async () => {
   const initialCard = await cardBounds()
   for (let i = 0; i < 12; i++) await notes.webContents.executeJavaScript(`window.captured.items.createCategory('Picker option ${i}')`)
   await wait(200)
+  let pickerResizes = 0
+  capture.on('resize', () => { pickerResizes++ })
+  async function checkFooter() {
+    const gap = await capture.webContents.executeJavaScript(`document.querySelector('.capture-card').getBoundingClientRect().bottom - document.querySelector('.capture-footer').getBoundingClientRect().bottom`)
+    if (gap > 2) throw Error(`Capture has unused space below footer: ${gap}`)
+  }
+  await checkFooter()
   async function checkUpwardPicker(trigger, popup) {
     capture.show(); capture.focus(); await wait(200)
-    await capture.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(trigger)}).click()`)
+    await capture.webContents.executeJavaScript(`document.querySelector('.capture-input').focus()`)
+    const point = await capture.webContents.executeJavaScript(`(() => { const r = document.querySelector(${JSON.stringify(trigger)}).getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } })()`)
+    capture.webContents.sendInputEvent({type:'mouseDown', ...point, button:'left', clickCount:1})
+    capture.webContents.sendInputEvent({type:'mouseUp', ...point, button:'left', clickCount:1})
     await wait(500)
+    if (!capture.isVisible()) throw Error('Moving focus into a picker hid the capture panel')
     const geometry = await capture.webContents.executeJavaScript(`(() => {
       const popup = document.querySelector(${JSON.stringify(popup)}), trigger = document.querySelector(${JSON.stringify(trigger)})
       const p = popup.getBoundingClientRect(), t = trigger.getBoundingClientRect(), card = document.querySelector('.capture-card').getBoundingClientRect()
@@ -83,6 +94,13 @@ app.whenReady().then(async () => {
   await wait(300)
   const draft = await capture.webContents.executeJavaScript("window.captured.capture.getState()")
   if (!draft.ok || draft.value.subcategoryId !== subcategoryId || draft.value.tags.join(',') !== 'focus,follow up') throw new Error(`Capture metadata not persisted: ${JSON.stringify(draft)}`)
+  await checkFooter()
+  if (!capture.isVisible()) throw Error('Choosing capture metadata hid the panel')
+  if (pickerResizes !== 0) throw Error(`Picker interactions resized the native window ${pickerResizes} times`)
+  const visualOutput = path.resolve(__dirname, '../tests/.visual')
+  fs.mkdirSync(visualOutput, {recursive:true})
+  const card = await capture.webContents.executeJavaScript(`(() => { const r = document.querySelector('.capture-card').getBoundingClientRect(); return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.ceil(r.width),height:Math.ceil(r.height)} })()`)
+  fs.writeFileSync(path.join(visualOutput, 'quick-capture-no-gap.png'), (await capture.webContents.capturePage(card)).toPNG())
   capture.webContents.insertText('Capture smoke test')
   await wait(400)
   const before = await capture.webContents.executeJavaScript("({ text: document.querySelector('.capture-input').value, disabled: document.querySelector('.capture-submit')?.disabled, error: document.querySelector('.capture-alert')?.innerText })")

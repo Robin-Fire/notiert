@@ -26,8 +26,6 @@ export function Capture() {
   const [subcategories, setSubcategories] = useState<Subcategory[]>([])
   const captureTags = useRef<string[]>([])
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([])
-  const [tagsOpen, setTagsOpen] = useState(false)
-  const [categoryOpen, setCategoryOpen] = useState(false)
   const subcategoryId = useRef<string | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
   const [body, setBody] = useState('')
@@ -40,20 +38,12 @@ export function Capture() {
   const imagePendingRef = useRef(false)
   const requestIdRef = useRef<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const contentRef = useRef<HTMLDivElement>(null)
   const revision = useRef(0)
   const generation = useRef(0)
   const categoryId = useRef<string | null>(null)
   const draftTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const bodyRef = useRef('')
-  const requestedHeight = useRef<number | null>(null)
   bodyRef.current = body
-
-  const resizeCapture = useCallback((height: number) => {
-    if (requestedHeight.current === height) return
-    requestedHeight.current = height
-    window.captured.capture.resize(height)
-  }, [])
 
   useEffect(() => {
     const refreshCategories = async () => {
@@ -106,16 +96,10 @@ export function Capture() {
   }, [body])
 
   useLayoutEffect(() => {
-    const content = contentRef.current
-    if (!content) return
-    // Keep the card anchored while reserving transparent space for upward pickers.
-    const updateHeight = () =>
-      resizeCapture(Math.min(480, Math.max(280, Math.ceil(content.getBoundingClientRect().height) + 17)) + (tagsOpen || categoryOpen ? 320 : 0))
-    const observer = new ResizeObserver(updateHeight)
-    observer.observe(content)
-    updateHeight()
-    return () => observer.disconnect()
-  }, [resizeCapture, tagsOpen, categoryOpen])
+    // Reserve menu space once. Resizing a transparent native window on each
+    // picker interaction makes the entire card flash on Windows.
+    window.captured.capture.resize(800)
+  }, [])
 
   const persistDraft = useCallback(
     async (draft: string, selectedCategory = categoryId.current) => {
@@ -328,9 +312,11 @@ export function Capture() {
     setError('Text copied. It is still here until you close this bar.')
   }
   return (
-    <main className="capture-shell" aria-label="Capture a thought">
+    <main className="capture-shell" aria-label="Capture a thought" onPointerDown={event => {
+      if (event.target === event.currentTarget) void flushDraft().finally(() => window.captured.capture.dismiss('blur'))
+    }}>
       <div className="capture-card">
-        <div className="capture-content" ref={contentRef} style={{ minHeight: 263 }}>
+        <div className="capture-content">
           <header className="capture-header">
             <span className="wordmark">captured</span>
             <span className="capture-heading">Quick capture</span>
@@ -368,12 +354,7 @@ export function Capture() {
             onPaste={onPaste}
             onCompositionStart={() => setComposing(true)}
             onCompositionEnd={(_event: CompositionEvent<HTMLTextAreaElement>) => setComposing(false)}
-            onBlur={(event) => {
-              void flushDraft()
-              const next = event.relatedTarget
-              if (!(next instanceof Node && event.currentTarget.closest('.capture-card')?.contains(next)))
-                void window.captured.capture.dismiss('blur')
-            }}
+            onBlur={() => { void flushDraft() }}
           />
           {categories.length > 0 && (
             <label className="capture-category-control">
@@ -382,7 +363,6 @@ export function Capture() {
               <AppSelect
                 aria-label="Capture category"
                 side="top"
-                onOpenChange={setCategoryOpen}
                 disabled={saving}
                 value={state.subcategoryId ? `subcategory:${state.subcategoryId}` : state.categoryId ?? ''}
                 onChange={(event) => {
@@ -415,7 +395,7 @@ export function Capture() {
             <Tag size={13} />
             <span>Tags</span>
             <TaskTagPicker tags={state.tags ?? []} suggestions={tagSuggestions} label="quick capture" side="top"
-              disabled={saving || !state.available} onOpenChange={setTagsOpen}
+              disabled={saving || !state.available}
               onSave={async (tags) => {
                 captureTags.current = tags
                 setState((current) => ({ ...current, tags }))

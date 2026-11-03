@@ -184,3 +184,7 @@
 
 .tasks-priority-buttons { display: flex; gap: 3px; min-width: 0; overflow-x: auto; }
 .tasks-quick-buttons > [data-slot=popover-trigger] { flex-shrink: 0; }
+
+.tasks-subcategory-label { display: inline-block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; font-size: var(--type-caption); }
+.tasks-category-tags { margin-left: 0; }
+.tasks-subcategory-label + .tasks-category-tags { margin-left: 6px; }

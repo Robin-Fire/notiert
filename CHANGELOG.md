@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.1.20 - 2026-11-03
+
+- Prevent Quick Capture flicker when opening category and tag pickers.
+- Keep Quick Capture open while selecting metadata and remove unused space below its footer.
+- Simplify task cards, table rows, and drag previews with colored subcategory labels.
+
 ## 0.1.19 - 2026-11-03
 
 - Fix copying attached task images through the native clipboard, including JPEG images.

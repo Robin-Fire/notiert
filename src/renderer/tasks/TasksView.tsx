@@ -223,10 +223,6 @@ export function TasksView({
   const total = Object.values(counts).reduce((a, b) => a + b, 0)
   const visibleHorizons = horizons.filter(horizon => horizon !== 'unplanned' || counts.unplanned > 0)
   const categoryMap = useMemo(() => new Map(categories.map((item) => [item.id, item.name])), [categories])
-  const categoryColors = useMemo(
-    () => new Map(categories.map((category) => [category.id, category.color])),
-    [categories]
-  )
   const tagColors = useMemo(
     () => new Map(tags.map((tag) => [tag.name.toLocaleLowerCase(), tag.color])),
     [tags]
@@ -386,9 +382,7 @@ export function TasksView({
         key={item.id}
         item={item}
         categoryId={categoryId}
-        categoryColor={categoryColors.get(item.categoryId ?? '')}
         tagColors={tagColors}
-        categoryName={categoryMap.get(item.categoryId ?? '') ?? 'Unassigned'}
         subcategory={subcategoryMap.get(item.subcategoryId ?? '')}
         busy={busy}
         onPlan={(horizon) => move(item, { horizon })}
@@ -713,8 +707,7 @@ export function TasksView({
                       key={item.id}
                       item={item}
                       searchResult
-                      categoryColor={categoryColors.get(item.categoryId ?? '')}
-                      categoryName={categoryMap.get(item.categoryId ?? '') ?? 'Unassigned'}
+
                       subcategory={subcategoryMap.get(item.subcategoryId ?? '')}
                       busy={busy}
                       onOpen={() => setDetail(item)}
@@ -751,10 +744,8 @@ export function TasksView({
                       <TaskTableRow
                         tagColors={tagColors}
                         actions={quickActionsFor(item)}
-                        categoryColor={categoryColors.get(item.categoryId ?? '')}
                         key={item.id}
                         item={item}
-                        categoryName={categoryMap.get(item.categoryId ?? '') ?? 'Unassigned'}
                         subcategory={subcategoryMap.get(item.subcategoryId ?? '')}
                         busy={busy}
                         onOpen={() => setDetail(item)}
@@ -831,7 +822,6 @@ export function TasksView({
               <TaskDragPreview
                 item={active}
                 tagColors={tagColors}
-                categoryName={categoryMap.get(active.categoryId ?? '') ?? 'Unassigned'}
                 subcategory={subcategoryMap.get(active.subcategoryId ?? '')}
                 backlog={false}
                 row={layout === 'table'}
@@ -896,13 +886,11 @@ export function TasksView({
 function TaskDragPreview({
   tagColors,
   item,
-  categoryName,
   subcategory,
   backlog,
   row
 }: {
   item: TaskWorkspaceItem
-  categoryName: string
   subcategory?: Subcategory
   backlog: boolean
   row: boolean
@@ -912,7 +900,7 @@ function TaskDragPreview({
     return (
       <div className="tasks-drag-preview">
         <b>{item.body.split('\n')[0] || 'Image capture'}</b>
-        <span>{categoryName}</span>
+        {subcategory && <span className="tasks-subcategory-label" style={{ color: subcategory.color }}>{subcategory.name}</span>}
       </div>
     )
   const labels = backlog ? item.tags : item.tags
@@ -928,16 +916,10 @@ function TaskDragPreview({
         <GripVertical size={15} />
         <div className="backlog-task-main">
           <span className="backlog-task-title">{item.body.trim() || 'Image capture'}</span>
-          {backlog && subcategory && <small>{subcategory.name}</small>}
           <ImageIndicator count={item.images.length} />
         </div>
       </div>
-      {(
-        <div>
-          <span className="tasks-category-label">{categoryName}</span>
-          {subcategory && <small className="tasks-table-subcategory">{subcategory.name}</small>}
-        </div>
-      )}
+      {subcategory && <span className="tasks-subcategory-label" style={{ color: subcategory.color }}>{subcategory.name}</span>}
       <div className="tasks-table-tags">
         {labels.map((tag) => (
           <span className="tasks-table-tag" key={tag} style={{ color: tagColors.get(tag.toLocaleLowerCase()) }}>
@@ -1063,9 +1045,7 @@ function TaskTableRow({
   tagColors,
   actions,
   searchResult = false,
-  categoryColor,
   item,
-  categoryName,
   subcategory,
   busy,
   onOpen,
@@ -1074,10 +1054,8 @@ function TaskTableRow({
   tagColors: Map<string, string>
   searchResult?: boolean
   actions?: React.ReactNode
-  categoryColor?: string
   backlog?: boolean
   item: TaskWorkspaceItem
-  categoryName: string
   subcategory?: Subcategory
   busy: boolean
   onOpen: () => void
@@ -1133,20 +1111,7 @@ function TaskTableRow({
         <ScheduledIndicator item={item} />
       </td>
       <td>
-        <span
-          className="tasks-category-label"
-          style={
-            categoryColor
-              ? {
-                  color: categoryColor,
-                  backgroundColor: `color-mix(in srgb, ${categoryColor} 14%, var(--surface))`
-                }
-              : undefined
-          }
-        >
-          {categoryName}
-        </span>
-        {subcategory && <span className="tasks-table-subcategory">{subcategory.name}</span>}
+        {subcategory && <span className="tasks-subcategory-label" style={{ color: subcategory.color }}>{subcategory.name}</span>}
         <span className="tasks-category-tags">
           {item.tags.map(tag => <span className="tasks-table-tag" key={tag} style={{ color: tagColors.get(tag.toLocaleLowerCase()) }}>#{tag.replace(/^#+/, '')}</span>)}
         </span>
@@ -1227,10 +1192,8 @@ function TaskSection({
 }
 
 function TaskCard({
-  categoryColor,
   tagColors,
   item,
-  categoryName,
   subcategory,
   busy,
   categoryId,
@@ -1239,10 +1202,8 @@ function TaskCard({
   onOpen,
   onComplete
 }: {
-  categoryColor?: string
   tagColors: Map<string, string>
   item: TaskWorkspaceItem
-  categoryName: string
   subcategory?: Subcategory
   busy: boolean
   categoryId?: string | null
@@ -1289,20 +1250,7 @@ function TaskCard({
       <ScheduledIndicator item={item} />
       <div className="tasks-inline-meta">
         <div className="tasks-card-meta">
-          <span
-            className="tasks-category-label"
-            style={
-              categoryColor
-                ? {
-                    color: categoryColor,
-                    backgroundColor: `color-mix(in srgb, ${categoryColor} 14%, var(--surface))`
-                  }
-                : undefined
-            }
-          >
-            {categoryName}
-          </span>
-          {subcategory && <span style={{ color: subcategory.color }}>{subcategory.name}</span>}
+          {subcategory && <span className="tasks-subcategory-label" style={{ color: subcategory.color }}>{subcategory.name}</span>}
           <ImageIndicator count={item.images.length} />
           {!!item.tags.length && (
             <div className="tasks-card-tags">

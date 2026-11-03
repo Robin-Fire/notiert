@@ -112,7 +112,7 @@ function placeCapture() {
 function createCaptureWindow() {
   if (captureWindow && !captureWindow.isDestroyed()) return captureWindow
   captureWindow = new BrowserWindow({
-    width: CAPTURE_WIDTH, height: 88, minWidth: 378, minHeight: 88, maxWidth: 1600, maxHeight: 800,
+    width: CAPTURE_WIDTH, height: 800, minWidth: 378, minHeight: 88, maxWidth: 1600, maxHeight: 800,
     show: false, frame: false, resizable: false, movable: false, minimizable: false, maximizable: false,
     skipTaskbar: true, alwaysOnTop: true, transparent: true, backgroundColor: '#00000000', hasShadow: false,
     webPreferences: { preload: path.join(__dirname, '../preload/capture.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },

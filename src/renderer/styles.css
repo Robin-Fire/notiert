@@ -168,7 +168,7 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 
 /* The capture bar remains a single calm surface floating over the active work. */
 .capture-shell { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; height: 100%; padding: 6px 9px 9px; background: transparent; }
-.capture-card { position: relative; flex: 0 1 auto; max-height: 100%; overflow-x: hidden; overflow-y: auto; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); color: var(--text); box-shadow: 0 2px 6px rgb(0 0 0 / 12%); scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.capture-card { position: relative; flex: 0 1 auto; max-height: min(480px, 100%); overflow-x: hidden; overflow-y: auto; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); color: var(--text); box-shadow: 0 2px 6px rgb(0 0 0 / 12%); scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
 .capture-content { display: flex; flex-direction: column; }
 .capture-header { display: flex; min-height: 42px; align-items: center; gap: 10px; padding: 7px 12px 5px 16px; }
 .capture-heading { padding-left: 10px; border-left: 1px solid var(--border); color: var(--text-secondary); font-size: var(--type-secondary); }
