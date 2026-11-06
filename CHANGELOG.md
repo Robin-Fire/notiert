@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.1.22 - 2026-11-06
+
+- Replace the task Undo banner with a floating toast that dismisses automatically after ten seconds, pausing on hover or keyboard focus.
+- Restore the By priority kanban board with side-by-side columns and wrapping task cards.
+- Keep links as plain text on the Tasks page and clickable in individual task details.
+
 ## 0.1.21 - 2026-11-06
 
 - Refine task views with compact single-line rows, quieter metadata, and aligned Done and Tags actions.

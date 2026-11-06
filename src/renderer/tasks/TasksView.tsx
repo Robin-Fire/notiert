@@ -1,4 +1,3 @@
-import { LinkedText } from '../components/LinkedText'
 import { AppSelect } from '../components/AppSelect'
 import { TaskTagPicker } from '../components/TaskTagPicker'
 import './tasks.css'
@@ -129,6 +128,17 @@ export function TasksView({
   const [undo, setUndo] = useState<TaskWorkspaceUndo | null>(null)
   const [completionUndo, setCompletionUndo] = useState<TaskCompletionUndo | null>(null)
   const [notice, setNotice] = useState('')
+  const [noticeHovered, setNoticeHovered] = useState(false)
+  const [noticeFocused, setNoticeFocused] = useState(false)
+  useEffect(() => {
+    if (!notice || noticeHovered || noticeFocused || busy) return
+    const timer = setTimeout(() => {
+      setNotice('')
+      setUndo(null)
+      setCompletionUndo(null)
+    }, 10_000)
+    return () => clearTimeout(timer)
+  }, [notice, undo, completionUndo, noticeHovered, noticeFocused, busy])
   const [active, setActive] = useState<TaskWorkspaceItem | null>(null)
   const [create, setCreate] = useState<Destination | null>(null)
   const lock = useRef(false),
@@ -637,7 +647,16 @@ export function TasksView({
         </div>
       )}
       {notice && (
-        <div className="tasks-notice" role="status">
+        <div
+          className="tasks-notice"
+          role="status"
+          onMouseEnter={() => setNoticeHovered(true)}
+          onMouseLeave={() => setNoticeHovered(false)}
+          onFocus={() => setNoticeFocused(true)}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setNoticeFocused(false)
+          }}
+        >
           <span>{notice}</span>
           {(undo || completionUndo) && (
             <button
@@ -657,7 +676,13 @@ export function TasksView({
               <Undo2 size={13} /> Undo
             </button>
           )}
-          <button type="button" aria-label="Dismiss task notice" onClick={() => setNotice('')}>
+          <button type="button" aria-label="Dismiss task notice" onClick={() => {
+            setNotice('')
+            setUndo(null)
+            setCompletionUndo(null)
+            setNoticeHovered(false)
+            setNoticeFocused(false)
+          }}>
             <X size={13} />
           </button>
         </div>
@@ -1074,7 +1099,7 @@ function TaskTableRow({
             </button>
           )}
           <div role="button" tabIndex={busy ? -1 : 0} className="backlog-task-title" title={item.body.trim() || 'Image capture'} aria-disabled={busy} onClick={() => { if (!busy) onOpen() }} onKeyDown={(event) => { if (!busy && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpen() } }}>
-            <LinkedText text={item.body.trim() || 'Image capture'} />
+            {item.body.trim() || 'Image capture'}
           </div>
           <ImageIndicator count={item.images.length} />
           <ScheduledIndicator item={item} />
@@ -1212,7 +1237,7 @@ function TaskCard({
           <GripVertical size={13} />
         </button>
         <div role="button" tabIndex={busy ? -1 : 0} className="tasks-card-body" title={item.body.trim() || 'Untitled task'} aria-disabled={busy} onClick={() => { if (!busy) onOpen() }} onKeyDown={(event) => { if (!busy && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpen() } }}>
-          <LinkedText text={item.body.trim() || (item.images.length ? 'Image capture' : 'Untitled task')} />
+          {item.body.trim() || (item.images.length ? 'Image capture' : 'Untitled task')}
         </div>
         <ScheduledIndicator item={item} />
       </div>
