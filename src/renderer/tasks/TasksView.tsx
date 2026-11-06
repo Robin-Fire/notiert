@@ -889,7 +889,7 @@ function TaskDragPreview({
     return (
       <div className="tasks-drag-preview">
         <b>{item.body.split('\n')[0] || 'Image capture'}</b>
-        {subcategory && <span className="tasks-subcategory-label" style={{ color: subcategory.color }}>{subcategory.name}</span>}
+        {subcategory && <span className="tasks-subcategory-label" title={subcategory.name} style={{ color: subcategory.color }}>{subcategory.name}</span>}
       </div>
     )
   const labels = backlog ? item.tags : item.tags
@@ -905,7 +905,7 @@ function TaskDragPreview({
           <ImageIndicator count={item.images.length} />
         </div>
       </div>
-      {subcategory && <span className="tasks-subcategory-label" style={{ color: subcategory.color }}>{subcategory.name}</span>}
+      {subcategory && <span className="tasks-subcategory-label" title={subcategory.name} style={{ color: subcategory.color }}>{subcategory.name}</span>}
       <div className="tasks-table-tags">
         {labels.map((tag) => (
           <span className="tasks-table-tag" key={tag} style={{ color: tagColors.get(tag.toLocaleLowerCase()) }}>
@@ -975,6 +975,7 @@ function TaskTableGroup({
   })
   return (
     <section
+      data-priority={horizon}
       className={`backlog-group tasks-table-panel ${dragging ? 'is-dropzone' : ''} ${isOver ? 'is-over' : ''}`}
       aria-label={`${horizonLabels[horizon]} tasks`}
     >
@@ -1072,21 +1073,21 @@ function TaskTableRow({
               <GripVertical size={15} />
             </button>
           )}
-          <div role="button" tabIndex={busy ? -1 : 0} className="backlog-task-title" aria-disabled={busy} onClick={() => { if (!busy) onOpen() }} onKeyDown={(event) => { if (!busy && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpen() } }}>
+          <div role="button" tabIndex={busy ? -1 : 0} className="backlog-task-title" title={item.body.trim() || 'Image capture'} aria-disabled={busy} onClick={() => { if (!busy) onOpen() }} onKeyDown={(event) => { if (!busy && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpen() } }}>
             <LinkedText text={item.body.trim() || 'Image capture'} />
           </div>
           <ImageIndicator count={item.images.length} />
+          <ScheduledIndicator item={item} />
         </div>
         {searchResult && (
           <span className={`task-search-status ${item.completedAt !== null ? 'is-completed' : ''}`}>
             {item.completedAt !== null ? 'Completed' : 'Open'}
           </span>
         )}
-        <ScheduledIndicator item={item} />
       </td>
       <td>
-        {subcategory && <span className="tasks-subcategory-label" style={{ color: subcategory.color }}>{subcategory.name}</span>}
-        <span className="tasks-category-tags">
+        {subcategory && <span className="tasks-subcategory-label" title={subcategory.name} style={{ color: subcategory.color }}>{subcategory.name}</span>}
+        <span className="tasks-category-tags" title={item.tags.map(tag => `#${tag}`).join(' ')}>
           {item.tags.map(tag => <span className="tasks-table-tag" key={tag} style={{ color: tagColors.get(tag.toLocaleLowerCase()) }}>#{tag.replace(/^#+/, '')}</span>)}
         </span>
       </td>
@@ -1210,17 +1211,17 @@ function TaskCard({
         >
           <GripVertical size={13} />
         </button>
-        <div role="button" tabIndex={busy ? -1 : 0} className="tasks-card-body" aria-disabled={busy} onClick={() => { if (!busy) onOpen() }} onKeyDown={(event) => { if (!busy && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpen() } }}>
+        <div role="button" tabIndex={busy ? -1 : 0} className="tasks-card-body" title={item.body.trim() || 'Untitled task'} aria-disabled={busy} onClick={() => { if (!busy) onOpen() }} onKeyDown={(event) => { if (!busy && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpen() } }}>
           <LinkedText text={item.body.trim() || (item.images.length ? 'Image capture' : 'Untitled task')} />
         </div>
+        <ScheduledIndicator item={item} />
       </div>
-      <ScheduledIndicator item={item} />
       <div className="tasks-inline-meta">
         <div className="tasks-card-meta">
-          {subcategory && <span className="tasks-subcategory-label" style={{ color: subcategory.color }}>{subcategory.name}</span>}
+          {subcategory && <span className="tasks-subcategory-label" title={subcategory.name} style={{ color: subcategory.color }}>{subcategory.name}</span>}
           <ImageIndicator count={item.images.length} />
           {!!item.tags.length && (
-            <div className="tasks-card-tags">
+            <div className="tasks-card-tags" title={item.tags.map(tag => `#${tag}`).join(' ')}>
               {item.tags.map(tag => <span key={tag} style={{ color: tagColors.get(tag.toLocaleLowerCase()) }}>#{tag.replace(/^#+/, '')}</span>)}
             </div>
           )}
@@ -1265,17 +1266,10 @@ function TaskQuickActions({ item, busy, onPlan, onComplete, tagPicker }: {
 
 function ScheduledIndicator({ item }: { item: TaskWorkspaceItem }) {
   if (item.plannedStartAt == null) return null
-  return (
-    <small className="tasks-scheduled">
-      <CalendarDays size={11} /> Scheduled{' '}
-      {new Date(item.plannedStartAt).toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })}
-    </small>
-  )
+  const label = `Scheduled ${new Date(item.plannedStartAt).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+  })}`
+  return <span className="tasks-schedule-indicator" title={label} aria-label={label}><CalendarDays size={13} /></span>
 }
 
 function Modal({

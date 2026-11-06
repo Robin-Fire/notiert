@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.1.21 - 2026-11-06
+
+- Refine task views with compact single-line rows, quieter metadata, and aligned Done and Tags actions.
+- Move search to the sidebar, simplify category and tag pages, and keep exports in Settings.
+- Use a clearer shared task editor from Tasks, category pages, and tag pages.
+- Improve sidebar spacing, selection states, narrow layouts, and category/tag editing controls.
+- Add clickable task links and improve capture accessibility, export feedback, and shortcut status.
+
 ## 0.1.20 - 2026-11-03
 
 - Prevent Quick Capture flicker when opening category and tag pickers.

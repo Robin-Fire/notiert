@@ -990,6 +990,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
                 }
               }}
             />
+            {!(tasksActive ? taskQuery : query) && <kbd className="sidebar-search-shortcut">Ctrl F</kbd>}
             {(tasksActive ? taskQuery : query) && (
               <button aria-label="Clear search" onClick={() => tasksActive ? setTaskQuery('') : requestEditorLeave(() => setQuery(''))}>
                 <X size={13} />
