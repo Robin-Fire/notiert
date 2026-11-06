@@ -4,7 +4,8 @@
 .tasks-toolbar { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; flex-shrink: 0; margin-bottom: 12px; }
 .tasks-toolbar .search-box { flex: 1 1 170px; max-width: 280px; }
 .tasks-toolbar select, .tasks-dialog select, .tasks-dialog input { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 6px 8px; font-size: var(--type-secondary); max-width: 190px; }
-.tasks-layout-switch { margin-left: auto; }
+.tasks-layout-switch { margin-left: 0; }
+.tasks-filter-spacer { flex: 1; }
 .tasks-layout-switch button { display: flex; align-items: center; gap: 5px; }
 .tasks-done-filter { background: transparent; color: var(--text-muted); border: 0; font-size: var(--type-secondary); padding: 5px; }
 .tasks-done-filter[aria-pressed=true] { color: var(--blue); }
@@ -188,3 +189,12 @@
 .tasks-subcategory-label { display: inline-block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; font-size: var(--type-caption); }
 .tasks-category-tags { margin-left: 0; }
 .tasks-subcategory-label + .tasks-category-tags { margin-left: 6px; }
+
+.tasks-done-action > svg { color: #16a34a; flex-shrink: 0; }
+
+/* Keep actions readable and reachable alongside long tags and narrow cards. */
+.tasks-quick-buttons { opacity: 1; pointer-events: auto; flex-wrap: wrap; justify-content: flex-start; }
+.tasks-inline-meta { flex-wrap: wrap; }
+.tasks-inline-meta > .tasks-quick-actions { flex: 1 1 100%; margin: 4px 0 0; }
+.tasks-priority-buttons { flex-wrap: wrap; overflow-x: visible; }
+.tasks-quick-buttons .tasks-done-action { min-height: 25px; }

@@ -1,8 +1,8 @@
+import { LinkedText } from '../components/LinkedText'
 import { SettingsPanel } from '../settings/SettingsPanel'
 import { useTaxonomy } from '../components/useTaxonomy'
 import { AppSelect } from '../components/AppSelect'
 import { horizonOf, horizonLabels } from '../../shared/taskHorizons'
-import { ColorPalette } from '../components/ColorPalette'
 import { TagFilter } from '../components/TagFilter'
 import { ItemDetailDialog } from '../components/ItemDetailDialog'
 import { AppSidebar, type ViewName } from '../components/AppSidebar'
@@ -20,22 +20,16 @@ import {
   type ReactNode
 } from 'react'
 import {
-  Archive,
   ArrowLeft,
   ArrowRight,
   Check,
   CheckCircle2,
   ChevronDown,
   Copy,
-  Download,
   FileText,
   FolderKanban,
-  FolderOpen,
   GripVertical,
-  Hash,
   Info,
-  MoreHorizontal,
-  Palette,
   Plus,
   Search,
   Trash2,
@@ -120,6 +114,8 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   const [total, setTotal] = useState(0)
   const [cursor, setCursor] = useState<ItemPage['nextCursor']>(null)
   const [query, setQuery] = useState('')
+  const [taskQuery, setTaskQuery] = useState('')
+  const tasksActive = ['tasks', 'inbox', 'backlog', 'ready', 'later'].includes(view)
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [dateRange, setDateRange] = useState('all')
   const [tagFilters, setTagFilters] = useState<string[]>([])
@@ -452,18 +448,19 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   async function openItem(id: string) {
     const request = ++detailRequest.current
     activeDetailId.current = id
-    setDetailId(id)
+    const useModal = view === 'all' || view === 'category' || view === 'tag'
+    if (!useModal) setDetailId(id)
     setDetail(null)
     try {
       const record = resultValue(await window.captured.items.get(id))
-      if (request !== detailRequest.current || activeDetailId.current !== id) return
-      if (view === 'all' && record) {
+      if (request !== detailRequest.current || (!useModal && activeDetailId.current !== id)) return
+      if (useModal && record) {
         setEditItem(record)
         setDetailId(null)
         setDetail(null)
       } else setDetail(record)
     } catch (reason) {
-      if (request === detailRequest.current && activeDetailId.current === id)
+      if (request === detailRequest.current && (useModal || activeDetailId.current === id))
         setError(reason instanceof Error ? reason.message : 'This task could not be opened.')
     }
   }
@@ -517,15 +514,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
       setSelected([])
       clearFilters()
     })
-  }
-  async function changeTag(input: { categoryId: string | null; color: string }) {
-    if (!selectedTagId) return
-    try {
-      resultValue(await window.captured.items.updateTag({ id: selectedTagId, ...input }))
-      void loadTags()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Tag could not be updated.')
-    }
   }
   const selectedTag = tagRecords.find((tag) => tag.id === selectedTagId) ?? null
   const selectedCategory = categories.find((category) => category.id === selectedCategoryId) ?? null
@@ -588,15 +576,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
       setError(reason instanceof Error ? reason.message : 'Could not copy tasks.')
     }
   }
-  async function exportData(scope: 'selected' | 'all' | 'full', ids?: string[]) {
-    if (scope === 'selected' && !ids?.length) return
-    try {
-      resultValue(await window.captured.data.export({ scope, format: 'md', ...(ids ? { ids } : {}) }))
-      setToast('Export ready')
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Export failed.')
-    }
-  }
+
   const toggleSelected = (id: string) => {
     if (!selected.includes(id) && selected.length >= 500) {
       setToast('Select up to 500 tasks at a time')
@@ -705,7 +685,11 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
               Clear filters
             </button>
           ) : (
-            view === 'all' && (
+            view === 'tag' || view === 'category' ? (
+              <button className="button secondary" onClick={() => nav('tasks')}>
+                Go to tasks <ArrowRight size={15} />
+              </button>
+            ) : view === 'all' && (
               <button className="button primary" onClick={() => window.captured.windows.openCapture()}>
                 Capture a thought <ArrowRight size={15} />
               </button>
@@ -817,7 +801,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
                 key={group.id ?? 'direct'}
                 title={group.name}
                 color={group.color}
-                count={groupItems.length}
               >
                 {tasks.length > 0 && (
                   <PriorityTaskGroup
@@ -981,11 +964,39 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   }
 
   return (
-    <div className="items-window">
+    <div className={`items-window ${view === 'calenban' ? '' : 'workspace-window'}`}>
       <AppSidebar
         view={view}
         nav={nav}
         settings={settings}
+        search={
+          (tasksActive || ['all', 'tag', 'category', 'trash'].includes(view)) && <label className="search-box sidebar-search">
+            <Search size={15} />
+            <input
+              ref={searchRef}
+              value={tasksActive ? taskQuery : query}
+              onChange={(event) => {
+                const value = event.target.value
+                if (tasksActive) setTaskQuery(value)
+                else requestEditorLeave(() => setQuery(value))
+              }}
+              placeholder={view === 'trash' ? 'Search Trash...' : view === 'tag' ? 'Search this tag...' : view === 'category' ? 'Search this category...' : 'Search tasks...'}
+              aria-label={view === 'trash' ? 'Search Trash' : view === 'tag' ? 'Search this tag' : view === 'category' ? 'Search this category' : 'Search tasks'}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  if (tasksActive) setTaskQuery('')
+                  else requestEditorLeave(() => setQuery(''))
+                }
+              }}
+            />
+            {(tasksActive ? taskQuery : query) && (
+              <button aria-label="Clear search" onClick={() => tasksActive ? setTaskQuery('') : requestEditorLeave(() => setQuery(''))}>
+                <X size={13} />
+              </button>
+            )}
+          </label>
+        }
         taxonomy={{
           categories,
           subcategories,
@@ -1090,6 +1101,9 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
               subcategories={subcategories}
               tags={tagRecords}
               taxonomyReady={taxonomyLoaded}
+              query={taskQuery}
+              setQuery={setTaskQuery}
+              searchRef={searchRef}
             />
           </Suspense>
         ) : view === 'calenban' ? (
@@ -1106,13 +1120,9 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
           <>
             <header className="main-header">
               <div className="title-stack">
-                <div className="eyebrow">
-                  {view === 'trash'
-                    ? 'ARCHIVE'
-                    : view === 'tag' || view === 'category'
-                      ? 'CATEGORY / TAG'
-                      : 'YOUR TASKS'}
-                </div>
+                {view !== 'tag' && view !== 'category' && (
+                  <div className="eyebrow">{view === 'trash' ? 'ARCHIVE' : 'YOUR TASKS'}</div>
+                )}
                 <h1>
                   {view === 'trash'
                     ? 'Trash'
@@ -1143,98 +1153,16 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
                     <Trash2 size={14} /> Empty trash
                   </button>
                 )}
-                <button
-                  className="button secondary capture-button"
-                  onClick={() =>
-                    window.captured.windows.openCapture(
-                      view === 'category'
-                        ? { categoryId: selectedCategoryId, subcategoryId: selectedSubcategoryId }
-                        : view === 'tag' && selectedTag
-                          ? { categoryId: null, tags: [selectedTag.name] }
-                          : undefined
-                    )
-                  }
-                >
-                  <Plus size={15} /> Capture
-                </button>
-                <div className="menu-wrap">
-                  <button
-                    className="icon-button bordered"
-                    aria-label="More actions"
-                    title="More actions"
-                    onClick={(event) => {
-                      const menu = event.currentTarget.nextElementSibling
-                      menu?.classList.toggle('is-open')
-                    }}
-                  >
-                    <MoreHorizontal size={17} />
-                  </button>
-                  <div className="pop-menu">
-                    <button onClick={() => void exportData('all')}>
-                      <Download size={14} /> Export items
-                    </button>
-                    <button onClick={() => void exportData('full')}>
-                      <Archive size={14} /> Export full archive
-                    </button>
-                    <button onClick={() => void window.captured.settings.openFolder()}>
-                      <FolderOpen size={14} /> Open data folder
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </header>
-            {view === 'tag' && selectedTag && (
-              <div className="tag-page-settings">
-                <span className="tag-page-icon" style={{ color: selectedTag.color }}>
-                  <Hash size={18} />
-                </span>
-                <div className="tag-page-description">
-                  <b>{selectedTag.name}</b>
-                  <small>
-                    {total} {total === 1 ? 'item' : 'items'} with this tag
-                  </small>
-                </div>
-                <div className="tag-color-field">
-                  <span>
-                    <Palette size={14} /> Color
-                  </span>
-                  <ColorPalette
-                    value={selectedTag.color}
-                    onChange={(color) => void changeTag({ categoryId: selectedTag.categoryId, color })}
-                  />
-                </div>
-              </div>
-            )}
-            {view === 'category' && selectedCategory && (
-              <div className="tag-page-settings category-page-settings">
-                <span className="tag-page-icon">
-                  <FolderKanban size={18} />
-                </span>
-                <div className="tag-page-description">
-                  <b>{selectedCategory.name}</b>
-                  <small>
-                    {total} {total === 1 ? 'item' : 'items'} assigned directly to this category
-                  </small>
-                </div>
-              </div>
-            )}
-            <div className="toolbar">
-              <label className="search-box">
-                <Search size={15} />
-                <input
-                  ref={searchRef}
-                  value={query}
-                  onChange={(event) => requestEditorLeave(() => setQuery(event.target.value))}
-                  placeholder="Search items…"
-                  aria-label="Search items"
-                />
-                <kbd>Ctrl F</kbd>
-                {query && (
-                  <button title="Clear search" onClick={() => requestEditorLeave(() => setQuery(''))}>
-                    <X size={13} />
+                {view !== 'tag' && (
+                  <button className="button secondary capture-button" onClick={() => window.captured.windows.openCapture(
+                    view === 'category' ? { categoryId: selectedCategoryId, subcategoryId: selectedSubcategoryId } : undefined
+                  )}>
+                    <Plus size={15} /> Capture
                   </button>
                 )}
-              </label>
+              </div>
+            </header>
+            <div className="toolbar">
               {dateRange === 'custom' && (
                 <div className="date-inputs">
                   <input
@@ -1282,9 +1210,11 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
               >
                 {selectionMode ? 'Done selecting' : 'Select items'}
               </button>
-              <span className="result-count">
-                {total.toLocaleString()} {total === 1 ? 'item' : 'items'}
-              </span>
+              {view !== 'category' && (
+                <span className="result-count">
+                  {total.toLocaleString()} {total === 1 ? 'item' : 'items'}
+                </span>
+              )}
             </div>
             {filtersOpen && (
               <div id="item-filters" className="filter-panel" aria-label="Filters">
@@ -1358,9 +1288,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
                 <button className="text-action" onClick={() => void copyIds(selected)}>
                   <Copy size={14} /> Copy
                 </button>
-                <button className="text-action" onClick={() => void exportData('selected', selected)}>
-                  <Download size={14} /> Export
-                </button>
+
                 {view === 'trash' ? (
                   <>
                     <button
@@ -1397,9 +1325,9 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
                 )}
               </div>
             )}
-            <div className={`content-grid ${detailId && view !== 'all' ? 'has-detail' : ''}`}>
+            <div className={`content-grid ${detailId && view === 'trash' ? 'has-detail' : ''}`}>
               <div
-                className={`list-column ${detailId && view !== 'all' && window.innerWidth < 960 ? 'mobile-hidden' : ''}`}
+                className={`list-column ${detailId && view === 'trash' && window.innerWidth < 960 ? 'mobile-hidden' : ''}`}
                 ref={itemListRef}
               >
                 {error && (
@@ -1424,7 +1352,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
                   renderRows()
                 )}
               </div>
-              {detailId && view !== 'all' && (
+              {detailId && view === 'trash' && (
                 <section className="detail-panel" aria-label="Task details">
                   <div className="detail-top">
                     <button
@@ -1515,7 +1443,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
                         )}
                       </div>
                       <div className="detail-item-text">
-                        {detail.body ||
+                        {detail.body ? <LinkedText text={detail.body} /> :
                           (detail.images.length ? null : <span className="muted">Untitled task</span>)}
                       </div>
                       <ItemImages key={detail.id} images={detail.images} expanded={!detail.body.trim()} />
@@ -1709,12 +1637,10 @@ type SortableRowProps = {
 function CategoryTaskGroup({
   title,
   color,
-  count,
   children
 }: {
   title: string
   color?: string
-  count: number
   children: ReactNode
 }) {
   const [collapsed, setCollapsed] = useState(false)
@@ -1729,7 +1655,6 @@ function CategoryTaskGroup({
         >
           <FolderKanban size={16} color={color} />
           <b>{title}</b>
-          <span>{count}</span>
           <ChevronDown size={15} className={collapsed ? 'is-closed' : ''} />
         </button>
       </div>

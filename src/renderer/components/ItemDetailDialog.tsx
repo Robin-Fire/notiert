@@ -1,9 +1,10 @@
+import { LinkedText } from './LinkedText'
 import { AppSelect } from './AppSelect'
 import { horizonOf, horizonLabels, horizons, intentionFor } from '../../shared/taskHorizons'
 import { CategoryPicker } from '../components/CategoryPicker'
 import { useTaxonomy } from '../components/useTaxonomy'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { Copy, Save, Trash2 } from 'lucide-react'
+import { CheckCircle2, Copy, Save, Trash2, X } from 'lucide-react'
 import type { ItemRecord, PlannerTask } from '../../shared/contracts'
 import { collectTags, TagEditor } from '../components/TagEditor'
 import { useImagePaste } from '../components/useImagePaste'
@@ -29,7 +30,6 @@ export function ItemDetailDialog({
   showPlanning?: boolean
 }) {
   const isTask = task.kind === 'task'
-  const label = 'task'
   const taxonomy = useTaxonomy()
   const [categoryId, setCategoryId] = useState(task.categoryId)
   const [subcategoryId, setSubcategoryId] = useState(task.subcategoryId ?? null)
@@ -130,7 +130,7 @@ export function ItemDetailDialog({
     if (event.key !== 'Tab' || !dialogRef.current) return
     const focusable = [
       ...dialogRef.current.querySelectorAll<HTMLElement>(
-        'textarea:not(:disabled), input:not(:disabled), select:not(:disabled), button:not(:disabled)'
+        'a[href], textarea:not(:disabled), input:not(:disabled), select:not(:disabled), button:not(:disabled)'
       )
     ]
     const first = focusable[0],
@@ -208,7 +208,7 @@ export function ItemDetailDialog({
   }
 
   return (
-    <div className="modal-backdrop">
+    <div className="modal-backdrop task-detail-backdrop">
       <div
         ref={dialogRef}
         className="dialog-card task-detail-dialog"
@@ -217,11 +217,20 @@ export function ItemDetailDialog({
         aria-labelledby="task-detail-title"
         onKeyDown={containFocus}
       >
+        <header className="task-detail-header">
+          <div>
+            <h2 id="task-detail-title">Task</h2>
+            <span className="task-detail-status">
+              {task.completedAt !== null ? <><CheckCircle2 size={13} /> Completed</> : 'Open'}
+            </span>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close task" disabled={busy} onClick={() => {
+            if (!changed || window.confirm('Discard unsaved item changes?')) onClose()
+          }}><X size={18} /></button>
+        </header>
         <div className="task-detail-content">
-          <div className="event-dialog-kicker">TASK DETAILS</div>
-          <h2 id="task-detail-title">Edit {label}</h2>
           <label className="task-detail-body-label">
-            Full text
+            Description
             <textarea
               className="item-editor task-detail-editor"
               value={body}
@@ -232,6 +241,7 @@ export function ItemDetailDialog({
               aria-label="Full task text"
             />
           </label>
+          <div className="task-editor-links"><LinkedText text={body} linksOnly /></div>
           <ItemImages
             images={imageEdit.images}
             expanded
@@ -241,6 +251,7 @@ export function ItemDetailDialog({
           <span className="image-paste-hint">
             {imageEdit.pending ? 'Reading image…' : 'Paste a screenshot with Ctrl+V · up to 5 images'}
           </span>
+          <section className="task-detail-organization" aria-label="Organization">
           <CategoryPicker
             categories={taxonomy.categories}
             subcategories={taxonomy.subcategories}
@@ -261,11 +272,13 @@ export function ItemDetailDialog({
               disabled={busy}
             />
           </div>
+          </section>
+          <div className="task-detail-planning">
           {showPlanning && isTask && task.completedAt === null && (
             <fieldset className="task-schedule-fields" disabled={busy}>
               <legend>Priority</legend>
               <label>
-                Bucket
+                When to work
                 <AppSelect
                   aria-label="Task priority"
                   value={plan}
@@ -285,7 +298,7 @@ export function ItemDetailDialog({
             <fieldset className="task-schedule-fields" disabled={busy}>
               <legend>Schedule</legend>
               <label>
-                Placement
+                Calendar
                 <AppSelect
                   aria-label="Task placement"
                   className="text-field"
@@ -325,12 +338,7 @@ export function ItemDetailDialog({
             </fieldset>
           )}
 
-          {isTask && task.completedAt === null && (
-            <p className="task-planning-hint">
-              The plan sets when you intend to work. The schedule reserves calendar time. Save applies all
-              your changes together.
-            </p>
-          )}
+          </div>
           {taxonomy.error && (
             <div className="inline-error" role="alert">
               {taxonomy.error}
@@ -404,7 +412,7 @@ export function ItemDetailDialog({
               onClick={() => void save()}
               disabled={busy || imageEdit.pending || !changed}
             >
-              <Save size={14} /> Save
+              <Save size={14} /> Save changes
             </button>
           </div>
         </div>

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import type { Settings, SettingsUpdate } from '../../shared/contracts'
 import { CalendarSettings } from '../calenban/CalendarSettings'
+import { resultValue } from '../apiResult'
 import { AppSelect } from '../components/AppSelect'
 import { toLocalISODate } from '../../shared/plannerDates'
 const todayISO = () => toLocalISODate(new Date())
@@ -46,6 +47,21 @@ export function SettingsPanel({
   onShortcutKey: (event: ReactKeyboardEvent<HTMLButtonElement>) => void
 }) {
   const [activeSection, setActiveSection] = useState('general')
+  const [dataBusy, setDataBusy] = useState(false)
+  const [dataError, setDataError] = useState('')
+  async function exportItems(scope: 'all' | 'full', format: 'txt' | 'md') {
+    if (dataBusy) return
+    setDataBusy(true)
+    setDataError('')
+    try {
+      resultValue(await window.captured.data.export({ scope, format }))
+    } catch (reason) {
+      setDataError(reason instanceof Error ? reason.message : 'Export failed. Please try again.')
+    } finally {
+      setDataBusy(false)
+    }
+  }
+
   const [testApp, setTestApp] = useState(settings?.protectionTestApp ?? '')
   const [onboardingShortcut, setOnboardingShortcut] = useState('Control+N')
   const [onboardingLogin, setOnboardingLogin] = useState(false)
@@ -95,8 +111,7 @@ export function SettingsPanel({
               <div>
                 <b>Capture shortcut</b>
                 <span>
-                  Opens the capture bar from any app. While captured runs, Ctrl+N replaces the usual New
-                  shortcut.
+                  Opens the capture bar from any app. Choose a shortcut that is convenient for you.
                 </span>
               </div>
               <div className="shortcut-control">
@@ -107,8 +122,11 @@ export function SettingsPanel({
                 >
                   {recordingShortcut ? 'Press a shortcut…' : shortcutDisplay}
                 </button>
-                <span className={`status-dot ${settings?.shortcutRegistered ? 'good' : 'bad'}`} />
-                {!settings?.shortcutRegistered && <small>Unavailable</small>}
+                {settings?.shortcutEnabled !== false && <>
+                  <span className={`status-dot ${settings?.shortcutRegistered ? 'good' : 'bad'}`} />
+                  {!settings?.shortcutRegistered && <small>Unavailable</small>}
+                </>}
+                {settings?.shortcutEnabled === false && <small>Disabled</small>}
               </div>
             </div>
             <div className="setting-row">
@@ -174,13 +192,15 @@ export function SettingsPanel({
               <div>
                 <b>Shortcut registration</b>
                 <span>
-                  {settings?.shortcutRegistered
+                  {settings?.shortcutEnabled === false
+                    ? 'Keyboard capture is turned off. You can still capture from the tray menu.'
+                    : settings?.shortcutRegistered
                     ? 'Ready. The global shortcut is registered.'
                     : 'The selected shortcut could not be registered. Tray capture remains available.'}
                 </span>
               </div>
               <span className={`status-label ${settings?.shortcutRegistered ? 'success' : 'warning'}`}>
-                {settings?.shortcutRegistered ? 'Ready' : 'Tray only'}
+                {settings?.shortcutEnabled === false ? 'Disabled' : settings?.shortcutRegistered ? 'Ready' : 'Tray only'}
               </span>
             </div>
           </>
@@ -319,6 +339,8 @@ export function SettingsPanel({
               <h2>Data</h2>
               <p>Your tasks are stored locally and are not encrypted by captured.</p>
             </div>
+            {dataBusy && <p role="status" className="settings-data-status">Choose a location in the save dialog to export your items.</p>}
+            {dataError && <div className="inline-error" role="alert">{dataError}</div>}
             <div className="data-location">
               <div className="data-folder-icon">
                 <FolderOpen size={18} />
@@ -342,17 +364,28 @@ export function SettingsPanel({
               <div>
                 <button
                   className="button secondary small"
-                  onClick={() => void window.captured.data.export({ scope: 'all', format: 'txt' })}
+                  disabled={dataBusy}
+                  onClick={() => void exportItems('all', 'txt')}
                 >
                   Export TXT
                 </button>
                 <button
                   className="button secondary small"
-                  onClick={() => void window.captured.data.export({ scope: 'all', format: 'md' })}
+                  disabled={dataBusy}
+                  onClick={() => void exportItems('all', 'md')}
                 >
                   Export Markdown
                 </button>
               </div>
+            </div>
+            <div className="data-actions">
+              <div>
+                <b>Export full archive</b>
+                <span>Save all items, including Trash, as Markdown.</span>
+              </div>
+              <button className="button secondary small" disabled={dataBusy} onClick={() => void exportItems('full', 'md')}>
+                Export full archive
+              </button>
             </div>
             <div className="data-actions">
               <div>

@@ -1070,3 +1070,55 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
   .dialog-card .category-picker { grid-template-columns: minmax(0, 1fr); }
   .task-detail-secondary-actions, .task-detail-primary-actions { gap: 8px; }
 }
+
+.task-text-link { color: var(--blue, #568bdb); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.task-text-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.task-editor-links { overflow-wrap: anywhere; }
+.task-editor-links:empty { display: none; }
+
+.sidebar .sidebar-search { flex: 0 0 auto; min-width: 0; max-width: none; margin: 8px 0 16px; }
+.sidebar-search > svg { flex-shrink: 0; }
+
+/* Shared task editor: stable header and actions around a scrollable form. */
+.dialog-card.task-detail-dialog { width: min(680px, calc(100vw - 32px)); padding: 0; gap: 0; max-height: min(900px, calc(100dvh - 48px)); border-radius: 14px; }
+.task-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 22px 24px 18px; border-bottom: 1px solid var(--border); }
+.task-detail-header h2 { margin: 0 0 5px; font-size: 20px; line-height: 1.3; letter-spacing: -.025em; }
+.task-detail-status { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: var(--type-secondary); }
+.task-detail-header .icon-button { flex-shrink: 0; }
+.task-detail-dialog .task-detail-content { padding: 22px 24px; gap: 18px; }
+.task-detail-content .task-detail-body-label { gap: 8px; font-size: var(--type-secondary); font-weight: 500; }
+.task-detail-dialog .task-detail-editor { min-height: 160px; max-height: 30dvh; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: var(--type-body); line-height: 1.65; }
+.task-detail-dialog .task-editor-links:empty { display: none; }
+.task-detail-dialog .image-paste-hint { margin-top: -10px; color: var(--text-muted); font-size: var(--type-caption); }
+.task-detail-organization { display: grid; gap: 16px; padding-top: 18px; border-top: 1px solid var(--border); }
+.task-detail-organization .category-picker { margin: 0; }
+.task-detail-planning { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.task-detail-planning:empty { display: none; }
+.task-detail-planning .task-schedule-fields { min-width: 0; margin: 0; padding: 12px; border-radius: 8px; align-content: start; background: var(--surface-raised); }
+.task-detail-planning .task-schedule-fields legend { font-weight: 600; }
+.task-detail-planning .app-select { width: 100%; }
+.task-detail-planning .event-form-times { grid-template-columns: 1fr; }
+.task-detail-dialog .task-detail-actions { display: flex; justify-content: space-between; gap: 12px; padding: 16px 24px; }
+.task-detail-secondary-actions { margin-right: auto; }
+.task-detail-primary-actions { margin-left: auto; }
+.task-detail-secondary-actions .button { border-color: transparent; background: transparent; }
+@media (max-width: 580px) {
+  .task-detail-header { padding: 18px; }
+  .task-detail-dialog .task-detail-content { padding: 18px; }
+  .task-detail-planning { grid-template-columns: 1fr; }
+  .task-detail-dialog .task-detail-actions { padding: 14px 18px; }
+}
+
+.workspace-window .sidebar { min-height: 0; }
+.workspace-window .sidebar > :not(.sidebar-taxonomy-scroll):not(.sidebar-spacer) { flex-shrink: 0; }
+.workspace-window .sidebar-taxonomy-scroll { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+.taxonomy-empty { margin: 8px 6px 14px; font-size: var(--type-caption); color: var(--text-muted); line-height: 1.5; }
+.settings-data-status { color: var(--text-secondary); font-size: var(--type-secondary); }
+@media (max-width: 780px) {
+  .workspace-window .sidebar { width: 184px; flex-basis: 184px; }
+  .workspace-window .brand { justify-content: flex-start; }
+  .workspace-window .brand > span:last-child, .workspace-window .side-nav button > span, .workspace-window .sidebar-bottom > button > span { display: inline; }
+  .workspace-window .side-nav button, .workspace-window .sidebar-bottom > button { justify-content: flex-start; padding: 0 8px; }
+  .workspace-window .sidebar .taxonomy-navigation { display: block; }
+  .workspace-window .sidebar-search { height: 34px; }
+}

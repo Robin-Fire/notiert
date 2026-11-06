@@ -69,7 +69,15 @@ function protect(win: BrowserWindow) {
 }
 
 function secureWindow(win: BrowserWindow, preload: string) {
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const target = new URL(url)
+      if (target.protocol === 'https:' || target.protocol === 'http:') {
+        void shell.openExternal(target.href).catch((error) => console.error('open-link-failed', error))
+      }
+    } catch { /* Ignore invalid URLs. */ }
+    return { action: 'deny' }
+  })
   win.webContents.on('will-navigate', (event, target) => {
     const isLocal = target.startsWith('file://') || target.startsWith(process.env.ELECTRON_RENDERER_URL ?? 'http://127.0.0.1:5173')
     if (!isLocal) event.preventDefault()
@@ -84,8 +92,8 @@ function secureWindow(win: BrowserWindow, preload: string) {
 
 function rendererUrl(kind: 'capture' | 'tasks') {
   const dev = process.env.ELECTRON_RENDERER_URL
-  if (dev) return `${dev}?window=${kind}`
   const page = kind === 'capture' ? 'capture.html' : 'index.html'
+  if (dev) return new URL(page, `${dev.replace(/\/$/, '')}/`).href
   return pathToFileURL(path.join(__dirname, '../renderer', page)).href
 }
 

@@ -1,3 +1,4 @@
+import { LinkedText } from '../components/LinkedText'
 import { AppSelect } from '../components/AppSelect'
 import { TaskTagPicker } from '../components/TaskTagPicker'
 import './tasks.css'
@@ -24,10 +25,10 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import {
   CalendarDays,
+  Check,
   Columns3,
   GripVertical,
   Plus,
-  Search,
   Table2,
   Undo2,
   X
@@ -94,10 +95,16 @@ export function TasksView({
   subcategories,
   tags,
   taxonomyReady,
+  query,
+  setQuery,
+  searchRef,
 }: {
   categories: Category[]
   subcategories: Subcategory[]
   tags: TagRecord[]
+  query: string
+  setQuery: (query: string) => void
+  searchRef: React.RefObject<HTMLInputElement | null>
   taxonomyReady: boolean
 }) {
   const [layout, setLayout] = useState<Layout>(() =>
@@ -109,8 +116,7 @@ export function TasksView({
   const [compact, setCompact] = useState(() => window.innerWidth < 1250)
   const [expandedCompact, setExpandedCompact] = useState<string[]>([])
   const [today, setToday] = useState(() => toLocalISODate(new Date()))
-  const [query, setQuery] = useState(''),
-    [search, setSearch] = useState('')
+  const [search, setSearch] = useState('')
   const [category, setCategory] = useState('all'),
     [subcategory, setSubcategory] = useState('')
   const [tagFilter, setTagFilter] = useState<TagFilterValue>({ included: [], excluded: [] })
@@ -122,7 +128,6 @@ export function TasksView({
   const [detail, setDetail] = useState<TaskWorkspaceItem | null>(null)
   const [undo, setUndo] = useState<TaskWorkspaceUndo | null>(null)
   const [completionUndo, setCompletionUndo] = useState<TaskCompletionUndo | null>(null)
-  const searchRef = useRef<HTMLInputElement>(null)
   const [notice, setNotice] = useState('')
   const [active, setActive] = useState<TaskWorkspaceItem | null>(null)
   const [create, setCreate] = useState<Destination | null>(null)
@@ -374,7 +379,7 @@ export function TasksView({
     )
   }
   function quickActionsFor(item: TaskWorkspaceItem) {
-    return <TaskQuickActions item={item} busy={busy} onPlan={horizon => move(item, { horizon })} tagPicker={tagPickerFor(item)} />
+    return <TaskQuickActions item={item} busy={busy} onComplete={() => complete(item)} onPlan={horizon => move(item, { horizon })} tagPicker={tagPickerFor(item)} />
   }
   function card(item: TaskWorkspaceItem, categoryId?: string | null) {
     return (
@@ -458,21 +463,31 @@ export function TasksView({
         </button>
       </header>
       <div className="tasks-toolbar">
-        <label className="search-box">
-          <Search size={14} />
-          <input
-            ref={searchRef}
-            aria-label="Search tasks"
-            placeholder="Search all tasks…"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          {query && (
-            <button aria-label="Clear task search" onClick={() => setQuery('')}>
-              <X size={13} />
+        {(
+          <div className="planner-view-switch tasks-layout-switch" aria-label="Task layout">
+            <button
+              type="button"
+              aria-pressed={layout === 'time'}
+              onClick={() => {
+                setLayout('time')
+                remember('tasks-layout-v1', 'time')
+              }}
+            >
+              <Columns3 size={13} /> By priority
             </button>
-          )}
-        </label>
+            <button
+              type="button"
+              aria-pressed={layout === 'table'}
+              onClick={() => {
+                setLayout('table')
+                remember('tasks-layout-v1', 'table')
+              }}
+            >
+              <Table2 size={13} /> Table
+            </button>
+          </div>
+        )}
+        <div className="tasks-filter-spacer" />
         <AppSelect
           aria-label="Filter tasks by category"
           value={category}
@@ -506,30 +521,6 @@ export function TasksView({
           </AppSelect>
         )}
         <TagFilter category="Tasks" tags={tags} value={tagFilter} onChange={setTagFilter} />
-        {(
-          <div className="planner-view-switch tasks-layout-switch" aria-label="Task layout">
-            <button
-              type="button"
-              aria-pressed={layout === 'time'}
-              onClick={() => {
-                setLayout('time')
-                remember('tasks-layout-v1', 'time')
-              }}
-            >
-              <Columns3 size={13} /> By priority
-            </button>
-            <button
-              type="button"
-              aria-pressed={layout === 'table'}
-              onClick={() => {
-                setLayout('table')
-                remember('tasks-layout-v1', 'table')
-              }}
-            >
-              <Table2 size={13} /> Table
-            </button>
-          </div>
-        )}
         <button
           type="button"
           className="tasks-done-filter"
@@ -711,7 +702,6 @@ export function TasksView({
                       subcategory={subcategoryMap.get(item.subcategoryId ?? '')}
                       busy={busy}
                       onOpen={() => setDetail(item)}
-                      onComplete={() => complete(item)}
                     />
                   ))}
                 </tbody>
@@ -749,8 +739,7 @@ export function TasksView({
                         subcategory={subcategoryMap.get(item.subcategoryId ?? '')}
                         busy={busy}
                         onOpen={() => setDetail(item)}
-                        onComplete={() => complete(item)}
-                      />
+                        />
                     ))}
                   {pages[horizon]?.nextCursor && (
                     <tr>
@@ -910,9 +899,6 @@ function TaskDragPreview({
       className={`tasks-drag-preview tasks-drag-row ${backlog ? 'tasks-drag-backlog' : 'tasks-drag-table'}`}
     >
       <div className="tasks-drag-row-main">
-        {item.kind === 'task' && (
-          <input type="checkbox" checked={item.completedAt !== null} readOnly tabIndex={-1} />
-        )}
         <GripVertical size={15} />
         <div className="backlog-task-main">
           <span className="backlog-task-title">{item.body.trim() || 'Image capture'}</span>
@@ -929,7 +915,7 @@ function TaskDragPreview({
       </div>
       {backlog && item.completedAt === null && (
         <div className="backlog-plan-actions">
-          {horizons.filter(horizon => horizon !== item.horizon).map((horizon) => (
+          {horizons.filter(horizon => horizon !== 'unplanned' && horizon !== item.horizon).map((horizon) => (
             <button type="button" tabIndex={-1} className="button secondary small" key={horizon}>
               {horizonLabels[horizon]}
             </button>
@@ -1048,8 +1034,7 @@ function TaskTableRow({
   item,
   subcategory,
   busy,
-  onOpen,
-  onComplete
+  onOpen
 }: {
   tagColors: Map<string, string>
   searchResult?: boolean
@@ -1059,7 +1044,6 @@ function TaskTableRow({
   subcategory?: Subcategory
   busy: boolean
   onOpen: () => void
-  onComplete: () => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } =
     useSortable({
@@ -1076,16 +1060,6 @@ function TaskTableRow({
     >
       <td>
         <div className="tasks-table-task">
-          {item.kind === 'task' && (
-            <input
-              className="backlog-completion-toggle"
-              type="checkbox"
-              aria-label={`${item.completedAt ? 'Reopen' : 'Complete'} ${item.body.split('\n')[0] || 'task'}`}
-              checked={item.completedAt !== null}
-              disabled={busy}
-              onChange={onComplete}
-            />
-          )}
           {!searchResult && (
             <button
               type="button"
@@ -1098,9 +1072,9 @@ function TaskTableRow({
               <GripVertical size={15} />
             </button>
           )}
-          <button type="button" className="backlog-task-title" disabled={busy} onClick={onOpen}>
-            {item.body.trim() || 'Image capture'}
-          </button>
+          <div role="button" tabIndex={busy ? -1 : 0} className="backlog-task-title" aria-disabled={busy} onClick={() => { if (!busy) onOpen() }} onKeyDown={(event) => { if (!busy && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpen() } }}>
+            <LinkedText text={item.body.trim() || 'Image capture'} />
+          </div>
           <ImageIndicator count={item.images.length} />
         </div>
         {searchResult && (
@@ -1236,16 +1210,9 @@ function TaskCard({
         >
           <GripVertical size={13} />
         </button>
-        <input
-          type="checkbox"
-          aria-label={`${item.completedAt ? 'Reopen' : 'Complete'} ${item.body.split('\n')[0] || 'task'}`}
-          checked={item.completedAt !== null}
-          disabled={busy}
-          onChange={onComplete}
-        />
-        <button type="button" className="tasks-card-body" disabled={busy} onClick={onOpen}>
-          {item.body.trim() || (item.images.length ? 'Image capture' : 'Untitled task')}
-        </button>
+        <div role="button" tabIndex={busy ? -1 : 0} className="tasks-card-body" aria-disabled={busy} onClick={() => { if (!busy) onOpen() }} onKeyDown={(event) => { if (!busy && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpen() } }}>
+          <LinkedText text={item.body.trim() || (item.images.length ? 'Image capture' : 'Untitled task')} />
+        </div>
       </div>
       <ScheduledIndicator item={item} />
       <div className="tasks-inline-meta">
@@ -1258,16 +1225,17 @@ function TaskCard({
             </div>
           )}
         </div>
-        {onPlan && <TaskQuickActions item={item} busy={busy} onPlan={onPlan} tagPicker={tagPicker} />}
+        {onPlan && <TaskQuickActions item={item} busy={busy} onPlan={onPlan} onComplete={onComplete} tagPicker={tagPicker} />}
       </div>
 
     </article>
   )
 }
 
-function TaskQuickActions({ item, busy, onPlan, tagPicker }: {
+function TaskQuickActions({ item, busy, onPlan, onComplete, tagPicker }: {
   item: TaskWorkspaceItem
   busy: boolean
+  onComplete: () => void
   onPlan: (horizon: Horizon) => void
   tagPicker?: React.ReactNode
 }) {
@@ -1276,10 +1244,19 @@ function TaskQuickActions({ item, busy, onPlan, tagPicker }: {
     <div className="tasks-quick-actions">
       <div className="tasks-quick-buttons" role="group" aria-label={`Quick actions for ${label}`}>
         <div className="tasks-priority-buttons">
-        {item.completedAt === null && horizons.filter(horizon => horizon !== item.horizon).map(horizon => (
+        {item.completedAt === null && horizons.filter(horizon => horizon !== 'unplanned' && horizon !== item.horizon).map(horizon => (
           <button key={horizon} type="button" disabled={busy} title={`Move to ${horizonLabels[horizon]}`} aria-label={`Move ${label} to ${horizonLabels[horizon]}`} onClick={() => onPlan(horizon)}>{horizonLabels[horizon]}</button>
         ))}
         </div>
+        <button
+          type="button"
+          className="tasks-done-action"
+          disabled={busy}
+          aria-label={`${item.completedAt !== null ? 'Reopen' : 'Complete'} ${label}`}
+          onClick={onComplete}
+        >
+          <Check size={12} /> {item.completedAt !== null ? 'Reopen' : 'Done'}
+        </button>
         {tagPicker}
       </div>
     </div>

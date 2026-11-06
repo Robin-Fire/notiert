@@ -347,7 +347,7 @@ export function Capture() {
               state.available ? 'Capture a thought…' : 'Storage is unavailable. Keep this text on screen.'
             }
             aria-label="Task text"
-            aria-describedby="capture-status"
+            aria-describedby={error || tooLong || !state.available ? 'capture-status' : 'capture-instructions'}
             readOnly={saving}
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={onKeyDown}
@@ -471,7 +471,7 @@ export function Capture() {
           )}
           {state.available && !error && (
             <footer className="capture-footer">
-              <span className="capture-hint">
+              <span className="capture-hint" id="capture-instructions">
                 <kbd>Shift ↵</kbd> new line <span className="capture-hint-divider">·</span> <kbd>Esc</kbd>{' '}
                 close
               </span>
