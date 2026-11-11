@@ -383,7 +383,6 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .priority-item-row { touch-action: pan-y; }
 .priority-item-row:has(.item-drag-handle:active) { background: var(--surface-raised); }
 .priority-task-group { margin-bottom: 14px; }
-.completed-task-group { margin: 12px 0 20px; padding: 0 18px; }
 .priority-task-group > .date-label, .category-item-section > .date-label, .category-tagged-heading { margin: 12px 0 6px; color: var(--text-muted); font: 500 var(--type-caption) var(--font-mono); letter-spacing: .045em; text-transform: uppercase; }
 .item-row-open { display: flex; min-width: 0; flex: 1; flex-direction: column; justify-content: center; gap: 8px; padding: 11px 12px; border: 0; border-radius: inherit; background: transparent; text-align: left; }
 .item-preview { display: -webkit-box; max-width: 100%; overflow: hidden; color: var(--text); font-size: var(--type-primary); line-height: 21px; text-overflow: ellipsis; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -1178,24 +1177,14 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .sidebar .taxonomy-nav-row:hover .taxonomy-row-action,
 .sidebar .taxonomy-nav-row:focus-within .taxonomy-row-action { opacity: 1; }
 @media (hover: none) { .sidebar .taxonomy-row-action { opacity: 1; } }
-.sidebar .taxonomy-tag-grip {
-  display: grid;
-  flex: 0 0 23px;
-  height: 29px;
-  place-items: center;
-  padding: 0;
-  color: var(--text-muted);
-  cursor: grab;
-  touch-action: none;
-}
-.sidebar .taxonomy-tag-grip[aria-disabled=true] { cursor: default; opacity: .35; }
+.sidebar .taxonomy-filter:is([data-reorderable], [draggable=true]) { cursor: grab; }
 .sidebar .taxonomy-tag-row[data-dragging] {
   z-index: 2;
   border-radius: 6px;
   background: var(--surface);
   box-shadow: 0 2px 7px rgb(0 0 0 / 15%);
 }
-.sidebar .taxonomy-tag-row[data-dragging] .taxonomy-tag-grip { cursor: grabbing; }
+.sidebar .taxonomy-tag-row[data-dragging] .taxonomy-filter { cursor: grabbing; }
 .sidebar .category-children { margin-left: 30px; padding-left: 10px; border-left: 1px solid var(--border); }
 .workspace-window .side-nav button[aria-current=page],
 .sidebar .taxonomy-filter[aria-pressed=true] {

@@ -57,7 +57,7 @@ app.whenReady().then(async () => {
   await screenshot('tasks-time-light.png')
   const togglePlanning = () => evaluate(`document.querySelector('.sidebar .taxonomy-filter[title="Planning"]').click()`)
   await togglePlanning()
-  await until(`document.querySelector('.sidebar .taxonomy-filter[title="Planning"][aria-pressed="true"]') && document.querySelectorAll('.tasks-card').length === 8`, 'sidebar tag filters task cards')
+  await until(`document.querySelector('.sidebar .taxonomy-filter[title="Planning"][aria-pressed="true"]') && document.querySelectorAll('[aria-label="Tagged tasks list"] [data-task-id]').length === 8 && !document.querySelector('.tasks-board')`, 'sidebar tag shows one list of matching tasks')
   await togglePlanning()
   await until(`document.querySelectorAll('.tasks-card').length === 10`, 'clicking the active tag clears it')
   await evaluate(`(()=>{const input=document.querySelector('[aria-label="Search tasks"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'no matching task');input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
@@ -175,12 +175,12 @@ app.whenReady().then(async () => {
       await window.captured.items.createTag({ name: 'Waiting' })
       await window.captured.items.createTag({ name: 'Review' })
     })()`)
-    const grip = (name) => `[aria-label="Reorder tag ${name}"]`
-    await until(`Boolean(document.querySelector('${grip('Review')}'))`, 'tag reorder handles')
+    const tagButton = (name) => `.taxonomy-tag-row .taxonomy-filter[title="${name}"]`
+    await until(`Boolean(document.querySelector('${tagButton('Review')}[data-reorderable]'))`, 'tag names can be dragged')
     const tagOrder = () => evaluate(`[...document.querySelectorAll('.taxonomy-tag-row .taxonomy-name')].map(tag => tag.textContent)`)
     assert.deepEqual(await tagOrder(), ['Planning', 'Waiting', 'Review'])
     const point = (name) => evaluate(`(() => {
-      const rect = document.querySelector('${grip(name)}').getBoundingClientRect()
+      const rect = document.querySelector('${tagButton(name)} .taxonomy-name').getBoundingClientRect()
       return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) }
     })()`)
     const from = await point('Review')
@@ -195,7 +195,7 @@ app.whenReady().then(async () => {
     await until(`document.querySelector('.taxonomy-tag-row .taxonomy-name')?.textContent === 'Review'`, 'sidebar updates after drop')
     await until(`(async () => (await window.captured.items.taxonomy()).value.tags[0].name === 'Review')()`, 'tag order is saved')
     assert.deepEqual(await tagOrder(), ['Review', 'Planning', 'Waiting'])
-    await evaluate(`document.querySelector('${grip('Review')}').focus()`)
+    await evaluate(`document.querySelector('${tagButton('Review')}').focus()`)
     for (const keyCode of ['Space', 'Down', 'Space']) {
       win.webContents.sendInputEvent({ type: 'keyDown', keyCode })
       win.webContents.sendInputEvent({ type: 'keyUp', keyCode })
@@ -203,6 +203,7 @@ app.whenReady().then(async () => {
     }
     await until(`(async () => (await window.captured.items.taxonomy()).value.tags[1].name === 'Review')()`, 'keyboard tag reorder saves')
     assert.deepEqual(await tagOrder(), ['Planning', 'Review', 'Waiting'])
+    assert.equal(await evaluate(`document.querySelector('${tagButton('Review')}').getAttribute('aria-pressed')`), 'false', 'dragging does not select the tag')
     await evaluate(`(async () => {
       const subcategory = await window.captured.items.createSubcategory({ name: 'Long subcategory label', categoryId: '${seeded.work.id}' })
       if (!subcategory.ok) throw Error(subcategory.message)

@@ -1,9 +1,9 @@
-import { closestCenter, DndContext, KeyboardSensor, PointerSensor, pointerWithin, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { closestCenter, DndContext, KeyboardSensor, MouseSensor, TouchSensor, pointerWithin, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { ColorPalette } from './ColorPalette'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronRight, Folder, GripVertical, Hash, Plus, Trash2, Pencil, ArrowUp, ArrowDown } from 'lucide-react'
+import { ChevronDown, ChevronRight, Folder, Hash, Plus, Trash2, Pencil, ArrowUp, ArrowDown } from 'lucide-react'
 import type { Category, Subcategory, TagRecord } from '../../shared/contracts'
 import { resultValue } from '../apiResult'
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog'
@@ -45,8 +45,12 @@ export function TaxonomyNav({
   const [pendingTagOrder, setPendingTagOrder] = useState<TagRecord[] | null>(null)
   const orderedTags = pendingTagOrder ?? tags
   const tagSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+      keyboardCodes: { start: ['Space'], end: ['Space'], cancel: ['Escape'] }
+    })
   )
 
   async function reorderTag({ active, over }: DragEndEvent) {
@@ -159,6 +163,9 @@ export function TaxonomyNav({
             collisionDetection={(args) => args.pointerCoordinates ? pointerWithin(args) : closestCenter(args)}
             onDragEnd={reorderTag}
             accessibility={{
+              screenReaderInstructions: {
+                draggable: 'Press Enter to toggle the tag filter. To reorder, press Space, use the arrow keys, then press Space to drop or Escape to cancel.'
+              },
               announcements: {
                 onDragStart: ({ active }) => `Picked up ${tags.find((tag) => tag.id === active.id)?.name}.`,
                 onDragOver: ({ over }) => over
@@ -171,13 +178,8 @@ export function TaxonomyNav({
           >
             <SortableContext items={orderedTags.map((tag) => tag.id)} strategy={verticalListSortingStrategy}>
               {orderedTags.map((item) => (
-                <SortableTagRow key={item.id} tag={item} disabled={busy || orderedTags.length < 2}>
-                  <button type="button" className="taxonomy-filter"
-                    title={item.name}
-                    aria-pressed={activeTags.includes(item.name)} onClick={() => onTag(item.name)}>
-                    <Hash size={15} color={item.color} /><span className="taxonomy-name">{item.name}</span>
-                    {!!item.count && <small>{item.count}</small>}
-                  </button>
+                <SortableTagRow key={item.id} tag={item} canReorder={!busy && orderedTags.length > 1}
+                  active={activeTags.includes(item.name)} onSelect={() => onTag(item.name)}>
                   <button type="button" className="taxonomy-row-action" {...edit('tag', item)}><Pencil size={13} /></button>
                 </SortableTagRow>
               ))}
@@ -197,9 +199,11 @@ export function TaxonomyNav({
   </div>
 }
 
-function SortableTagRow({ tag, disabled, children }: { tag: TagRecord; disabled: boolean; children: ReactNode }) {
+function SortableTagRow({ tag, canReorder, active, onSelect, children }: {
+  tag: TagRecord; canReorder: boolean; active: boolean; onSelect: () => void; children: ReactNode
+}) {
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, transform, transition, isDragging } =
-    useSortable({ id: tag.id, disabled })
+    useSortable({ id: tag.id, disabled: !canReorder })
 
   return (
     <div
@@ -209,16 +213,18 @@ function SortableTagRow({ tag, disabled, children }: { tag: TagRecord; disabled:
       style={{ transform: CSS.Translate.toString(transform), transition }}
     >
       <button
-        {...attributes}
+        {...(canReorder ? attributes : undefined)}
         {...listeners}
         ref={setActivatorNodeRef}
         type="button"
-        className="taxonomy-tag-grip"
-        aria-label={`Reorder tag ${tag.name}`}
-        title={`Reorder ${tag.name}`}
-        aria-disabled={disabled || undefined}
+        className="taxonomy-filter"
+        data-reorderable={canReorder || undefined}
+        title={tag.name}
+        aria-pressed={active}
+        onClick={onSelect}
       >
-        <GripVertical size={15} />
+        <Hash size={15} color={tag.color} /><span className="taxonomy-name">{tag.name}</span>
+        {!!tag.count && <small>{tag.count}</small>}
       </button>
       {children}
     </div>

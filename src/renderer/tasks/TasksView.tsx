@@ -154,6 +154,8 @@ export function TasksView({
   }, [notice, undo, completionUndo, noticeHovered, noticeFocused, busy])
   const [dragPreview, setDragPreview] = useState<HTMLElement | null>(null)
   const [create, setCreate] = useState<Destination | null>(null)
+  const showTaggedList = selectedTags.length > 0
+  const showFlatList = !!search || showTaggedList
   const lock = useRef(false),
     request = useRef(0)
   const filters = useMemo<TasksQuery>(
@@ -179,7 +181,9 @@ export function TasksView({
       const current = ++request.current
       setLoading(true)
       try {
-        const results = resultValue(await window.captured.taskWorkspace.overview(filters))
+        const results = showTaggedList
+          ? { unplanned: resultValue(await window.captured.taskWorkspace.list(filters)) }
+          : resultValue(await window.captured.taskWorkspace.overview(filters))
         if (current !== request.current) return
         setPages(results)
         if (clearError) setError('')
@@ -190,7 +194,7 @@ export function TasksView({
         if (current === request.current) setLoading(false)
       }
     },
-    [filters]
+    [filters, showTaggedList]
   )
   const latestRefresh = useRef(refresh)
   latestRefresh.current = refresh
@@ -318,7 +322,7 @@ export function TasksView({
       const page = resultValue(
         await window.captured.taskWorkspace.list({
           ...filters,
-          horizon: search ? undefined : horizon,
+          horizon: showFlatList ? undefined : horizon,
           cursor
         })
       )
@@ -500,7 +504,7 @@ export function TasksView({
             </button>
           ) : <kbd>Ctrl F</kbd>}
         </label>
-        {(
+        {!showTaggedList && (
           <div className="planner-view-switch tasks-layout-switch" aria-label="Task layout">
             <button
               type="button"
@@ -699,13 +703,13 @@ export function TasksView({
           onDragCancel={() => setDragPreview(null)}
           onDragEnd={drop}
         >
-          {search ? (
-            <section className="tasks-search-results" aria-label="Task search results">
+          {showFlatList ? (
+            <section className="tasks-search-results" aria-label={search ? 'Task search results' : 'Tagged tasks'}>
               <p>
-                {total} {total === 1 ? 'result' : 'results'} ·{' '}
-                {completed ? 'Completed tasks' : 'Open and completed tasks'}
+                {total} {search ? (total === 1 ? 'result' : 'results') : (total === 1 ? 'task' : 'tasks')} ·{' '}
+                {completed ? 'Completed tasks' : search ? 'Open and completed tasks' : 'Open tasks'}
               </p>
-              <table className="tasks-group-table" aria-label="Search results">
+              <table className="tasks-group-table" aria-label={search ? 'Search results' : 'Tagged tasks list'}>
                 <thead>
                   <tr>
                     <th scope="col">Task</th>
@@ -720,8 +724,7 @@ export function TasksView({
                       actions={quickActionsFor(item)}
                       key={item.id}
                       item={item}
-                      searchResult
-
+                      flatList
                       subcategory={subcategoryMap.get(item.subcategoryId ?? '')}
                       busy={busy}
                       onOpen={() => setDetail(item)}
@@ -736,7 +739,7 @@ export function TasksView({
                   disabled={loading || busy}
                   onClick={() => void loadMore('unplanned')}
                 >
-                  Load more results
+                  {search ? 'Load more results' : 'Load more tasks'}
                 </button>
               )}
             </section>
@@ -998,14 +1001,14 @@ function TaskTableGroup({
 function TaskTableRow({
   tagColors,
   actions,
-  searchResult = false,
+  flatList = false,
   item,
   subcategory,
   busy,
   onOpen
 }: {
   tagColors: Map<string, string>
-  searchResult?: boolean
+  flatList?: boolean
   actions?: React.ReactNode
   backlog?: boolean
   item: TaskWorkspaceItem
@@ -1017,7 +1020,7 @@ function TaskTableRow({
     useSortable({
       id: item.id,
       data: { horizon: item.horizon, item },
-      disabled: searchResult || busy || item.completedAt !== null
+      disabled: flatList || busy || item.completedAt !== null
     })
   return (
     <tr
@@ -1028,7 +1031,7 @@ function TaskTableRow({
     >
       <td>
         <div className="tasks-table-task">
-          {!searchResult && (
+          {!flatList && (
             <button
               type="button"
               className="tasks-drag-handle backlog-drag-handle"
@@ -1046,7 +1049,7 @@ function TaskTableRow({
           <ImageIndicator count={item.images.length} />
           <ScheduledIndicator item={item} />
         </div>
-        {searchResult && (
+        {flatList && (
           <span className={`task-search-status ${item.completedAt !== null ? 'is-completed' : ''}`}>
             {item.completedAt !== null ? 'Completed' : 'Open'}
           </span>

@@ -262,7 +262,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
         view === 'tag' ? [selectedTagName ?? '__missing_tag__'] : tagFilters.length ? tagFilters : undefined,
       includeCompleted: scope === 'items' && (showCompleted || !!debouncedQuery.trim()),
       limit: 50,
-      sort: view === 'tag' || view === 'category' ? 'priority' : 'newest'
+      sort: view === 'category' ? 'priority' : 'newest'
     }
   }, [
     subcategoryFilter,
@@ -812,64 +812,12 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
         </>
       )
     }
-    if (view === 'tag') {
-      const taskGroups = new Map<string, ItemDetail[]>()
-      items
-        .filter((item) => item.kind === 'task' && item.completedAt == null)
-        .forEach((task) => {
-          const key = task.categoryId ?? 'unassigned'
-          taskGroups.set(key, [...(taskGroups.get(key) ?? []), task])
-        })
-      const priorityGroups = [...taskGroups.entries()].map(([categoryId, tasks]) => (
-        <PriorityTaskGroup
-          key={categoryId}
-          categoryId={categoryId === 'unassigned' ? null : categoryId}
-          title={categories.find((category) => category.id === categoryId)?.name ?? 'Unassigned'}
-          tasks={tasks}
-          renderRow={renderRow}
-          onReorder={reorderTask}
-        />
-      ))
-      const completedTasks = items
-        .filter((item) => item.kind === 'task' && item.completedAt != null)
-        .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
-      const otherItems = items.filter((item) => item.kind !== 'task')
-      const taggedItems = otherItems
-      const groupedItems = new Map<string, ItemDetail[]>()
-      for (const item of taggedItems) {
-        const label = itemDateLabel(item.createdAt)
-        groupedItems.set(label, [...(groupedItems.get(label) ?? []), item])
-      }
-      return (
-        <>
-          {priorityGroups}
-          {completedTasks.length > 0 && (
-            <section className="completed-task-group">
-              <div className="date-label">Completed tasks</div>
-              {completedTasks.map((item) => renderRow(item))}
-            </section>
-          )}
-          {[...groupedItems.entries()].map(([label, items]) => (
-            <section className="date-group" key={label}>
-              <div className="date-label">{label}</div>
-              {items.map((item) => renderRow(item))}
-            </section>
-          ))}
-          {cursor && (
-            <button className="load-more" onClick={() => void loadItems(cursor, true)} disabled={loading}>
-              Load more <ChevronDown size={14} />
-            </button>
-          )}
-        </>
-      )
-    }
-
     const groups = new Map<string, ItemDetail[]>()
     for (const item of items) {
       const label = itemDateLabel(view === 'trash' ? (item.deletedAt ?? item.createdAt) : item.createdAt)
       groups.set(label, [...(groups.get(label) ?? []), item])
     }
-    const rows = [...groups.entries()].map(([label, items]) => (
+    const rows = view === 'tag' ? items.map((item) => renderRow(item)) : [...groups.entries()].map(([label, items]) => (
       <section className="date-group" key={label}>
         <div className="date-label">{label}</div>
         {items.map((item) => renderRow(item))}

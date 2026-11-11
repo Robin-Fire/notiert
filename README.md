@@ -32,7 +32,7 @@ npm run dist:win
 
 **Tasks** opens by default and combines all captured and prioritized work in one page. By priority and Table layouts share five buckets: Unsorted for new captures, Now for current focus, Next for high priority, Soon for medium priority, and Later for very low priority. Buckets stay fixed until you move a task; they never become overdue. Drag grips to move or reorder tasks, or use the priority actions. Moving and completing offer Undo, which refuses to overwrite later edits. Bulk selection moves up to 100 loaded tasks together.
 
-Use the Tasks toolbar to search and filter by category or subcategory. Click a tag in the sidebar to toggle it. Tasks can match any selected tag. Drag a tag by its handle to reorder the list. These filters apply before pagination. The sidebar also lets you filter by category, manage categories and tags, and open Trash, Settings, and Calendar. Unsorted and Later can collapse into count rails on narrow windows.
+Use the Tasks toolbar to search and filter by category or subcategory. Click tags in the sidebar to see one list of tasks that match any selected tag. Drag a tag by its name to reorder the sidebar. These filters apply before pagination. The sidebar also lets you filter by category, manage categories and tags, and open Trash, Settings, and Calendar. Unsorted and Later can collapse into count rails on narrow windows.
 
 **Task details** saves text, images, tags, category, priority, and schedule with one **Save** action or Ctrl+S. All changes commit together. Closing with unsaved changes asks whether to discard them.
 

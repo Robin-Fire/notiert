@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.1.24 - 2026-11-11
+
+- Show tagged tasks in one list without priority buckets.
+- Reorder sidebar tags by dragging their names.
+
 ## 0.1.23 - 2026-11-11
 
 - Make sidebar headings easier to scan and use a background highlight for selected pages, categories, and tags.
