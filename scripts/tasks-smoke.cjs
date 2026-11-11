@@ -41,7 +41,7 @@ app.whenReady().then(async () => {
   assert.ok(captureWindow)
   const capture=await captureWindow.webContents.executeJavaScript(`(async()=>{const state=await window.captured.capture.getState();const saved=await window.captured.capture.submit({requestId:crypto.randomUUID(),generation:state.value.generation,body:'Idea from the client call',categoryId:'${seeded.work.id}'});await window.captured.capture.dismiss('saved');return saved})()`)
   assert.equal(capture.ok,true,capture.message);seeded.capture=capture.value
-  await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Tasks')).click()`)
+  await evaluate(`document.querySelector('.sidebar .brand').click()`)
   await until(`document.querySelectorAll('.tasks-page [data-task-id]').length===10`, 'all workspace cards')
   async function screenshot(name, width = 1400, height = 850) {
     const html = await evaluate(`(()=>{const clone=document.documentElement.cloneNode(true);document.querySelectorAll('select').forEach((select,index)=>{const copy=clone.querySelectorAll('select')[index];for(const option of copy.options)option.toggleAttribute('selected',option.value===select.value)});document.querySelectorAll('input').forEach((input,index)=>{const copy=clone.querySelectorAll('input')[index];copy.setAttribute('value',input.value);copy.toggleAttribute('checked',input.checked)});return clone.outerHTML})()`), file = path.join(profile, 'tasks-snapshot.html'), base = pathToFileURL(path.resolve(__dirname, '../out/renderer/index.html')).href
@@ -55,6 +55,11 @@ app.whenReady().then(async () => {
   await evaluate(`document.querySelector('[aria-label="Move Send the revised proposal to Now"]').click()`)
   await until(`Boolean(document.querySelector('[data-horizon="now"] [aria-label="Move Send the revised proposal to Next"]'))`,'Quick action moves a planned task back to Now')
   await screenshot('tasks-time-light.png')
+  const togglePlanning = () => evaluate(`document.querySelector('.sidebar .taxonomy-filter[title="Planning"]').click()`)
+  await togglePlanning()
+  await until(`document.querySelector('.sidebar .taxonomy-filter[title="Planning"][aria-pressed="true"]') && document.querySelectorAll('.tasks-card').length === 8`, 'sidebar tag filters task cards')
+  await togglePlanning()
+  await until(`document.querySelectorAll('.tasks-card').length === 10`, 'clicking the active tag clears it')
   await evaluate(`(()=>{const input=document.querySelector('[aria-label="Search tasks"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'no matching task');input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
   await until(`Boolean(document.querySelector('.tasks-empty-state'))`,'filtered empty state')
   await screenshot('tasks-filter-empty-light.png')
@@ -63,7 +68,7 @@ app.whenReady().then(async () => {
   win.setSize(2560,1100);await wait(250)
   for (const [layout,shot] of [['By priority','tasks-time-wide.png']]) {
     await click(layout)
-    assert.equal(await evaluate(`(()=>{const board=document.querySelector('.tasks-board').getBoundingClientRect();const columns=[...document.querySelectorAll('.tasks-board > .tasks-column')];const last=columns.at(-1).getBoundingClientRect();return Math.abs(board.right-last.right)<2&&columns.every(column=>column.getBoundingClientRect().left>=board.left)})()`),true,`${layout} uses the full wide screen`)
+    assert.equal(await evaluate(`(()=>{const element=document.querySelector('.tasks-board');const board=element.getBoundingClientRect();const columns=[...element.querySelectorAll(':scope > .tasks-column')];const last=columns.at(-1).getBoundingClientRect();const contentRight=board.left+element.clientWidth-parseFloat(getComputedStyle(element).paddingRight);return Math.abs(contentRight-last.right)<2&&columns.every(column=>column.getBoundingClientRect().left>=board.left)})()`),true,`${layout} uses the full wide screen`)
     await screenshot(shot,2560,1100)
   }
   win.setSize(1400,850);await wait(250);await click('By priority')
@@ -71,6 +76,165 @@ app.whenReady().then(async () => {
   const original = await ids()
   await click('Table'); assert.deepEqual(await ids(), original)
   await screenshot('tasks-table-overview.png')
+  const rect = selector => evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(${JSON.stringify(selector.includes("tasks-drag-handle") || selector === ".tasks-heading")} ? r.top+r.height/2 : Math.max(180,Math.min(innerHeight-50,r.top+r.height/2)))}})()`)
+  async function drag(source, destination, beforeDrop) {
+    await evaluate(`document.querySelector(${JSON.stringify(source)}).scrollIntoView({block:'nearest'})`);await wait(150)
+    const sourceWidth=await evaluate(`document.querySelector(${JSON.stringify(source)}).closest('[data-task-id]').getBoundingClientRect().width`)
+    const rowLayout=await evaluate(`Boolean(document.querySelector('.tasks-backlog-page, .tasks-table-page'))`)
+    const start=await rect(source)
+    win.webContents.sendInputEvent({ type: 'mouseMove', ...start }); win.webContents.sendInputEvent({ type: 'mouseDown', ...start, button: 'left', clickCount: 1 })
+    await wait(250)
+    win.webContents.sendInputEvent({type:'mouseMove',x:start.x+10,y:start.y,button:'left'});await wait(250)
+    assert.ok(await evaluate(`Boolean(document.querySelector('.tasks-table-panel.is-dropzone, .tasks-board.is-dragging .tasks-column'))`), 'Dragging reveals drop targets')
+    if(rowLayout){
+      assert.equal(await evaluate(`Boolean(document.querySelector('.tasks-drag-table'))`),true,'Rows use row previews')
+      const previewWidth=await evaluate(`document.querySelector('.tasks-drag-table').getBoundingClientRect().width`)
+      assert.ok(Math.abs(previewWidth-sourceWidth)<2,`Preview keeps the source row width: ${previewWidth} vs ${sourceWidth}`)
+    }
+    await evaluate(`document.querySelector(${JSON.stringify(destination)}).scrollIntoView({block:'nearest'})`);await wait(200)
+    let end=await rect(destination)
+    for (let step=1;step<=20;step++){win.webContents.sendInputEvent({type:'mouseMove',x:Math.round(start.x+(end.x-start.x)*step/20),y:Math.round(start.y+(end.y-start.y)*step/20),button:'left'});await wait(25)}
+    if (rowLayout) await screenshot('tasks-table-drag-active.png')
+    // Sortable cards move visually during reordering; keep the original drop point instead of chasing their transforms.
+    if(!destination.includes('[data-task-id=')) {
+      for(let correction=0;correction<4;correction++){end=await rect(destination);win.webContents.sendInputEvent({type:'mouseMove',...end,button:'left'});await wait(50)}
+      end=await rect(destination)
+    }
+    await beforeDrop?.()
+    win.webContents.sendInputEvent({type:'mouseUp',...end,button:'left',clickCount:1});await wait(20);assert.equal(await evaluate(`Boolean(document.querySelector('.tasks-drag-preview'))`),false,'Drop removes overlay immediately without a return animation');await wait(230)
+  }
+  if (process.argv.includes('--workspace-only')) {
+    win.focus()
+    const tableRow = await evaluate(`document.querySelector('.tasks-table [data-task-id]').dataset.taskId`)
+    const verifyTablePreview = async (expectTags = false) => {
+      await drag(`[data-task-id="${tableRow}"] .tasks-drag-handle`, '.tasks-heading', async () => {
+        const [source, preview] = await evaluate(`(() => {
+          const measure = row => {
+            const bounds = row.getBoundingClientRect()
+            const elements = [...row.querySelectorAll('.backlog-task-title, .tasks-subcategory-label, .tasks-table-tag')]
+            const text = elements.map(element => {
+              const rect = element.getBoundingClientRect()
+              const style = getComputedStyle(element)
+              return {
+                text: element.textContent,
+                style: ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'color', 'backgroundColor', 'whiteSpace'].map(key => style[key]),
+                y: Math.round(rect.top - bounds.top),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height)
+              }
+            })
+            const tags = row.querySelector('.tasks-category-tags')?.getBoundingClientRect()
+            return {
+              text, x: Math.round(bounds.left), width: Math.round(bounds.width),
+              tagsWidth: Math.round(tags?.width ?? 0), tagsHeight: Math.round(tags?.height ?? 0),
+              tagCount: row.querySelectorAll('.tasks-table-tag').length
+            }
+          }
+          return [measure(document.querySelector('[data-task-id="${tableRow}"]')), measure(document.querySelector('.tasks-drag-table tr'))]
+        })()`)
+        if (expectTags) assert.equal(source.tagCount, 3, 'Test row contains three tags')
+        assert.equal(preview.tagCount, source.tagCount)
+        assert.deepEqual(preview.text.map(({ text, style }) => ({ text, style })), source.text.map(({ text, style }) => ({ text, style })), 'Text and tag styling match')
+        for (const key of ['x', 'width', 'tagsWidth', 'tagsHeight']) {
+          assert.ok(Math.abs(preview[key] - source[key]) <= 1, `Preview ${key} matches the source: ${preview[key]} vs ${source[key]}`)
+        }
+        preview.text.forEach((element, index) => {
+          for (const key of ['y', 'width', 'height']) {
+            assert.ok(Math.abs(element[key] - source.text[index][key]) <= 1, `Preview ${element.text} ${key} matches the source`)
+          }
+        })
+        if (expectTags) assert.equal(new Set(preview.text.slice(-3).map(tag => tag.y)).size, 1, 'All tags stay on a single line')
+      })
+    }
+    const tableGeometry = () => evaluate(`[...document.querySelectorAll('.tasks-table-panel')].map(panel => ({
+      height: panel.getBoundingClientRect().height,
+      rows: panel.querySelectorAll('tbody tr').length
+    }))`)
+    const beforeDrag = await tableGeometry()
+    const tableDestination = '.tasks-table-panel[data-priority="next"]'
+    await drag(`[data-task-id="${tableRow}"] .tasks-drag-handle`, `${tableDestination} > header`, async () => {
+      assert.deepEqual(await tableGeometry(), beforeDrag, 'Table groups keep their height and row count while dragging')
+      assert.ok(await evaluate(`Boolean(document.querySelector('${tableDestination}.is-over'))`), 'The existing group highlights as the drop target')
+    })
+    await until(`Boolean(document.querySelector('${tableDestination} [data-task-id="${tableRow}"]'))`, 'drop on a table group header moves the task')
+    await click('Undo')
+    await until(`Boolean(document.querySelector('.tasks-table-panel[data-priority="unplanned"] [data-task-id="${tableRow}"]'))`, 'Undo restores the table row')
+    await verifyTablePreview()
+    await click('By priority')
+    const cardId = await evaluate(`document.querySelector('.tasks-board [data-horizon="now"] [data-task-id]').dataset.taskId`)
+    const nextColumn = '.tasks-board > [data-horizon="next"]'
+    await drag(`[data-task-id="${cardId}"] .tasks-drag-handle`, nextColumn, async () => {
+      assert.equal(await evaluate(`document.querySelectorAll('.tasks-board .tasks-drop-target').length`), 0, 'Board has no duplicate append boxes')
+      assert.ok(await evaluate(`Boolean(document.querySelector('${nextColumn}.is-over'))`), 'The entire destination column highlights')
+    })
+    await until(`Boolean(document.querySelector('${nextColumn} [data-task-id="${cardId}"]'))`, 'drop in column space moves the task')
+    await click('Undo')
+    await until(`Boolean(document.querySelector('.tasks-board > [data-horizon="now"] [data-task-id="${cardId}"]'))`, 'Undo restores the task')
+    await click('Table')
+    await evaluate(`(async () => {
+      await window.captured.items.createTag({ name: 'Waiting' })
+      await window.captured.items.createTag({ name: 'Review' })
+    })()`)
+    const grip = (name) => `[aria-label="Reorder tag ${name}"]`
+    await until(`Boolean(document.querySelector('${grip('Review')}'))`, 'tag reorder handles')
+    const tagOrder = () => evaluate(`[...document.querySelectorAll('.taxonomy-tag-row .taxonomy-name')].map(tag => tag.textContent)`)
+    assert.deepEqual(await tagOrder(), ['Planning', 'Waiting', 'Review'])
+    const point = (name) => evaluate(`(() => {
+      const rect = document.querySelector('${grip(name)}').getBoundingClientRect()
+      return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) }
+    })()`)
+    const from = await point('Review')
+    const to = await point('Planning')
+    win.webContents.sendInputEvent({ type: 'mouseMove', ...from })
+    win.webContents.sendInputEvent({ type: 'mouseDown', ...from, button: 'left', clickCount: 1 })
+    win.webContents.sendInputEvent({ type: 'mouseMove', x: from.x, y: from.y - 8, button: 'left' })
+    await until(`Boolean(document.querySelector('.taxonomy-tag-row[data-dragging]'))`, 'tag drag starts')
+    win.webContents.sendInputEvent({ type: 'mouseMove', ...to, button: 'left' })
+    await until(`document.querySelector('.sidebar [role="status"]')?.textContent.includes("Position 1 of 3")`, 'other tags shift to preview the new order')
+    win.webContents.sendInputEvent({ type: 'mouseUp', ...to, button: 'left', clickCount: 1 })
+    await until(`document.querySelector('.taxonomy-tag-row .taxonomy-name')?.textContent === 'Review'`, 'sidebar updates after drop')
+    await until(`(async () => (await window.captured.items.taxonomy()).value.tags[0].name === 'Review')()`, 'tag order is saved')
+    assert.deepEqual(await tagOrder(), ['Review', 'Planning', 'Waiting'])
+    await evaluate(`document.querySelector('${grip('Review')}').focus()`)
+    for (const keyCode of ['Space', 'Down', 'Space']) {
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode })
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode })
+      await wait(120)
+    }
+    await until(`(async () => (await window.captured.items.taxonomy()).value.tags[1].name === 'Review')()`, 'keyboard tag reorder saves')
+    assert.deepEqual(await tagOrder(), ['Planning', 'Review', 'Waiting'])
+    await evaluate(`(async () => {
+      const subcategory = await window.captured.items.createSubcategory({ name: 'Long subcategory label', categoryId: '${seeded.work.id}' })
+      if (!subcategory.ok) throw Error(subcategory.message)
+      const category = await window.captured.items.setCategory({ id: '${tableRow}', categoryId: '${seeded.work.id}', subcategoryId: subcategory.value.id })
+      if (!category.ok) throw Error(category.message)
+      const tags = await window.captured.items.setTags({ id: '${tableRow}', tags: ['Planning', 'Review', 'Waiting'] })
+      if (!tags.ok) throw Error(tags.message)
+    })()`)
+    await until(`document.querySelectorAll('[data-task-id="${tableRow}"] .tasks-table-tag').length === 3`, 'row has multiple tags')
+    await verifyTablePreview(true)
+    win.setSize(760, 700)
+    await wait(200)
+    assert.ok(await evaluate(`(() => {
+      const table = document.querySelector('.tasks-table-groups')
+      return table.scrollWidth <= table.clientWidth + 1
+    })()`), 'Table fits at the minimum window width')
+    await verifyTablePreview(true)
+    await screenshot('tasks-table-narrow.png', 760, 700)
+    await until(`Boolean(document.querySelector('[aria-label="Edit tag Planning"]'))`, 'tag management')
+    await click('Trash', '.sidebar .side-nav button')
+    await until(`document.querySelector('main h1')?.textContent.startsWith('Trash')`, 'Trash navigation')
+    await click('Settings', '.sidebar .side-nav button')
+    await until(`Boolean(document.querySelector('.settings-nav'))`, 'Settings navigation')
+    await evaluate(`[...document.querySelectorAll('.sidebar .side-nav button')].find(button => button.textContent.trim() === 'Calendar').click()`)
+    await until(`Boolean(document.querySelector('[data-slot="event-calendar-day-column"]'))`, 'Calendar navigation')
+    await evaluate(`document.querySelector('.sidebar .brand').click()`)
+    await until(`document.querySelectorAll('.tasks-table-groups [data-task-id]').length === 10`, 'return to Tasks')
+    assert.equal(errors.length, 0, errors.join('\n'))
+    process.stdout.write('workspace_navigation=ok sidebar_tag_filters=ok tag_reorder=ok task_drag_preview=ok stable_table_drop=ok kanban_drop=ok narrow_table=ok\n')
+    app.exit(0)
+    return
+  }
   await click('By priority')
   await evaluate(`document.querySelector('[data-task-id="${seeded.scheduled.id}"] .tasks-card-body').click()`)
   await until(`Boolean(document.querySelector('.task-detail-dialog'))`,'unified task details')
@@ -78,7 +242,7 @@ app.whenReady().then(async () => {
   await screenshot('task-details-unified-light.png')
   assert.equal(await evaluate(`(()=>{const rect=document.querySelector('.task-detail-actions').getBoundingClientRect();return rect.top>=0&&rect.bottom<=innerHeight})()`),true,'Editor actions stay visible while fields scroll')
   assert.equal(await evaluate(`document.querySelectorAll('.task-detail-dialog .task-schedule-fields button:not([data-slot])').length`),0,'One Save action replaces separate planning and scheduling buttons')
-  await click('Save', '.task-detail-actions button')
+  await click('Save changes', '.task-detail-actions button')
   await until(`!document.querySelector('.task-detail-dialog')`,'unified Save closes details')
   assert.equal((await evaluate(`window.captured.items.get('${seeded.scheduled.id}')`)).value.plannedStartAt,seeded.scheduled.plannedStartAt,'Plan-only Save keeps the time block')
   if (process.argv.includes('--editor-only')) {
@@ -107,37 +271,11 @@ app.whenReady().then(async () => {
   assert.equal((await evaluate(`window.captured.items.get('${completionTarget.id}')`)).value.plannedStartAt, completionTarget.plannedStartAt)
   // Drag an unscheduled task into another horizon.
   const task = (await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Send the revised proposal'})`)).value.items[0]
-  const rect = selector => evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(${JSON.stringify(selector.includes("tasks-drag-handle"))} ? r.top+r.height/2 : Math.max(180,Math.min(innerHeight-50,r.top+r.height/2)))}})()`)
   win.focus(); await wait(300)
-  async function drag(source, destination) {
-    await evaluate(`document.querySelector(${JSON.stringify(source)}).scrollIntoView({block:'nearest'})`);await wait(150)
-    const sourceWidth=await evaluate(`document.querySelector(${JSON.stringify(source)}).closest('[data-task-id]').getBoundingClientRect().width`)
-    const rowLayout=await evaluate(`Boolean(document.querySelector('.tasks-backlog-page, .tasks-table-page'))`)
-    const start=await rect(source)
-    win.webContents.sendInputEvent({ type: 'mouseMove', ...start }); win.webContents.sendInputEvent({ type: 'mouseDown', ...start, button: 'left', clickCount: 1 })
-    await wait(250)
-    win.webContents.sendInputEvent({type:'mouseMove',x:start.x+10,y:start.y,button:'left'});await wait(250)
-    assert.equal(await evaluate(`Boolean(document.querySelector('.tasks-drop-target'))`),true,'Dragging reveals drop targets')
-    if(rowLayout){
-      assert.equal(await evaluate(`Boolean(document.querySelector('.tasks-drag-row'))`),true,'Rows use row previews')
-      const previewWidth=await evaluate(`document.querySelector('.tasks-drag-row').getBoundingClientRect().width`)
-      assert.ok(Math.abs(previewWidth-sourceWidth)<2,`Preview keeps the source row width: ${previewWidth} vs ${sourceWidth}`)
-    }
-    await evaluate(`document.querySelector(${JSON.stringify(destination)}).scrollIntoView({block:'nearest'})`);await wait(200)
-    let end=await rect(destination)
-    for (let step=1;step<=20;step++){win.webContents.sendInputEvent({type:'mouseMove',x:Math.round(start.x+(end.x-start.x)*step/20),y:Math.round(start.y+(end.y-start.y)*step/20),button:'left'});await wait(25)}
-    if(rowLayout){await screenshot(await evaluate(`document.querySelector('.tasks-backlog-page') ? 'backlog-drag-active.png' : 'tasks-table-drag-active.png'`))}
-    // Sortable cards move visually during reordering; keep the original drop point instead of chasing their transforms.
-    if(!destination.includes('[data-task-id=')) {
-      for(let correction=0;correction<4;correction++){end=await rect(destination);win.webContents.sendInputEvent({type:'mouseMove',...end,button:'left'});await wait(50)}
-      end=await rect(destination)
-    }
-    win.webContents.sendInputEvent({type:'mouseUp',...end,button:'left',clickCount:1});await wait(20);assert.equal(await evaluate(`Boolean(document.querySelector('.tasks-drag-preview'))`),false,'Drop removes overlay immediately without a return animation');await wait(230)
-  }
   // Captures and priorities share one page; bulk selection is available here.
   await until(`Boolean(document.querySelector('[data-task-id="${seeded.capture.id}"]'))`, 'Unsorted capture')
   assert.equal(await evaluate(`document.querySelectorAll('.tasks-board > .tasks-column').length`), 5)
-  assert.equal(await evaluate(`[...document.querySelectorAll('.side-nav button')].some(button=>button.textContent.trim()==='Backlog')`), false)
+  assert.equal(await evaluate(`Boolean(document.querySelector('.sidebar'))`), true)
   await screenshot('tasks-priorities-light.png')
   assert.equal(await evaluate(`Boolean(document.querySelector('.tasks-bulk-toolbar'))`),false,'Multi-select removed')
   const tagCardHeight=await evaluate(`document.querySelector('[data-task-id="${seeded.capture.id}"]').getBoundingClientRect().height`)
@@ -175,7 +313,7 @@ app.whenReady().then(async () => {
   assert.equal((await evaluate(`window.captured.items.get('${seeded.capture.id}')`)).value.kind, 'task')
   await click('Undo'); await until(`document.querySelector('.tasks-notice')?.textContent.includes('Change undone')`, 'capture undo')
   assert.equal((await evaluate(`window.captured.items.get('${seeded.capture.id}')`)).value.kind, 'task')
-  await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim()==='Tasks').click()`)
+  await evaluate(`document.querySelector('.sidebar .brand').click()`)
   await until(`Boolean(document.querySelector('.tasks-board'))`)
   await click('Table');await until(`Boolean(document.querySelector('.tasks-table'))`)
   await screenshot('tasks-table-light.png')
@@ -274,7 +412,7 @@ app.whenReady().then(async () => {
   await until(`!document.querySelector('.tasks-dialog')`,'Add task saves')
   const modalTask=(await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Task with shared tag picker'})`)).value.items[0]
   assert.deepEqual(new Set(modalTask.tags),new Set(['Planning','Modal tag']),'Add task persists staged tags')
-  await click('Calendar', '.side-nav button'); await until(`document.querySelector('[data-slot="event-calendar-day-column"]')`, 'unchanged Calendar grid')
+  await evaluate(`[...document.querySelectorAll('.sidebar .side-nav button')].find(button => button.textContent.trim() === 'Calendar').click()`); await until(`document.querySelector('[data-slot="event-calendar-day-column"]')`, 'unchanged Calendar grid')
   assert.equal(errors.length, 0, errors.join('\n'))
   process.stdout.write('tasks_layouts=ok capture_priority_undo=ok pointer_move_reorder_collapsed=ok calendar_isolation=ok visual_light_dark_narrow=ok\n')
   app.exit(0)

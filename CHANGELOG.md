@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.1.23 - 2026-11-11
+
+- Make sidebar headings easier to scan and use a background highlight for selected pages, categories, and tags.
+- Filter Tasks from the sidebar and reorder tags in place by dragging their handles.
+- Match Table drag previews to the original row and keep tag labels on a single line.
+- Keep task groups and Kanban columns stable during drag by using their existing surfaces as drop targets.
+- Place tasks at the top when moving them to a different priority bucket without specifying a row.
+
 ## 0.1.22 - 2026-11-06
 
 - Replace the task Undo banner with a floating toast that dismisses automatically after ten seconds, pausing on hover or keyboard focus.

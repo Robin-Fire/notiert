@@ -34,7 +34,7 @@ app.whenReady().then(async () => {
       if (await evaluate(code)) return
       await wait(100)
     }
-    const state = await evaluate(`({view:document.querySelector('.side-nav .active')?.textContent,alerts:[...document.querySelectorAll('[role="alert"]')].map(el=>el.textContent),text:document.querySelector('main')?.textContent?.slice(0,1500)})`)
+    const state = await evaluate(`({view:document.querySelector('main h1')?.textContent,alerts:[...document.querySelectorAll('[role="alert"]')].map(el=>el.textContent),text:document.querySelector('main')?.textContent?.slice(0,1500)})`)
     throw new Error(`Timed out waiting for ${description}: ${JSON.stringify(state)}`)
   }
   await until(`document.documentElement.dataset.windowReady === 'true'`, 'initial window navigation')
@@ -67,7 +67,7 @@ app.whenReady().then(async () => {
   }
   const backlogTask = await evaluate(`window.captured.planner.createTask({body:'Backlog to Ready regression',placement:{kind:'backlog'}})`)
   assert.equal(backlogTask.ok, true)
-  await evaluate(`[...document.querySelectorAll('.side-nav button')].find(button=>button.textContent.trim().startsWith('Tasks')).click()`)
+  await evaluate(`document.querySelector('.sidebar .brand').click()`)
   await until(`Boolean(document.querySelector('.tasks-page'))`, 'Tasks workspace')
   await evaluate(`document.querySelector('.tasks-board > [data-horizon="unplanned"].is-collapsed .tasks-column-heading button')?.click()`)
   await until(`Boolean([...document.querySelectorAll('.tasks-card-body, .backlog-task-title')].find(row=>row.textContent.includes('Backlog to Ready regression')))`, 'Tasks card')
@@ -76,7 +76,7 @@ app.whenReady().then(async () => {
   await selectOption(evaluate, '[aria-label="Task placement"]', 'ready')
   await evaluate(`[...document.querySelectorAll('.task-detail-actions button')].find(button=>button.textContent.trim()==='Save').click()`)
   await wait(300)
-  await clickText('Calendar', '.side-nav button')
+  await evaluate(`[...document.querySelectorAll('.sidebar .side-nav button')].find(button => button.textContent.trim() === 'Calendar').click()`)
   await until(`Boolean(document.querySelector('.calendar-ready')?.textContent.includes('Backlog to Ready regression')) && Boolean(document.querySelector('[data-slot="event-calendar-day-column"]'))`, 'Calendar grid and Ready task')
   assert.equal(await evaluate(`Boolean(document.querySelector('.calendar-ready')?.textContent.includes('Backlog to Ready regression'))`), true, 'Backlog task must appear in Ready')
   await evaluate(`window.captured.windows.ready(); window.captured.settings.get()`)
@@ -166,7 +166,7 @@ app.whenReady().then(async () => {
   window.webContents.setBackgroundThrottling(false)
   window.webContents.reload()
   await until(`document.documentElement.dataset.windowReady === 'true'`, 'reloaded window navigation')
-  await clickText('Calendar', '.side-nav button')
+  await evaluate(`[...document.querySelectorAll('.sidebar .side-nav button')].find(button => button.textContent.trim() === 'Calendar').click()`)
   await until(`document.querySelector('[data-slot="event-calendar-day-column"]')?.dataset.ecBoundsStart === '495'`, 'reloaded Calendar')
   assert.equal(await evaluate(`document.querySelector('[data-slot="event-calendar-day-column"]').dataset.ecBoundsStart`), '495')
   data = await evaluate(`window.captured.planner.tasks(${JSON.stringify(seeded.key)},'2099-12-31')`)

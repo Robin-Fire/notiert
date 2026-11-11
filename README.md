@@ -32,7 +32,7 @@ npm run dist:win
 
 **Tasks** opens by default and combines all captured and prioritized work in one page. By priority and Table layouts share five buckets: Unsorted for new captures, Now for current focus, Next for high priority, Soon for medium priority, and Later for very low priority. Buckets stay fixed until you move a task; they never become overdue. Drag grips to move or reorder tasks, or use the priority actions. Moving and completing offer Undo, which refuses to overwrite later edits. Bulk selection moves up to 100 loaded tasks together.
 
-Search, category/subcategory filters, and include/exclude tags apply before pagination. Active filter chips can be removed individually or cleared together. Unsorted and Later can collapse into count rails on narrow windows.
+Use the Tasks toolbar to search and filter by category or subcategory. Click a tag in the sidebar to toggle it. Tasks can match any selected tag. Drag a tag by its handle to reorder the list. These filters apply before pagination. The sidebar also lets you filter by category, manage categories and tags, and open Trash, Settings, and Calendar. Unsorted and Later can collapse into count rails on narrow windows.
 
 **Task details** saves text, images, tags, category, priority, and schedule with one **Save** action or Ctrl+S. All changes commit together. Closing with unsaved changes asks whether to discard them.
 
@@ -46,7 +46,7 @@ Paste PNG, JPEG, WebP, or GIF images with Ctrl+V in capture or item editing. Eac
 
 - Ctrl+N opens capture by default; first-run setup also offers Ctrl+Alt+N. Change or disable it in Settings.
 - Enter saves capture; Shift+Enter adds a newline; Esc retains the draft and closes capture.
-- Ctrl+F focuses search in Tasks, category/tag lists, and Trash.
+- Ctrl+F focuses search in Tasks and Trash.
 - Ctrl+S saves all changes in item details. Esc asks to discard unsaved edits before closing.
 - Arrow keys navigate item list rows; Delete moves selected items to Trash outside text inputs. Task dragging supports the keyboard through its grip.
 
@@ -55,7 +55,7 @@ If another app owns the global shortcut, captured reports that state and retains
 ## Architecture
 
 - Electron main owns windows, tray, shortcuts, settings, clipboard, dialogs, and SQLite. Typed preload APIs keep renderers away from Node, SQL, and the filesystem.
-- React renders capture and the main workspace. Sidebar navigation and Settings are separate components. Categories and tags share one subscription and ignore stale responses.
+- React renders capture and the main workspace. The sidebar and Settings are separate components. Categories and tags share one subscription and ignore stale responses.
 - SQLite is authoritative, with WAL, foreign keys, full synchronous writes, migrations, and FTS5 search. Upgrades live in `src/main/storage/migrations.ts`; live operations live in `database.ts`.
 - Workspace loading returns first pages and shared counts in one IPC request and one read transaction. Later pages retain independent cursors.
 - Browser preview uses local sample data and mirrors task operations for UI development. The packaged app uses SQLite.

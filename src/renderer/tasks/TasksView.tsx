@@ -13,7 +13,9 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
-  type CollisionDetection
+  type DragStartEvent,
+  type CollisionDetection,
+  type Modifier
 } from '@dnd-kit/core'
 import {
   SortableContext,
@@ -28,6 +30,7 @@ import {
   Columns3,
   GripVertical,
   Plus,
+  Search,
   Table2,
   Undo2,
   X
@@ -56,7 +59,6 @@ import { ItemDetailDialog } from '../components/ItemDetailDialog'
 import { ImageIndicator } from '../components/ItemImages'
 import { collectTags, TagEditor } from '../components/TagEditor'
 import { CategoryPicker } from '../components/CategoryPicker'
-import { TagFilter, type TagFilterValue } from '../components/TagFilter'
 
 const taskCollision: CollisionDetection = (args) => {
   const hits = pointerWithin(args)
@@ -70,6 +72,8 @@ const taskCollision: CollisionDetection = (args) => {
       ? hits.filter((hit) => String(hit.id).startsWith('section:'))
       : hits
 }
+
+const alignRowPreview: Modifier = ({ transform }) => ({ ...transform, x: 0 })
 
 type Layout = 'time' | 'table'
 type Destination = { horizon: Horizon; categoryId?: string | null; beforeId?: string | null }
@@ -94,6 +98,12 @@ export function TasksView({
   subcategories,
   tags,
   taxonomyReady,
+  category,
+  subcategory,
+  setCategory,
+  setSubcategory,
+  selectedTags,
+  clearSelectedTags,
   query,
   setQuery,
   searchRef,
@@ -101,6 +111,12 @@ export function TasksView({
   categories: Category[]
   subcategories: Subcategory[]
   tags: TagRecord[]
+  category: string
+  subcategory: string
+  setCategory: (category: string) => void
+  setSubcategory: (subcategory: string) => void
+  selectedTags: string[]
+  clearSelectedTags: () => void
   query: string
   setQuery: (query: string) => void
   searchRef: React.RefObject<HTMLInputElement | null>
@@ -112,13 +128,10 @@ export function TasksView({
       : 'time'
   )
   const [collapsed, setCollapsed] = useState<string[]>(() => preference('tasks-collapsed-v2', []))
-  const [compact, setCompact] = useState(() => window.innerWidth < 1250)
+  const [compact, setCompact] = useState(() => window.innerWidth < 1320)
   const [expandedCompact, setExpandedCompact] = useState<string[]>([])
   const [today, setToday] = useState(() => toLocalISODate(new Date()))
   const [search, setSearch] = useState('')
-  const [category, setCategory] = useState('all'),
-    [subcategory, setSubcategory] = useState('')
-  const [tagFilter, setTagFilter] = useState<TagFilterValue>({ included: [], excluded: [] })
   const [completed, setCompleted] = useState(false)
   const [pages, setPages] = useState<Partial<Record<Horizon, TasksPage>>>({})
   const [loading, setLoading] = useState(true),
@@ -139,7 +152,7 @@ export function TasksView({
     }, 10_000)
     return () => clearTimeout(timer)
   }, [notice, undo, completionUndo, noticeHovered, noticeFocused, busy])
-  const [active, setActive] = useState<TaskWorkspaceItem | null>(null)
+  const [dragPreview, setDragPreview] = useState<HTMLElement | null>(null)
   const [create, setCreate] = useState<Destination | null>(null)
   const lock = useRef(false),
     request = useRef(0)
@@ -150,12 +163,12 @@ export function TasksView({
       query: search,
       ...(category === 'all' ? {} : { categoryId: category === 'unassigned' ? null : category }),
       ...(subcategory ? { subcategoryId: subcategory } : {}),
-      tags: tagFilter.included,
-      excludedTags: tagFilter.excluded,
+      tags: selectedTags,
+      excludedTags: [],
       completed,
       limit: 50
     }),
-    [today, search, category, subcategory, tagFilter, completed]
+    [today, search, category, subcategory, selectedTags, completed]
   )
   useEffect(() => {
     const timer = setTimeout(() => setSearch(query.trim()), 150)
@@ -212,7 +225,7 @@ export function TasksView({
     }
   }, [today, refresh])
   useEffect(() => {
-    const resize = () => setCompact(window.innerWidth < 1250)
+    const resize = () => setCompact(window.innerWidth < 1320)
     window.addEventListener('resize', resize)
     return () => window.removeEventListener('resize', resize)
   }, [])
@@ -283,7 +296,7 @@ export function TasksView({
           id: item.id,
           expectedRevision: item.revision,
           intention,
-          beforeId: destination.beforeId ?? null,
+          beforeId: destination.beforeId,
           categoryId: destination.categoryId,
           today,
           classify,
@@ -322,14 +335,15 @@ export function TasksView({
     }
   }
   function drop(event: DragEndEvent) {
-    setActive(null)
+    setDragPreview(null)
     if (!event.over || event.active.id === event.over.id) return
     const item = items.find((item) => item.id === event.active.id)
     if (!item) return
     const target = event.over.data.current as (Destination & { item?: TaskWorkspaceItem }) | undefined
     if (!target) return
-    let beforeId = target.item?.kind === 'task' ? target.item.id : null
+    let beforeId: string | null | undefined
     if (target.item?.kind === 'task') {
+      beforeId = target.item.id
       const group = items.filter(
         (card) =>
           card.horizon === target.horizon &&
@@ -421,33 +435,23 @@ export function TasksView({
       setNotice(item.completedAt === null ? 'Task completed.' : 'Task reopened.')
     })
   }
-  const hasFilters =
-    !!query.trim() ||
-    category !== 'all' ||
-    !!subcategory ||
-    !!tagFilter.included.length ||
-    !!tagFilter.excluded.length
+  const hasFilterChips = !!query.trim() || category !== 'all' || !!subcategory
+  const hasFilters = hasFilterChips || selectedTags.length > 0
   function clearFilters() {
     setQuery('')
     setSearch('')
     setCategory('all')
     setSubcategory('')
-    setTagFilter({ included: [], excluded: [] })
+    clearSelectedTags()
   }
-  function section(horizon: Horizon, group: TaskWorkspaceItem[], categoryId?: string | null) {
+  function section(horizon: Horizon, group: TaskWorkspaceItem[]) {
     return (
-      <TaskSection
-        key={horizon}
-        horizon={horizon}
-        categoryId={categoryId}
-        dragging={!!active}
-        count={group.length}
-        onAdd={() => setCreate({ horizon, categoryId })}
-      >
+      <section className="tasks-section" aria-label={`${horizonLabels[horizon]} tasks`}>
         <SortableContext items={group.map((item) => item.id)} strategy={verticalListSortingStrategy}>
-          {group.map((item) => card(item, categoryId))}
+          {group.map((item) => card(item))}
         </SortableContext>
-      </TaskSection>
+        {group.length === 0 && !dragPreview && <p className="tasks-section-empty">No tasks here</p>}
+      </section>
     )
   }
 
@@ -473,6 +477,29 @@ export function TasksView({
         </button>
       </header>
       <div className="tasks-toolbar">
+        <label className="search-box tasks-search">
+          <Search size={15} />
+          <input
+            ref={searchRef}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search tasks…"
+            aria-label="Search tasks"
+            maxLength={500}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && query) {
+                event.stopPropagation()
+                setQuery('')
+                setSearch('')
+              }
+            }}
+          />
+          {query ? (
+            <button type="button" aria-label="Clear search" onClick={() => { setQuery(''); setSearch(''); searchRef.current?.focus() }}>
+              <X size={13} />
+            </button>
+          ) : <kbd>Ctrl F</kbd>}
+        </label>
         {(
           <div className="planner-view-switch tasks-layout-switch" aria-label="Task layout">
             <button
@@ -530,7 +557,6 @@ export function TasksView({
               ))}
           </AppSelect>
         )}
-        <TagFilter category="Tasks" tags={tags} value={tagFilter} onChange={setTagFilter} />
         <button
           type="button"
           className="tasks-done-filter"
@@ -539,8 +565,11 @@ export function TasksView({
         >
           {completed ? 'Show open tasks' : 'Completed'}
         </button>
+        {hasFilters && (
+          <button type="button" className="filter-clear" onClick={clearFilters}>Clear filters</button>
+        )}
       </div>
-      {hasFilters && (
+      {hasFilterChips && (
         <div className="tasks-active-filters" aria-label="Active task filters">
           {query.trim() && (
             <button
@@ -569,37 +598,6 @@ export function TasksView({
               {subcategoryMap.get(subcategory)?.name} <X size={12} />
             </button>
           )}
-          {tagFilter.included.map((tag) => (
-            <button
-              type="button"
-              key={`include:${tag}`}
-              onClick={() =>
-                setTagFilter((value) => ({
-                  ...value,
-                  included: value.included.filter((name) => name !== tag)
-                }))
-              }
-            >
-              Tag: #{tag.replace(/^#+/, '')} <X size={12} />
-            </button>
-          ))}
-          {tagFilter.excluded.map((tag) => (
-            <button
-              type="button"
-              key={`exclude:${tag}`}
-              onClick={() =>
-                setTagFilter((value) => ({
-                  ...value,
-                  excluded: value.excluded.filter((name) => name !== tag)
-                }))
-              }
-            >
-              Hide: #{tag.replace(/^#+/, '')} <X size={12} />
-            </button>
-          ))}
-          <button type="button" className="tasks-clear-filters" onClick={clearFilters}>
-            Clear filters
-          </button>
         </div>
       )}
       {!loading && !error && total === 0 && (
@@ -621,7 +619,7 @@ export function TasksView({
           </p>
           {hasFilters ? (
             <button type="button" className="button secondary small" onClick={clearFilters}>
-              Clear filters
+              Reset task filters
             </button>
           ) : completed ? (
             <button type="button" className="button secondary small" onClick={() => setCompleted(false)}>
@@ -697,8 +695,8 @@ export function TasksView({
           // Only the task page should move; scrolling the document can displace the app shell.
           autoScroll={{ canScroll: (element) => element.classList.contains('tasks-page') }}
           collisionDetection={taskCollision}
-          onDragStart={(event) => setActive(items.find((item) => item.id === event.active.id) ?? null)}
-          onDragCancel={() => setActive(null)}
+          onDragStart={(event) => setDragPreview(copyDragSource(event))}
+          onDragCancel={() => setDragPreview(null)}
           onDragEnd={drop}
         >
           {search ? (
@@ -747,7 +745,7 @@ export function TasksView({
               {visibleHorizons.map((horizon) => (
                 <TaskTableGroup
                   key={horizon}
-                  dragging={!!active}
+                  dragging={!!dragPreview}
                   horizon={horizon}
                   count={counts[horizon]}
                   ids={taskItems.filter((item) => item.horizon === horizon).map((item) => item.id)}
@@ -785,7 +783,7 @@ export function TasksView({
             </div>
           ) : (
             <>
-              <div className={`tasks-board tasks-board-${layout} ${active ? 'is-dragging' : ''}`}>
+              <div className={`tasks-board tasks-board-${layout} ${dragPreview ? 'is-dragging' : ''}`}>
                 {visibleHorizons.map((horizon) => (
                   <HorizonColumn key={horizon} horizon={horizon} collapsed={isCollapsed(horizon)}>
                     <header className="tasks-column-heading">
@@ -831,14 +829,13 @@ export function TasksView({
               </div>
             </>
           )}
-          <DragOverlay dropAnimation={null}>
-            {active && (
-              <TaskDragPreview
-                item={active}
-                tagColors={tagColors}
-                subcategory={subcategoryMap.get(active.subcategoryId ?? '')}
-                backlog={false}
-                row={layout === 'table'}
+          <DragOverlay dropAnimation={null} modifiers={layout === 'table' ? [alignRowPreview] : undefined}>
+            {dragPreview && (
+              <div
+                className={`tasks-drag-preview ${layout === 'table' ? 'tasks-drag-table' : 'tasks-board tasks-drag-board'}`}
+                aria-hidden="true"
+                inert
+                ref={(node) => node?.replaceChildren(dragPreview)}
               />
             )}
           </DragOverlay>
@@ -897,85 +894,33 @@ export function TasksView({
   )
 }
 
-function TaskDragPreview({
-  tagColors,
-  item,
-  subcategory,
-  backlog,
-  row
-}: {
-  item: TaskWorkspaceItem
-  subcategory?: Subcategory
-  backlog: boolean
-  row: boolean
-  tagColors: Map<string, string>
-}) {
-  if (!row)
-    return (
-      <div className="tasks-drag-preview">
-        <b>{item.body.split('\n')[0] || 'Image capture'}</b>
-        {subcategory && <span className="tasks-subcategory-label" title={subcategory.name} style={{ color: subcategory.color }}>{subcategory.name}</span>}
-      </div>
-    )
-  const labels = backlog ? item.tags : item.tags
-  return (
-    <div
-      aria-hidden="true"
-      className={`tasks-drag-preview tasks-drag-row ${backlog ? 'tasks-drag-backlog' : 'tasks-drag-table'}`}
-    >
-      <div className="tasks-drag-row-main">
-        <GripVertical size={15} />
-        <div className="backlog-task-main">
-          <span className="backlog-task-title">{item.body.trim() || 'Image capture'}</span>
-          <ImageIndicator count={item.images.length} />
-        </div>
-      </div>
-      {subcategory && <span className="tasks-subcategory-label" title={subcategory.name} style={{ color: subcategory.color }}>{subcategory.name}</span>}
-      <div className="tasks-table-tags">
-        {labels.map((tag) => (
-          <span className="tasks-table-tag" key={tag} style={{ color: tagColors.get(tag.toLocaleLowerCase()) }}>
-            #{tag.replace(/^#+/, '')}
-          </span>
-        ))}
-      </div>
-      {backlog && item.completedAt === null && (
-        <div className="backlog-plan-actions">
-          {horizons.filter(horizon => horizon !== 'unplanned' && horizon !== item.horizon).map((horizon) => (
-            <button type="button" tabIndex={-1} className="button secondary small" key={horizon}>
-              {horizonLabels[horizon]}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
+function copyDragSource({ activatorEvent }: DragStartEvent): HTMLElement | null {
+  const handle = activatorEvent.target
+  const source = handle instanceof Element ? handle.closest<HTMLElement>('[data-task-id]') : null
+  if (!source) return null
 
-function TaskDropTarget({
-  horizon,
-  categoryId,
-  label,
-  table = false
-}: {
-  horizon: Horizon
-  categoryId?: string | null
-  label: string
-  table?: boolean
-}) {
-  const { setNodeRef, isOver } = useDroppable({
-    id: `section:append:${table ? 'table' : categoryId === undefined ? 'all' : (categoryId ?? 'unassigned')}:${horizon}`,
-    data: { horizon, categoryId }
-  })
-  const className = `tasks-drop-target ${isOver ? 'is-over' : ''}`
-  return table ? (
-    <tr ref={setNodeRef} className={className}>
-      <td colSpan={3}>{label}</td>
-    </tr>
-  ) : (
-    <div ref={setNodeRef} className={className}>
-      {label}
-    </div>
-  )
+  // Copy the rendered row or card so the preview uses its exact typography and controls.
+  const copy = source.cloneNode(true) as HTMLElement
+  copy.removeAttribute('data-task-id')
+  copy.removeAttribute('style')
+  copy.classList.remove('is-dragging', 'drop-before', 'drop-after')
+  copy.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'))
+
+  if (!(source instanceof HTMLTableRowElement)) {
+    copy.style.minHeight = `${source.offsetHeight}px`
+    return copy
+  }
+
+  const table = document.createElement('table')
+  table.className = 'tasks-group-table'
+  table.style.width = `${source.getBoundingClientRect().width}px`
+  const columns = table.appendChild(document.createElement('colgroup'))
+  for (const cell of source.cells) {
+    const column = columns.appendChild(document.createElement('col'))
+    column.style.width = `${cell.getBoundingClientRect().width}px`
+  }
+  table.createTBody().appendChild(copy)
+  return table
 }
 
 function TaskTableGroup({
@@ -1000,6 +945,7 @@ function TaskTableGroup({
   })
   return (
     <section
+      ref={setNodeRef}
       data-priority={horizon}
       className={`backlog-group tasks-table-panel ${dragging ? 'is-dropzone' : ''} ${isOver ? 'is-over' : ''}`}
       aria-label={`${horizonLabels[horizon]} tasks`}
@@ -1032,20 +978,16 @@ function TaskTableGroup({
             <th scope="col">Actions</th>
           </tr>
         </thead>
-        <tbody ref={setNodeRef} data-horizon={horizon}>
+        <tbody data-horizon={horizon}>
           <SortableContext items={ids} strategy={verticalListSortingStrategy}>
             {children}
           </SortableContext>
-          {dragging ? (
-            <TaskDropTarget horizon={horizon} table label={`Drop in ${horizonLabels[horizon]}`} />
-          ) : (
-            !count && (
-              <tr className="tasks-table-empty">
-                <td colSpan={3}>
-                  <span className="tasks-section-empty">No tasks here</span>
-                </td>
-              </tr>
-            )
+          {!count && (
+            <tr className="tasks-table-empty">
+              <td colSpan={3}>
+                <span className="tasks-section-empty">No tasks here</span>
+              </td>
+            </tr>
           )}
         </tbody>
       </table>
@@ -1111,10 +1053,22 @@ function TaskTableRow({
         )}
       </td>
       <td>
-        {subcategory && <span className="tasks-subcategory-label" title={subcategory.name} style={{ color: subcategory.color }}>{subcategory.name}</span>}
-        <span className="tasks-category-tags" title={item.tags.map(tag => `#${tag}`).join(' ')}>
-          {item.tags.map(tag => <span className="tasks-table-tag" key={tag} style={{ color: tagColors.get(tag.toLocaleLowerCase()) }}>#{tag.replace(/^#+/, '')}</span>)}
-        </span>
+        <div className="tasks-table-metadata">
+          {subcategory && (
+            <span className="tasks-subcategory-label" title={subcategory.name} style={{ color: subcategory.color }}>
+              {subcategory.name}
+            </span>
+          )}
+          {item.tags.length > 0 && (
+            <span className="tasks-category-tags" title={item.tags.map(tag => `#${tag}`).join(' ')}>
+              {item.tags.map(tag => (
+                <span className="tasks-table-tag" key={tag} style={{ color: tagColors.get(tag.toLocaleLowerCase()) }}>
+                  #{tag.replace(/^#+/, '')}
+                </span>
+              ))}
+            </span>
+          )}
+        </div>
       </td>
       <td className="tasks-table-tags">{actions}</td>
     </tr>
@@ -1139,55 +1093,6 @@ function HorizonColumn({
     >
       {children}
     </div>
-  )
-}
-
-function TaskSection({
-  horizon,
-  categoryId,
-  count,
-  children,
-  dragging,
-  onAdd
-}: {
-  horizon: Horizon
-  categoryId?: string | null
-  count: number
-  children: React.ReactNode
-  dragging: boolean
-  onAdd: () => void
-}) {
-  const { setNodeRef, isOver } = useDroppable({
-    id: `section:${categoryId === undefined ? 'all' : (categoryId ?? 'unassigned')}:${horizon}`,
-    data: { horizon, categoryId },
-    disabled: false
-  })
-  return (
-    <section
-      ref={setNodeRef}
-      data-horizon={horizon}
-      className={`tasks-section ${isOver ? 'is-over' : ''} ${!count ? 'is-empty' : ''} ${dragging ? 'is-dragging' : ''}`}
-      aria-label={`${horizonLabels[horizon]} tasks`}
-    >
-      <div className="tasks-section-heading">
-        <span>{horizonLabels[horizon]}</span>
-        <span>{count}</span>
-        {(
-          <button type="button" aria-label={`Add ${horizonLabels[horizon]} task`} onClick={onAdd}>
-            <Plus size={12} />
-          </button>
-        )}
-      </div>
-      {children}
-      {!count && !dragging && <p className="tasks-section-empty">No tasks here</p>}
-      {dragging && (
-        <TaskDropTarget
-          horizon={horizon}
-          categoryId={categoryId}
-          label={`Drop in ${horizonLabels[horizon]}`}
-        />
-      )}
-    </section>
   )
 }
 

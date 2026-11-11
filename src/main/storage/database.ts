@@ -147,7 +147,9 @@ export class Store {
         const targetHorizon = horizonOf(input.intention, input.today)
         const rows = this.db.prepare("SELECT i.note_id AS id,i.kind,i.target_date AS targetDate,i.position FROM task_intentions i JOIN notes n ON n.id=i.note_id WHERE n.kind='task' AND n.task_status='open' AND n.deleted_at IS NULL AND i.note_id<>? ORDER BY i.position,i.note_id").all(item.id) as (TaskIntention & { id: string })[]
         const destination = rows.filter(row => horizonOf(row, input.today) === targetHorizon)
-        let index = destination.length
+        const sourceHorizon = old ? horizonOf(old, input.today) : 'unplanned'
+        const prepend = input.beforeId === undefined && targetHorizon !== 'unplanned' && targetHorizon !== sourceHorizon
+        let index = prepend ? 0 : destination.length
         if (input.beforeId) { index = destination.findIndex(row => row.id === input.beforeId); if (index < 0) throw new AppError('STALE_TARGET', 'The destination changed. Refresh before moving.') }
         destination.splice(index, 0, { ...input.intention, id: item.id })
         this.db.prepare('INSERT OR REPLACE INTO task_intentions VALUES(?,?,?,?)').run(item.id, input.intention.kind, input.intention.targetDate, index)
@@ -923,7 +925,7 @@ export class Store {
         if ((input.plan || input.placement) && (current?.kind !== 'task' || current.completedAt !== null)) throw new AppError('INVALID_INPUT', 'Only open tasks can be planned or scheduled.')
         let updated = this.updateItem(input.id, input.expectedRevision, input.body, input.tags, input.categoryId, input.images, input.subcategoryId)
         if (input.plan) {
-          this.moveWorkspace({ id: input.id, expectedRevision: updated.revision, ...input.plan, beforeId: null })
+          this.moveWorkspace({ id: input.id, expectedRevision: updated.revision, ...input.plan })
           updated = this.getItem(input.id)!
         }
         if (input.placement) this.schedulePlannerTask({ id: input.id, expectedRevision: updated.revision, placement: input.placement })

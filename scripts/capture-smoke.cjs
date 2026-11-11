@@ -25,7 +25,7 @@ app.whenReady().then(async () => {
     if (await notes.webContents.executeJavaScript("document.documentElement.dataset.windowReady === 'true'")) break
     await wait(100)
   }
-  await notes.webContents.executeJavaScript("[...document.querySelectorAll('.side-nav button')].find((button) => button.textContent.trim()==='Tasks').click()")
+  await notes.webContents.executeJavaScript("document.querySelector('.sidebar .brand').click()")
   await wait(300)
   const createdCategory = await notes.webContents.executeJavaScript("window.captured.items.createCategory('Capture smoke')")
   if (!createdCategory.ok) throw new Error(`Category creation failed: ${createdCategory.message}`)
@@ -33,7 +33,7 @@ app.whenReady().then(async () => {
   const subcategory = await notes.webContents.executeJavaScript(`window.captured.items.createSubcategory({ name: 'Nested capture', categoryId: '${categoryId}' })`)
   if (!subcategory.ok) throw new Error('Subcategory creation failed')
   const subcategoryId = subcategory.value.id
-  await notes.webContents.executeJavaScript("document.querySelector('.sidebar-capture').click()")
+  await notes.webContents.executeJavaScript("document.querySelector('.capture-button').click()")
   for (let attempt = 0; attempt < 50 && !findWindow('capture'); attempt++) await wait(100)
   const capture = findWindow('capture')
   if (!capture) throw new Error('Capture window did not load')
@@ -124,7 +124,7 @@ app.whenReady().then(async () => {
     await wait(100)
   }
   if (!visible) throw new Error('Saved task did not appear in Tasks')
-  await notes.webContents.executeJavaScript("document.querySelector('.sidebar-capture').click()")
+  await notes.webContents.executeJavaScript("document.querySelector('.capture-button').click()")
   await wait(250)
   const rememberedCategory = await capture.webContents.executeJavaScript("document.querySelector('[aria-label=\"Capture category\"]').value")
   if (rememberedCategory !== `subcategory:${subcategoryId}`) throw new Error('Capture must remember its category after saving and reopening')

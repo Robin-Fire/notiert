@@ -265,6 +265,29 @@ test('category changes clear incompatible subcategories, completion/reopening re
   } finally { f.close() }
 })
 
+test('assigning a task to a priority bucket prepends it and honors explicit drop positions', () => {
+  const f = fixture()
+  try {
+    const [first, second, moved] = ['First', 'Second', 'Moved'].map(body => make(f.store, body))
+    move(f.store, first, 'next')
+    move(f.store, second, 'next')
+    const nextTasks = () => list(f.store, { horizon: 'next' }).items.map(item => item.body)
+
+    const undo = move(f.store, moved, 'next', { beforeId: undefined })
+    assert.deepEqual(nextTasks(), ['Moved', 'First', 'Second'])
+    f.store.undoWorkspace(undo)
+    assert.deepEqual(nextTasks(), ['First', 'Second'])
+
+    const current = f.store.getItem(moved.id)
+    f.store.saveItem({ id: moved.id, expectedRevision: current.revision, body: current.body, tags: [], plan: { today, intention: intentionFor('next', today) } })
+    assert.deepEqual(nextTasks(), ['Moved', 'First', 'Second'])
+    move(f.store, moved, 'next', { beforeId: second.id })
+    assert.deepEqual(nextTasks(), ['First', 'Moved', 'Second'])
+    move(f.store, moved, 'next')
+    assert.deepEqual(nextTasks(), ['First', 'Second', 'Moved'])
+  } finally { f.close() }
+})
+
 test('reorder Undo returns a task between its original neighbors without duplicate ranks', () => {
   const f = fixture()
   try {

@@ -149,8 +149,12 @@ const workspace = {
     if (item.revision !== input.expectedRevision) return failure('This item changed. Refresh before moving.', 'STALE_REVISION')
     const category = input.categoryId === undefined ? item.categoryId : input.categoryId
     if(category && !categories.some(entry => entry.id === category)) return failure('That category no longer exists.')
-    const destination = plannerTasks().filter(task => task.id !== item.id && horizonOf(task.intention ?? intentionFor('unplanned', input.today), input.today) === horizonOf(input.intention, input.today)).sort((a,b) => (a.intention?.position ?? 0) - (b.intention?.position ?? 0) || a.id.localeCompare(b.id))
-    const index = input.beforeId ? destination.findIndex(task => task.id === input.beforeId) : destination.length
+    const targetHorizon = horizonOf(input.intention, input.today)
+    const sourceHorizon = item.kind === 'task' && item.intention ? horizonOf(item.intention, input.today) : 'unplanned'
+    const destination = plannerTasks().filter(task => task.id !== item.id && horizonOf(task.intention ?? intentionFor('unplanned', input.today), input.today) === targetHorizon).sort((a,b) => (a.intention?.position ?? 0) - (b.intention?.position ?? 0) || a.id.localeCompare(b.id))
+    const prepend = input.beforeId === undefined && targetHorizon !== 'unplanned' && targetHorizon !== sourceHorizon
+    let index = prepend ? 0 : destination.length
+    if (input.beforeId) index = destination.findIndex(task => task.id === input.beforeId)
     if(index < 0)return failure('The destination changed. Refresh before moving.', 'STALE_TARGET')
     const undo: TaskWorkspaceUndo = { id: item.id, expectedRevision: item.revision + 1, kind: item.kind as 'inbox' | 'task', categoryId: item.categoryId, subcategoryId: item.subcategoryId, tags: [...(item.kind === 'inbox' ? input.tags ?? item.tags : item.tags)], ...('priorityPosition' in item ? {priorityPosition:item.priorityPosition}:{}), intention: item.intention ? { ...item.intention } : null }
     if(item.intention) { const source=plannerTasks().filter(task=>horizonOf(task.intention??intentionFor('unplanned',input.today),input.today)===horizonOf(item.intention!,input.today)).sort((a,b)=>(a.intention?.position??0)-(b.intention?.position??0)||a.id.localeCompare(b.id));undo.beforeId=source[source.findIndex(task=>task.id===item.id)+1]?.id??null;undo.today=input.today }
@@ -251,9 +255,14 @@ const api = {
       if (input.images !== undefined) item.images = input.images
       assignCategory(item, categoryId); item.subcategoryId = subcategoryId
       if (input.plan) {
-        const destination = plannerTasks().filter(task => task.id !== item.id && task.intention && horizonOf(task.intention, input.plan!.today) === horizonOf(input.plan!.intention, input.plan!.today)).sort((a, b) => a.intention!.position - b.intention!.position || a.id.localeCompare(b.id))
+        const { intention, today } = input.plan
+        const targetHorizon = horizonOf(intention, today)
+        const sourceHorizon = item.intention ? horizonOf(item.intention, today) : 'unplanned'
+        const destination = plannerTasks().filter(task => task.id !== item.id && task.intention && horizonOf(task.intention, today) === targetHorizon).sort((a, b) => a.intention!.position - b.intention!.position || a.id.localeCompare(b.id))
+        const index = targetHorizon !== 'unplanned' && targetHorizon !== sourceHorizon ? 0 : destination.length
+        item.intention = { ...intention, position: index }
+        destination.splice(index, 0, item as PlannerTask)
         destination.forEach((task, position) => { if (task.intention!.position !== position) { task.intention!.position = position; task.revision++ } })
-        item.intention = { ...input.plan.intention, position: destination.length }
       }
       if (input.placement) Object.assign(item, placementFields(input.placement), { later: input.placement.kind === 'later', beforeEventId: null, position: input.placement.kind === 'ready' ? readyTasks().length : 0 })
       for (const name of item.tags) if (!tags.some(tag => tag.name.toLowerCase() === name.toLowerCase())) tags.push({ id: crypto.randomUUID(), name, categoryId: null, color: '#85858e', count: 0 })

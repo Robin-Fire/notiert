@@ -6,6 +6,7 @@ import { horizonOf, horizonLabels } from '../../shared/taskHorizons'
 import { TagFilter } from '../components/TagFilter'
 import { ItemDetailDialog } from '../components/ItemDetailDialog'
 import { AppSidebar, type ViewName } from '../components/AppSidebar'
+import { TaxonomyNav } from '../components/TaxonomyNav'
 import { MigrationReviewPanel } from '../components/MigrationReviewPanel'
 import {
   lazy,
@@ -30,20 +31,17 @@ import {
   FolderKanban,
   GripVertical,
   Info,
-  Plus,
   Search,
   Trash2,
   Undo2,
   X
 } from 'lucide-react'
 import type {
-  Category,
   ItemRecord,
   ItemFilter,
   ItemPage,
   Settings,
-  SettingsUpdate,
-  TagRecord
+  SettingsUpdate
 } from '../../shared/contracts'
 import { localDateBounds, toLocalISODate } from '../../shared/plannerDates'
 import { collectTags, TagEditor } from '../components/TagEditor'
@@ -115,7 +113,16 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   const [cursor, setCursor] = useState<ItemPage['nextCursor']>(null)
   const [query, setQuery] = useState('')
   const [taskQuery, setTaskQuery] = useState('')
-  const tasksActive = ['tasks', 'inbox', 'backlog', 'ready', 'later'].includes(view)
+  const [taskCategory, setTaskCategory] = useState('all')
+  const [taskSubcategory, setTaskSubcategory] = useState('')
+  const [taskTags, setTaskTags] = useState<string[]>([])
+
+  function toggleTaskTag(name: string) {
+    setTaskTags((selected) => selected.includes(name)
+      ? selected.filter((tag) => tag !== name)
+      : [...selected, name])
+  }
+
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [dateRange, setDateRange] = useState('all')
   const [tagFilters, setTagFilters] = useState<string[]>([])
@@ -135,6 +142,15 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
     error: taxonomyError,
     refresh: loadTags
   } = useTaxonomy()
+  useEffect(() => {
+    if (!taxonomyLoaded) return
+    const available = new Set(tagRecords.map((tag) => tag.name))
+    setTaskTags((selected) => {
+      const remaining = selected.filter((tag) => available.has(tag))
+      return remaining.length === selected.length ? selected : remaining
+    })
+  }, [tagRecords, taxonomyLoaded])
+
   const [upgradeNotice, setUpgradeNotice] = useState(false)
   const [reviewCount, setReviewCount] = useState(0)
   const availableTags = useMemo(() => tagRecords.map((tag) => tag.name), [tagRecords])
@@ -486,35 +502,8 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
       clearFilters()
     })
   }
-  function openTag(tag: TagRecord) {
-    requestLeaveRef.current(() => {
-      setSelectedSubcategoryId(null)
-      setNoSubcategory(false)
-      setSelectedTagId(tag.id)
-      setSelectedCategoryId(null)
-      setView('tag')
-      setShowCompleted(false)
-      setDetailId(null)
-      setDetail(null)
-      setSelected([])
-      clearFilters()
-    })
-  }
-  function openCategory(category: Category, subcategoryId: string | null = null, directOnly = false) {
-    requestLeaveRef.current(() => {
-      setSelectedSubcategoryId(subcategoryId)
-      setNoSubcategory(directOnly)
-      setSelectedCategoryId(category.id)
-      setSelectedTagId(null)
-      setView('category')
-      setShowCompleted(false)
-      setDetailId(null)
-      setFocusedId(null)
-      setDetail(null)
-      setSelected([])
-      clearFilters()
-    })
-  }
+  const taskCategoryId = categories.find((category) => category.id === taskCategory)?.id
+  const taskSubcategoryId = subcategories.find((subcategory) => subcategory.id === taskSubcategory && subcategory.categoryId === taskCategoryId)?.id
   const selectedTag = tagRecords.find((tag) => tag.id === selectedTagId) ?? null
   const selectedCategory = categories.find((category) => category.id === selectedCategoryId) ?? null
   async function reorderTask(id: string, categoryId: string | null, requestedBeforeId: string | null) {
@@ -964,61 +953,45 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   }
 
   return (
-    <div className={`items-window ${view === 'calenban' ? '' : 'workspace-window'}`}>
+    <div className="items-window workspace-window">
       <AppSidebar
         view={view}
-        nav={nav}
-        settings={settings}
-        search={
-          (tasksActive || ['all', 'tag', 'category', 'trash'].includes(view)) && <label className="search-box sidebar-search">
-            <Search size={15} />
-            <input
-              ref={searchRef}
-              value={tasksActive ? taskQuery : query}
-              onChange={(event) => {
-                const value = event.target.value
-                if (tasksActive) setTaskQuery(value)
-                else requestEditorLeave(() => setQuery(value))
-              }}
-              placeholder={view === 'trash' ? 'Search Trash...' : view === 'tag' ? 'Search this tag...' : view === 'category' ? 'Search this category...' : 'Search tasks...'}
-              aria-label={view === 'trash' ? 'Search Trash' : view === 'tag' ? 'Search this tag' : view === 'category' ? 'Search this category' : 'Search tasks'}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  event.preventDefault()
-                  if (tasksActive) setTaskQuery('')
-                  else requestEditorLeave(() => setQuery(''))
-                }
-              }}
-            />
-            {!(tasksActive ? taskQuery : query) && <kbd className="sidebar-search-shortcut">Ctrl F</kbd>}
-            {(tasksActive ? taskQuery : query) && (
-              <button aria-label="Clear search" onClick={() => tasksActive ? setTaskQuery('') : requestEditorLeave(() => setQuery(''))}>
-                <X size={13} />
-              </button>
-            )}
-          </label>
-        }
-        taxonomy={{
-          categories,
-          subcategories,
-          tags: tagRecords,
-          activeCategory: view === 'category' ? selectedCategoryId : null,
-          activeSubcategory: view === 'category' ? selectedSubcategoryId : null,
-          activeTag: view === 'tag' ? selectedTagId : null,
-          onChanged: () => {
-            void loadTags()
-            void loadItems()
-          },
-          onError: setError,
-          onCategory: (category) => openCategory(category),
-          onSubcategory: (subcategory) =>
-            openCategory(
-              categories.find((category) => category.id === subcategory.categoryId)!,
-              subcategory.id
-            ),
-          onTag: openTag
+        nav={(next) => {
+          if (next === 'tasks' && !editItem) {
+            setTaskCategory('all')
+            setTaskSubcategory('')
+            setTaskTags([])
+            setTaskQuery('')
+          }
+          nav(next)
         }}
-      />
+        showCalendar={settings?.showCalendar !== false}
+        onCapture={() => window.captured.windows.openCapture(
+          view === 'tasks' && taskCategoryId ? { categoryId: taskCategoryId, subcategoryId: taskSubcategoryId } : undefined
+        )}
+      >
+        <TaxonomyNav
+          categories={categories}
+          subcategories={subcategories}
+          tags={tagRecords}
+          activeCategory={view === 'tasks' ? taskCategoryId : undefined}
+          activeSubcategory={view === 'tasks' ? taskSubcategoryId : undefined}
+          activeTags={view === 'tasks' ? taskTags : []}
+          onCategory={(id, subcategoryId) => {
+            if (editItem) return
+            const active = view === 'tasks' && taskCategoryId === id && taskSubcategoryId === subcategoryId
+            setTaskCategory(active ? 'all' : id)
+            setTaskSubcategory(active ? '' : subcategoryId ?? '')
+            if (view !== 'tasks') nav('tasks')
+          }}
+          onTag={(name) => {
+            if (editItem) return
+            toggleTaskTag(name)
+            if (view !== 'tasks') nav('tasks')
+          }}
+          onChanged={loadTags}
+        />
+      </AppSidebar>
       <main className="main-area">
         {taxonomyError && (
           <div className="inline-error" role="alert">
@@ -1102,6 +1075,12 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
               subcategories={subcategories}
               tags={tagRecords}
               taxonomyReady={taxonomyLoaded}
+              category={taskCategoryId ?? (taskCategory === 'unassigned' ? 'unassigned' : 'all')}
+              subcategory={taskSubcategoryId ?? ''}
+              setCategory={setTaskCategory}
+              setSubcategory={setTaskSubcategory}
+              selectedTags={taskTags}
+              clearSelectedTags={() => setTaskTags([])}
               query={taskQuery}
               setQuery={setTaskQuery}
               searchRef={searchRef}
@@ -1154,16 +1133,20 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
                     <Trash2 size={14} /> Empty trash
                   </button>
                 )}
-                {view !== 'tag' && (
-                  <button className="button secondary capture-button" onClick={() => window.captured.windows.openCapture(
-                    view === 'category' ? { categoryId: selectedCategoryId, subcategoryId: selectedSubcategoryId } : undefined
-                  )}>
-                    <Plus size={15} /> Capture
-                  </button>
-                )}
               </div>
             </header>
             <div className="toolbar">
+              <label className="search-box workspace-item-search">
+                <Search size={15} />
+                <input
+                  ref={searchRef}
+                  value={query}
+                  onChange={(event) => requestEditorLeave(() => setQuery(event.target.value))}
+                  placeholder={view === 'trash' ? 'Search Trash…' : 'Search tasks…'}
+                  aria-label={view === 'trash' ? 'Search Trash' : 'Search tasks'}
+                />
+                {query && <button type="button" aria-label="Clear search" onClick={() => requestEditorLeave(() => setQuery(''))}><X size={13} /></button>}
+              </label>
               {dateRange === 'custom' && (
                 <div className="date-inputs">
                   <input
