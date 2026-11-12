@@ -1,5 +1,9 @@
 # Release notes
 
+## 0.1.26 - 2026-11-12
+
+- Move Add task to the top-right corner of the Tasks header.
+
 ## 0.1.25 - 2026-11-12
 
 - Open one category, subcategory, or tag at a time from the sidebar. Category pages keep the priority buckets.

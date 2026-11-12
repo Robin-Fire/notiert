@@ -602,7 +602,7 @@ test('browser preview upgrades category-linked tags without losing ambiguous lab
 })
 
 
-test('Sidebar Add task keeps the selected category and subcategory context', async () => {
+test('Add task keeps the selected category and subcategory context', async () => {
   localStorage.clear();delete require.cache[require.resolve(path.join(generated,'browserPreview.cjs'))];require(path.join(generated,'browserPreview.cjs'))
   const category=(await window.captured.items.createCategory('Client context')).value
   const sub=(await window.captured.items.createSubcategory({name:'Project context',categoryId:category.id})).value
@@ -610,7 +610,7 @@ test('Sidebar Add task keeps the selected category and subcategory context', asy
   const app=render(React.createElement(TaskApp))
   try {
     fireEvent.click(await sidebar().findByRole('button', { name: /^Project context/ }))
-    fireEvent.click(sidebar().getByRole('button',{name:'Add task'}))
+    fireEvent.click(screen.getByRole('button',{name:'Add task',exact:true}))
     const dialog = within(await screen.findByRole('dialog',{name:'Add task'}))
     assert.equal(dialog.getByRole('combobox',{name:'Item category'}).value, category.id)
     assert.equal(dialog.getByRole('combobox',{name:'Item subcategory'}).value, sub.id)
@@ -620,7 +620,7 @@ test('Sidebar Add task keeps the selected category and subcategory context', asy
     const inbox=(await window.captured.taskWorkspace.list({ today: workspaceToday(), scope: 'backlog' })).value.items.find(item=>item.body==='Context note')
     assert.equal(inbox.subcategoryId,sub.id)
     fireEvent.click(await sidebar().findByRole('button',{name:new RegExp('^'+tag.name)}))
-    assert.equal(sidebar().getAllByRole('button', { name: 'Add task', exact: true }).length, 1)
+    assert.ok(screen.getByRole('button', { name: 'Add task', exact: true }).closest('.tasks-heading'))
   }finally{app.unmount()}
 })
 
@@ -1125,15 +1125,16 @@ test('new tasks default to Unsorted and priority choices contain only the five f
   browserWorkspace()
   const app = render(React.createElement(TaskApp))
   try {
-    const sidebar = screen.getByRole('complementary', { name: 'Workspace sidebar' })
     const search = await screen.findByRole('textbox', { name: 'Search tasks' })
     const toolbar = search.closest('.tasks-toolbar')
     const showCompleted = within(toolbar).getByRole('button', { name: 'Show completed', exact: true })
     assert.equal(toolbar.lastElementChild, showCompleted.parentElement)
     assert.equal(search.closest('label').nextElementSibling, showCompleted)
     assert.equal(within(toolbar).queryByRole('combobox', { name: 'Filter tasks by category' }), null)
-    fireEvent.click(within(sidebar).getByRole('button', { name: 'Settings', exact: true }))
-    fireEvent.click(within(sidebar).getByRole('button', { name: 'Add task', exact: true }))
+    const addTask = screen.getByRole('button', { name: 'Add task', exact: true })
+    assert.ok(addTask.closest('.tasks-heading'))
+    assert.equal(sidebar().queryByRole('button', { name: 'Add task', exact: true }), null)
+    fireEvent.click(addTask)
     const dialog = within(await screen.findByRole('dialog', { name: 'Add task' }))
     assert.ok(dialog.getByRole('combobox', { name: 'Task priority' }).textContent.includes('Unsorted'))
     fireEvent.change(dialog.getByRole('textbox', { name: 'Task text' }), { target: { value: 'New medium priority task' } })

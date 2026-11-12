@@ -76,7 +76,7 @@ const taskCollision: CollisionDetection = (args) => {
 const alignRowPreview: Modifier = ({ transform }) => ({ ...transform, x: 0 })
 
 type Layout = 'time' | 'table'
-export type TaskCreationDestination = { horizon: Horizon; categoryId?: string | null }
+type TaskCreationDestination = { horizon: Horizon; categoryId?: string | null }
 type Destination = TaskCreationDestination & { beforeId?: string | null }
 const emptyCounts = Object.fromEntries(horizons.map((h) => [h, 0])) as TasksPage['counts']
 const emptyPages: Partial<Record<Horizon, TasksPage>> = {}
@@ -100,8 +100,6 @@ export function TasksView({
   subcategories,
   tags,
   taxonomyReady,
-  create,
-  setCreate,
   title,
   category,
   subcategory,
@@ -121,9 +119,8 @@ export function TasksView({
   setQuery: (query: string) => void
   searchRef: React.RefObject<HTMLInputElement | null>
   taxonomyReady: boolean
-  create: TaskCreationDestination | null
-  setCreate: (destination: TaskCreationDestination | null) => void
 }) {
+  const [create, setCreate] = useState<TaskCreationDestination | null>(null)
   const [layout, setLayout] = useState<Layout>(() =>
     (['time', 'table'] as Layout[]).includes(preference<Layout>('tasks-layout-v1', 'time'))
       ? preference<Layout>('tasks-layout-v1', 'time')
@@ -500,6 +497,14 @@ export function TasksView({
             {title} <span className="title-count">{total}</span>
           </h1>
         </div>
+        <button
+          type="button"
+          className="tasks-add-task"
+          disabled={busy || !taxonomyReady}
+          onClick={() => setCreate({ horizon: 'unplanned' })}
+        >
+          <Plus size={16} /> Add task
+        </button>
       </header>
       <div className="tasks-toolbar">
         {!showTaggedList && (

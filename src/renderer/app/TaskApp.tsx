@@ -6,7 +6,6 @@ import { horizonOf, horizonLabels } from '../../shared/taskHorizons'
 import { TagFilter } from '../components/TagFilter'
 import { ItemDetailDialog } from '../components/ItemDetailDialog'
 import { AppSidebar, type ViewName } from '../components/AppSidebar'
-import type { TaskCreationDestination } from '../tasks/TasksView'
 import { TaxonomyNav } from '../components/TaxonomyNav'
 import { MigrationReviewPanel } from '../components/MigrationReviewPanel'
 import {
@@ -117,7 +116,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   const [taskPage, setTaskPage] = useState<
     { kind: 'category'; id: string; subcategoryId?: string } | { kind: 'tag'; id: string } | null
   >(null)
-  const [createTask, setCreateTask] = useState<TaskCreationDestination | null>(null)
 
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [dateRange, setDateRange] = useState('all')
@@ -476,14 +474,13 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
     setExcludedTags([])
     setSubcategoryFilter('')
   }
-  function nav(next: ViewName, addTask = false) {
+  function nav(next: ViewName) {
     requestLeaveRef.current(() => {
       setSelectedSubcategoryId(null)
       setNoSubcategory(false)
       setSelectedTagId(null)
       setSelectedCategoryId(null)
       setView(next)
-      setCreateTask(addTask ? { horizon: 'unplanned' } : null)
       setShowCompleted(false)
       setDetailId(null)
       setFocusedId(null)
@@ -904,11 +901,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
           nav(next)
         }}
         showCalendar={settings?.showCalendar !== false}
-        addTaskDisabled={!taxonomyLoaded}
-        onAddTask={() => {
-          if (view === 'tasks') setCreateTask({ horizon: 'unplanned' })
-          else nav('tasks', true)
-        }}
       >
         <TaxonomyNav
           categories={categories}
@@ -1016,8 +1008,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
               subcategories={subcategories}
               tags={tagRecords}
               taxonomyReady={taxonomyLoaded}
-              create={createTask}
-              setCreate={setCreateTask}
               title={taskSubcategory?.name ?? taskCategory?.name ?? taskTag?.name ?? 'Tasks'}
               category={taskCategory?.id}
               subcategory={taskSubcategory?.id}

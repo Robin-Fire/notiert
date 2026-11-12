@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { CalendarDays, FolderKanban, Plus, Settings, Trash2 } from 'lucide-react'
+import { CalendarDays, FolderKanban, Settings, Trash2 } from 'lucide-react'
 
 export type ViewName =
   | 'tasks'
@@ -15,12 +15,10 @@ export type ViewName =
   | 'category'
   | 'review'
 
-export function AppSidebar({ view, nav, showCalendar, onAddTask, addTaskDisabled, children }: {
+export function AppSidebar({ view, nav, showCalendar, children }: {
   view: ViewName
   nav: (view: ViewName) => void
   showCalendar: boolean
-  onAddTask: () => void
-  addTaskDisabled: boolean
   children: ReactNode
 }) {
   const tasksActive = ['tasks', 'ready', 'later', 'backlog', 'inbox'].includes(view)
@@ -30,9 +28,6 @@ export function AppSidebar({ view, nav, showCalendar, onAddTask, addTaskDisabled
       <button type="button" className="brand" aria-label="captured home" onClick={() => nav('tasks')}>
         <span className="brand-glyph" aria-hidden="true">c</span>
         <span>captured</span>
-      </button>
-      <button type="button" className="sidebar-add-task" aria-label="Add task" disabled={addTaskDisabled} onClick={onAddTask}>
-        <Plus size={16} /><span>Add task</span>
       </button>
       <nav className="side-nav" aria-label="Main navigation">
         <button type="button" aria-current={tasksActive ? 'page' : undefined} onClick={() => nav('tasks')}>

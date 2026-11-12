@@ -215,9 +215,6 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .sidebar { z-index: 1; display: flex; width: 232px; flex: 0 0 232px; flex-direction: column; border-right: 1px solid var(--border); background: var(--page); padding: 17px 12px 12px; }
 .brand { display: flex; height: 34px; align-items: center; gap: 9px; margin: 0 0 29px 3px; padding: 0; border: 0; background: transparent; color: var(--text); font: 500 14px var(--font-mono); letter-spacing: -.06em; text-align: left; }
 .sidebar .brand { margin-bottom: 17px; }
-.sidebar-add-task { display: flex; width: 100%; min-height: 35px; align-items: center; gap: 9px; margin-bottom: 24px; padding: 0 10px; border: 1px solid #52525b; border-radius: 6px; background: #35353a; color: #fafafa; text-align: left; font-size: var(--type-body); font-weight: 600; transition: background 120ms ease, border-color 120ms ease, transform 120ms ease; }
-.sidebar-add-task:hover { border-color: #71717a; background: #45454c; }
-.sidebar-add-task:active { transform: translateY(1px); }
 .update-pill { height: 28px; padding: 0 9px; border: 1px solid color-mix(in srgb, var(--blue) 30%, var(--border)); border-radius: 5px; background: var(--blue-soft); color: var(--blue); font-size: var(--type-caption); }
 .update-pill.is-ready { border-color: color-mix(in srgb, var(--green) 35%, var(--border)); background: var(--green-soft); color: var(--green); }
 .backlog-page { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
@@ -787,8 +784,6 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
   .theme-choices { gap: 6px; }
 }
 @media (max-width: 780px) {
-  .sidebar-add-task { justify-content: center; padding: 0; }
-  .sidebar-add-task > span { display: none; }
   .backlog-header, .backlog-toolbar { padding-left: 16px; padding-right: 16px; }
   .tag-page-settings { padding-left: 13px; padding-right: 13px; }
   .calenban-controls { justify-content: flex-start; }
@@ -1114,7 +1109,6 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 }
 .workspace-window .sidebar > :not(.sidebar-taxonomy-scroll) { flex-shrink: 0; }
 .workspace-window .sidebar .brand { margin: 0 6px 14px; justify-content: flex-start; letter-spacing: -.035em; }
-.workspace-window .sidebar-add-task { justify-content: flex-start; margin: 0 0 12px; padding: 0 10px; font-size: 14px; }
 .workspace-window .side-nav { gap: 3px; }
 .workspace-window .side-nav button { height: 35px; justify-content: flex-start; padding: 0 9px; font-size: 14px; }
 .workspace-window .sidebar .brand > span:last-child,

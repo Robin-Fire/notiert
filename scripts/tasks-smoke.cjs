@@ -411,7 +411,7 @@ app.whenReady().then(async () => {
   await until(`Boolean(document.querySelector('.tasks-table [data-horizon="unplanned"] [data-task-id]'))`,'Unsorted group returns when a task moves into it')
   await click('By priority')
   assert.ok(await evaluate(`Boolean(document.querySelector('.tasks-board > [data-horizon="unplanned"]'))`),'Unsorted column returns when populated')
-  await click('Add task', '.sidebar button')
+  await click('Add task', '.tasks-heading button')
   await until(`Boolean(document.querySelector('.tasks-dialog textarea'))`,'Add task modal')
   await evaluate(`(()=>{const input=document.querySelector('.tasks-dialog textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'Task with shared tag picker');input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
   await evaluate(`document.querySelector('.tasks-dialog [aria-label="Edit tags for task"]').click()`)
