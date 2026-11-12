@@ -3,6 +3,7 @@ import type { capturedApi } from '../shared/contracts'
 
 const api: Omit<capturedApi, 'capture'> = {
   taskWorkspace: {
+    reorderTagged: input => ipcRenderer.invoke('tasks:reorder-tagged', input),
     list: input => ipcRenderer.invoke('tasks:list', input),
     overview: input => ipcRenderer.invoke('tasks:overview', input),
     complete: input => ipcRenderer.invoke('tasks:complete', input),

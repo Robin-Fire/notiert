@@ -69,7 +69,7 @@ app.whenReady().then(async () => {
   assert.ok(alignment < 1, 'Editor and metadata share the same left edge')
   await screenshot('modal-task-detail-dark.png')
   await click(`[...document.querySelectorAll('.task-detail-primary-actions button')].find(b => b.textContent.trim() === 'Close').click()`)
-  await click(`document.querySelector('.capture-button').click()`)
+  await click(`window.captured.windows.openCapture()`)
   let capture
   for (let i = 0; i < 60; i++) {
     capture = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().endsWith('/capture.html'))

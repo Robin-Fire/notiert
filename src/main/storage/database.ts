@@ -12,6 +12,8 @@ import { placementFields, validLocalDate } from '../../shared/calendarSchedule'
 import { horizons, horizonOf, intentionFor, validIntention, type TaskIntention } from '../../shared/taskHorizons'
 import { addLocalDays, fromLocalISODate, mondayISO, toLocalISODate } from '../../shared/plannerDates'
 import { TasksQuerySchema, TaskWorkspaceMoveSchema, TaskWorkspaceUndoSchema, type TasksQuery, type TasksPage, type TaskWorkspaceMove, type TaskWorkspaceUndo, type TaskWorkspaceItem } from '../../shared/contracts'
+import type { TaggedTaskReorder } from '../../shared/contracts'
+import { reorderTaggedTaskIds, taggedTaskOrderKey } from '../../shared/taggedTaskOrder'
 import { ItemUpdateSchema, TaskCompletionSchema, TaskCompletionUndoSchema, type ItemUpdate, type TaskCompletionUndo } from '../../shared/contracts'
 
 function decodeImage(dataUrl: string) {
@@ -66,6 +68,39 @@ export class Store {
 
   private migrate() { migrateDatabase(this) }
 
+  private taggedOrderKey(names: string[]) {
+    const tags = this.db.prepare(`SELECT id FROM item_tags WHERE name COLLATE NOCASE IN (${names.map(() => '?').join(',')})`).all(...names) as { id: string }[]
+    return taggedTaskOrderKey(tags.map(({ id }) => id))
+  }
+
+  private taggedOrder(key: string): string[] {
+    const row = this.db.prepare('SELECT value FROM app_state WHERE key=?').get(key) as { value: string } | undefined
+    return row ? JSON.parse(row.value) : []
+  }
+
+  reorderTaggedTasks(input: TaggedTaskReorder) {
+    this.db.transaction(() => {
+      const key = this.taggedOrderKey(input.tags)
+      const rows = this.db.prepare(`
+        SELECT n.id FROM notes n LEFT JOIN task_intentions i ON i.note_id=n.id
+        WHERE n.deleted_at IS NULL AND n.kind IN ('inbox','task')
+          AND EXISTS (
+            SELECT 1 FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id
+            WHERE nt.note_id=n.id AND t.name COLLATE NOCASE IN (${input.tags.map(() => '?').join(',')})
+          )
+        ORDER BY coalesce(i.position,0),n.id
+      `).all(...input.tags) as { id: string }[]
+      const members = new Set(rows.map(({ id }) => id))
+      const previous = this.taggedOrder(key).filter(id => members.has(id))
+      const ranked = new Set(previous)
+      const ids = [...previous, ...rows.map(({ id }) => id).filter(id => !ranked.has(id))]
+      const reordered = reorderTaggedTaskIds(ids, input.id, input.targetId, input.after)
+      if (!reordered) throw new AppError('STALE_TARGET', 'The tagged tasks changed. Refresh before reordering.')
+      this.db.prepare('INSERT OR REPLACE INTO app_state VALUES(?,?)').run(key, JSON.stringify(reordered))
+    })()
+    this.changeSequence++
+  }
+
   workspaceOverview(raw: TasksQuery): Partial<Record<typeof horizons[number], TasksPage>> {
     const input = TasksQuerySchema.parse(raw)
     if (input.query.trim()) return { unplanned: this.listWorkspace({ ...input, horizon: undefined, cursor: undefined }) }
@@ -102,11 +137,15 @@ export class Store {
     if (!summary) for (const row of this.db.prepare(`SELECT n.project_id AS categoryId,n.kind,count(*) AS total ${from} GROUP BY n.project_id,n.kind`).all(...params) as { categoryId: string | null; kind: string; total: number }[]) { if (row.kind === 'inbox') captureTotal += row.total; if (row.kind !== 'inbox' || input.scope === 'backlog') { const key = row.categoryId ?? 'unassigned'; categoryCounts[key] = (categoryCounts[key] ?? 0) + row.total } }
     const pageWhere = [...where], pageParams = [...params]
     if (input.horizon) { pageWhere.push(`(${bucket})=?`); pageParams.push(input.horizon) }
-    if (input.cursor) { pageWhere.push('(coalesce(i.position,0)>? OR (coalesce(i.position,0)=? AND n.id>?))'); pageParams.push(input.cursor.position, input.cursor.position, input.cursor.id) }
-    const rows = this.db.prepare(`SELECT ${ITEM_PROJECTION},i.kind AS intention_kind,i.target_date AS intention_date,coalesce(i.position,0) AS intention_position ${ITEM_FROM} LEFT JOIN task_intentions i ON i.note_id=n.id WHERE ${pageWhere.join(' AND ')} ORDER BY coalesce(i.position,0),n.id LIMIT ?`).all(...pageParams, input.limit + 1) as (ItemRow & { intention_kind: TaskIntention['kind'] | null; intention_date: string | null; intention_position: number })[]
+    const order = input.tags.length && !input.horizon ? this.taggedOrder(this.taggedOrderKey(input.tags)) : []
+    // Resolve stored ranks once, and keep unranked tasks in their original relative order.
+    const orderJoin = order.length ? 'LEFT JOIN (SELECT value AS task_id, key AS rank FROM json_each(?)) tag_order ON tag_order.task_id=n.id' : ''
+    const position = order.length ? `coalesce(tag_order.rank,${order.length}+coalesce(i.position,0))` : 'coalesce(i.position,0)'
+    if (input.cursor) { pageWhere.push('(workspace_position>? OR (workspace_position=? AND n.id>?))'); pageParams.push(input.cursor.position, input.cursor.position, input.cursor.id) }
+    const rows = this.db.prepare(`SELECT ${ITEM_PROJECTION},i.kind AS intention_kind,i.target_date AS intention_date,coalesce(i.position,0) AS intention_position,${position} AS workspace_position ${ITEM_FROM} LEFT JOIN task_intentions i ON i.note_id=n.id ${orderJoin} WHERE ${pageWhere.join(' AND ')} ORDER BY workspace_position,n.id LIMIT ?`).all(...(order.length ? [JSON.stringify(order)] : []), ...pageParams, input.limit + 1) as (ItemRow & { intention_kind: TaskIntention['kind'] | null; intention_date: string | null; intention_position: number; workspace_position: number })[]
     const items: TaskWorkspaceItem[] = rows.slice(0, input.limit).map(row => { const intention: TaskIntention = { kind: row.intention_kind ?? 'unplanned', targetDate: row.intention_date, position: row.intention_position }; return { ...taskFrom(row), intention, horizon: row.kind === 'inbox' ? 'unplanned' : horizonOf(intention, input.today) } })
-    const last = items.at(-1)
-    return { items, counts, categoryCounts, captureTotal, total: input.horizon ? counts[input.horizon] : Object.values(counts).reduce((a, b) => a + b, 0), nextCursor: rows.length > input.limit && last ? { position: last.intention.position, id: last.id, sequence: this.changeSequence, today: input.today } : null }
+    const last = rows[input.limit - 1]
+    return { items, counts, categoryCounts, captureTotal, total: input.horizon ? counts[input.horizon] : Object.values(counts).reduce((a, b) => a + b, 0), nextCursor: rows.length > input.limit && last ? { position: last.workspace_position, id: last.id, sequence: this.changeSequence, today: input.today } : null }
   }
 
   moveWorkspaceMany(inputs: TaskWorkspaceMove[]) {

@@ -2,6 +2,8 @@ import { ItemUpdateSchema, TaskCompletionSchema, TaskCompletionUndoSchema, type 
 import { horizons, horizonOf, intentionFor, type TaskIntention } from '../shared/taskHorizons'
 import { toLocalISODate } from '../shared/plannerDates'
 import { TasksQuerySchema, TaskWorkspaceCreateSchema, TaskWorkspaceMoveSchema, TaskWorkspaceUndoSchema, type TasksQuery, type TasksPage, type TaskWorkspaceMove, type TaskWorkspaceUndo, type TaskWorkspaceItem } from '../shared/contracts'
+import { TaggedTaskReorderSchema, type TaggedTaskReorder } from '../shared/contracts'
+import { reorderTaggedTaskIds, taggedTaskOrderKey } from '../shared/taggedTaskOrder'
 import { validLocalDate } from '../shared/calendarSchedule'
 import type { Category, Subcategory, MigrationReview, ImageRef, ItemRecord, capturedApi, PlannerEvent, PlannerEventInput, DeletedPlannerEvent, PlannerTask, TagRecord } from '../shared/contracts'
 
@@ -100,7 +102,30 @@ const scheduleTask = (raw: PlannerTaskSchedule) => {
   changed(); return ok({ ...task })
 }
 
+const taggedOrders = new Map<string, string[]>()
+const previewTagIds = (names: string[]) => tags
+  .filter(tag => names.some(name => name.toLowerCase() === tag.name.toLowerCase()))
+  .map(tag => tag.id)
+
 const workspace = {
+  reorderTagged: (raw: TaggedTaskReorder) => {
+    const parsed = TaggedTaskReorderSchema.safeParse(raw)
+    if (!parsed.success) return failure('Choose tagged tasks to reorder.')
+    const { tags: names, id, targetId, after } = parsed.data
+    const key = taggedTaskOrderKey(previewTagIds(names))
+    const matching = visible()
+      .filter(item => (item.kind === 'task' || item.kind === 'inbox') && item.tags.some(tag => names.some(name => name.toLowerCase() === tag.toLowerCase())))
+      .sort((a, b) => (a.intention?.position ?? 0) - (b.intention?.position ?? 0) || a.id.localeCompare(b.id))
+      .map(item => item.id)
+    const members = new Set(matching)
+    const previous = (taggedOrders.get(key) ?? []).filter(taskId => members.has(taskId))
+    const ranked = new Set(previous)
+    const reordered = reorderTaggedTaskIds([...previous, ...matching.filter(taskId => !ranked.has(taskId))], id, targetId, after)
+    if (!reordered) return failure('The tagged tasks changed. Refresh before reordering.', 'STALE_TARGET')
+    taggedOrders.set(key, reordered)
+    changed()
+    return ok(undefined)
+  },
   overview: async (input: TasksQuery) => {
     if (input.query.trim()) { const result = await workspace.list({ ...input, horizon: undefined, cursor: undefined }); return result.ok ? ok({ unplanned: result.value }) : result }
     const pages: Partial<Record<typeof horizons[number], TasksPage>> = {}
@@ -135,10 +160,13 @@ const workspace = {
     if (input.cursor && (input.cursor.sequence !== workspaceSequence || input.cursor.today !== input.today)) return failure('Tasks changed. Refresh the board.', 'STALE_PAGE')
     const matching: TaskWorkspaceItem[] = visible().filter(item => input.completed ? item.kind === 'task' && item.completedAt !== null : input.query.trim() ? item.kind === 'task' : item.kind === 'inbox' || item.kind === 'task' && item.completedAt === null).filter(item => (input.categoryId === undefined || item.categoryId === input.categoryId) && (!input.subcategoryId || item.subcategoryId === input.subcategoryId) && (!input.query || [item.body, ...item.tags].some(text => text.toLowerCase().includes(input.query.toLowerCase()))) && (!input.tags.length || item.tags.some(tag => input.tags.some(name => name.toLowerCase() === tag.toLowerCase()))) && !item.tags.some(tag => input.excludedTags.some(name => name.toLowerCase() === tag.toLowerCase()))).map(item => { const intention = item.kind === 'inbox' ? { kind: 'unplanned' as const, targetDate: null, position: 0 } : item.intention ?? { kind: 'unplanned' as const, targetDate: null, position: 0 }; return { ...item, plannedDate: null, plannedStartAt: null, plannedEndAt: null, ready: false, position: 0, priorityPosition: 0, beforeEventId: null, ...('plannedDate' in item ? item : {}), intention, horizon: horizonOf(intention, input.today) } as TaskWorkspaceItem }).filter(item => input.scope === 'planned' ? item.kind === 'task' && item.horizon !== 'unplanned' : input.scope === 'backlog' ? item.horizon === 'unplanned' : true)
     const counts = Object.fromEntries(horizons.map(h => [h, matching.filter(item => item.horizon === h).length])) as TasksPage['counts']
-    const group = matching.filter(item => !input.horizon || item.horizon === input.horizon).sort((a,b) => a.intention.position - b.intention.position || a.id.localeCompare(b.id))
-    const page = group.filter(item => !input.cursor || item.intention.position > input.cursor.position || item.intention.position === input.cursor.position && item.id > input.cursor.id)
+    const order = input.tags.length && !input.horizon ? taggedOrders.get(taggedTaskOrderKey(previewTagIds(input.tags))) ?? [] : []
+    const ranks = new Map(order.map((id, rank) => [id, rank]))
+    const position = (item: TaskWorkspaceItem) => ranks.get(item.id) ?? order.length + item.intention.position
+    const group = matching.filter(item => !input.horizon || item.horizon === input.horizon).sort((a,b) => position(a) - position(b) || a.id.localeCompare(b.id))
+    const page = group.filter(item => !input.cursor || position(item) > input.cursor.position || position(item) === input.cursor.position && item.id > input.cursor.id)
     const cards = page.slice(0, input.limit), last = cards.at(-1)
-    return ok({ items: structuredClone(cards), counts, captureTotal: matching.filter(item=>item.kind==='inbox').length, categoryCounts: Object.fromEntries([...categories.map(category=>category.id),'unassigned'].map(id=>[id,matching.filter(item=>(item.kind==='task'||input.scope==='backlog')&&(item.categoryId??'unassigned')===id).length])), total: group.length, nextCursor: page.length > input.limit && last ? { position: last.intention.position, id: last.id, sequence: workspaceSequence, today: input.today } : null })
+    return ok({ items: structuredClone(cards), counts, captureTotal: matching.filter(item=>item.kind==='inbox').length, categoryCounts: Object.fromEntries([...categories.map(category=>category.id),'unassigned'].map(id=>[id,matching.filter(item=>(item.kind==='task'||input.scope==='backlog')&&(item.categoryId??'unassigned')===id).length])), total: group.length, nextCursor: page.length > input.limit && last ? { position: position(last), id: last.id, sequence: workspaceSequence, today: input.today } : null })
   },
   move: (raw: TaskWorkspaceMove) => {
     const parsed = TaskWorkspaceMoveSchema.safeParse(raw)

@@ -215,12 +215,11 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .sidebar { z-index: 1; display: flex; width: 232px; flex: 0 0 232px; flex-direction: column; border-right: 1px solid var(--border); background: var(--page); padding: 17px 12px 12px; }
 .brand { display: flex; height: 34px; align-items: center; gap: 9px; margin: 0 0 29px 3px; padding: 0; border: 0; background: transparent; color: var(--text); font: 500 14px var(--font-mono); letter-spacing: -.06em; text-align: left; }
 .sidebar .brand { margin-bottom: 17px; }
-.sidebar-capture { display: flex; width: 100%; min-height: 36px; align-items: center; gap: 9px; margin-bottom: 24px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-secondary); text-align: left; font-size: var(--type-body); font-weight: 600; transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease; }
-.sidebar-capture:hover { border-color: var(--border-strong); background: var(--surface-raised); color: var(--text); }
-.sidebar-capture:active { transform: translateY(1px); }
+.sidebar-add-task { display: flex; width: 100%; min-height: 35px; align-items: center; gap: 9px; margin-bottom: 24px; padding: 0 10px; border: 1px solid #52525b; border-radius: 6px; background: #35353a; color: #fafafa; text-align: left; font-size: var(--type-body); font-weight: 600; transition: background 120ms ease, border-color 120ms ease, transform 120ms ease; }
+.sidebar-add-task:hover { border-color: #71717a; background: #45454c; }
+.sidebar-add-task:active { transform: translateY(1px); }
 .update-pill { height: 28px; padding: 0 9px; border: 1px solid color-mix(in srgb, var(--blue) 30%, var(--border)); border-radius: 5px; background: var(--blue-soft); color: var(--blue); font-size: var(--type-caption); }
 .update-pill.is-ready { border-color: color-mix(in srgb, var(--green) 35%, var(--border)); background: var(--green-soft); color: var(--green); }
-.sidebar-capture kbd { height: 19px; margin-left: auto; border-color: var(--border); background: var(--surface-raised); color: var(--text-muted); }
 .backlog-page { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
 .backlog-header { padding: 22px 27px 19px; border-bottom: 1px solid var(--border); }
 .backlog-header h1 { display: flex; align-items: center; gap: 10px; margin: 8px 0 5px; font-size: 21px; letter-spacing: -.035em; }
@@ -325,7 +324,6 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .button.secondary:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-hover); }
 .button.small { min-height: 29px; padding: 0 9px; font-size: var(--type-secondary); }
 .icon-button.bordered { border: 1px solid var(--border); background: var(--surface); }
-.capture-button { min-height: 34px; }
 .menu-wrap { position: relative; }
 .pop-menu { position: absolute; z-index: 10; top: calc(100% + 7px); right: 0; display: none; width: 190px; padding: 5px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-card); }
 .pop-menu.is-open { display: grid; }
@@ -567,7 +565,6 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 @media (max-width: 520px) {
   .main-header { min-height: 72px; flex-basis: 72px; padding: 11px 13px; }
   .title-stack h1 { font-size: 18px; }
-  .capture-button { width: 34px; padding: 0; overflow: hidden; font-size: 0; }
   .header-actions { gap: 5px; }
   .toolbar { padding: 8px 12px; }
   .result-count { display: none; }
@@ -790,8 +787,8 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
   .theme-choices { gap: 6px; }
 }
 @media (max-width: 780px) {
-  .sidebar-capture { justify-content: center; padding: 0; }
-  .sidebar-capture > span, .sidebar-capture > kbd { display: none; }
+  .sidebar-add-task { justify-content: center; padding: 0; }
+  .sidebar-add-task > span { display: none; }
   .backlog-header, .backlog-toolbar { padding-left: 16px; padding-right: 16px; }
   .tag-page-settings { padding-left: 13px; padding-right: 13px; }
   .calenban-controls { justify-content: flex-start; }
@@ -939,7 +936,6 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .taxonomy-nav-row button, .category-open, .category-toggle, .category-tag { font-size: var(--type-body); }
 .taxonomy-nav-row small { font-size: var(--type-caption); }
 .category-tag { height: 33px; }
-.sidebar-capture { min-height: 39px; }
 .calendar-host .captured-calendar { font-size: var(--type-secondary); }
 .calendar-item-title b { font-size: var(--type-secondary); }
 .calendar-ready-task b { font-size: var(--type-body); }
@@ -1118,7 +1114,7 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 }
 .workspace-window .sidebar > :not(.sidebar-taxonomy-scroll) { flex-shrink: 0; }
 .workspace-window .sidebar .brand { margin: 0 6px 14px; justify-content: flex-start; letter-spacing: -.035em; }
-.workspace-window .sidebar-capture { justify-content: flex-start; margin: 0 0 12px; padding: 0 10px; font-size: 14px; color: var(--text); }
+.workspace-window .sidebar-add-task { justify-content: flex-start; margin: 0 0 12px; padding: 0 10px; font-size: 14px; }
 .workspace-window .side-nav { gap: 3px; }
 .workspace-window .side-nav button { height: 35px; justify-content: flex-start; padding: 0 9px; font-size: 14px; }
 .workspace-window .sidebar .brand > span:last-child,
@@ -1177,7 +1173,7 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .sidebar .taxonomy-nav-row:hover .taxonomy-row-action,
 .sidebar .taxonomy-nav-row:focus-within .taxonomy-row-action { opacity: 1; }
 @media (hover: none) { .sidebar .taxonomy-row-action { opacity: 1; } }
-.sidebar .taxonomy-filter:is([data-reorderable], [draggable=true]) { cursor: grab; }
+.sidebar .taxonomy-filter:is([data-reorderable], [draggable=true]) { cursor: pointer; }
 .sidebar .taxonomy-tag-row[data-dragging] {
   z-index: 2;
   border-radius: 6px;

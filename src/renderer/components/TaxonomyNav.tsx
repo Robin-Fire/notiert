@@ -8,13 +8,13 @@ import type { Category, Subcategory, TagRecord } from '../../shared/contracts'
 import { resultValue } from '../apiResult'
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog'
 export function TaxonomyNav({
-  categories, subcategories, tags, activeCategory, activeSubcategory, activeTags, onCategory, onTag, onChanged
+  categories, subcategories, tags, activeCategory, activeSubcategory, activeTagId, onCategory, onTag, onChanged
 }: {
   activeCategory?: string
   activeSubcategory?: string
-  activeTags: string[]
+  activeTagId?: string
   onCategory: (id: string, subcategoryId?: string) => void
-  onTag: (name: string) => void
+  onTag: (id: string) => void
   categories: Category[]
   subcategories: Subcategory[]
   tags: TagRecord[]
@@ -179,7 +179,7 @@ export function TaxonomyNav({
             <SortableContext items={orderedTags.map((tag) => tag.id)} strategy={verticalListSortingStrategy}>
               {orderedTags.map((item) => (
                 <SortableTagRow key={item.id} tag={item} canReorder={!busy && orderedTags.length > 1}
-                  active={activeTags.includes(item.name)} onSelect={() => onTag(item.name)}>
+                  active={activeTagId === item.id} onSelect={() => onTag(item.id)}>
                   <button type="button" className="taxonomy-row-action" {...edit('tag', item)}><Pencil size={13} /></button>
                 </SortableTagRow>
               ))}

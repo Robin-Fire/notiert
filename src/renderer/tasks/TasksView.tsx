@@ -76,8 +76,10 @@ const taskCollision: CollisionDetection = (args) => {
 const alignRowPreview: Modifier = ({ transform }) => ({ ...transform, x: 0 })
 
 type Layout = 'time' | 'table'
-type Destination = { horizon: Horizon; categoryId?: string | null; beforeId?: string | null }
+export type TaskCreationDestination = { horizon: Horizon; categoryId?: string | null }
+type Destination = TaskCreationDestination & { beforeId?: string | null }
 const emptyCounts = Object.fromEntries(horizons.map((h) => [h, 0])) as TasksPage['counts']
+const emptyPages: Partial<Record<Horizon, TasksPage>> = {}
 function preference<T>(key: string, fallback: T): T {
   try {
     return JSON.parse(localStorage.getItem(key) ?? 'null') ?? fallback
@@ -98,12 +100,12 @@ export function TasksView({
   subcategories,
   tags,
   taxonomyReady,
+  create,
+  setCreate,
+  title,
   category,
   subcategory,
-  setCategory,
-  setSubcategory,
-  selectedTags,
-  clearSelectedTags,
+  selectedTag,
   query,
   setQuery,
   searchRef,
@@ -111,16 +113,16 @@ export function TasksView({
   categories: Category[]
   subcategories: Subcategory[]
   tags: TagRecord[]
-  category: string
-  subcategory: string
-  setCategory: (category: string) => void
-  setSubcategory: (subcategory: string) => void
-  selectedTags: string[]
-  clearSelectedTags: () => void
+  title: string
+  category?: string
+  subcategory?: string
+  selectedTag?: string
   query: string
   setQuery: (query: string) => void
   searchRef: React.RefObject<HTMLInputElement | null>
   taxonomyReady: boolean
+  create: TaskCreationDestination | null
+  setCreate: (destination: TaskCreationDestination | null) => void
 }) {
   const [layout, setLayout] = useState<Layout>(() =>
     (['time', 'table'] as Layout[]).includes(preference<Layout>('tasks-layout-v1', 'time'))
@@ -131,9 +133,14 @@ export function TasksView({
   const [compact, setCompact] = useState(() => window.innerWidth < 1320)
   const [expandedCompact, setExpandedCompact] = useState<string[]>([])
   const [today, setToday] = useState(() => toLocalISODate(new Date()))
-  const [search, setSearch] = useState('')
+  const [debouncedSearch, setSearch] = useState('')
+  const hasSearch = !!query.trim()
+  const search = hasSearch ? debouncedSearch : ''
   const [completed, setCompleted] = useState(false)
-  const [pages, setPages] = useState<Partial<Record<Horizon, TasksPage>>>({})
+  const pageKey = JSON.stringify([category, subcategory, selectedTag])
+  const [loaded, setLoaded] = useState({ pageKey, pages: emptyPages })
+  const pageChanged = loaded.pageKey !== pageKey
+  const pages = pageChanged ? emptyPages : loaded.pages
   const [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('')
@@ -153,8 +160,7 @@ export function TasksView({
     return () => clearTimeout(timer)
   }, [notice, undo, completionUndo, noticeHovered, noticeFocused, busy])
   const [dragPreview, setDragPreview] = useState<HTMLElement | null>(null)
-  const [create, setCreate] = useState<Destination | null>(null)
-  const showTaggedList = selectedTags.length > 0
+  const showTaggedList = selectedTag !== undefined
   const showFlatList = !!search || showTaggedList
   const lock = useRef(false),
     request = useRef(0)
@@ -163,38 +169,51 @@ export function TasksView({
       today,
       scope: 'all',
       query: search,
-      ...(category === 'all' ? {} : { categoryId: category === 'unassigned' ? null : category }),
+      ...(category ? { categoryId: category } : {}),
       ...(subcategory ? { subcategoryId: subcategory } : {}),
-      tags: selectedTags,
+      tags: selectedTag === undefined ? [] : [selectedTag],
       excludedTags: [],
       completed,
       limit: 50
     }),
-    [today, search, category, subcategory, selectedTags, completed]
+    [today, search, category, subcategory, selectedTag, completed]
   )
   useEffect(() => {
     const timer = setTimeout(() => setSearch(query.trim()), 150)
     return () => clearTimeout(timer)
   }, [query])
   const refresh = useCallback(
-    async (clearError = true) => {
+    async (clearError = true, retainTaggedRows = 0) => {
       const current = ++request.current
       setLoading(true)
       try {
         const results = showTaggedList
           ? { unplanned: resultValue(await window.captured.taskWorkspace.list(filters)) }
           : resultValue(await window.captured.taskWorkspace.overview(filters))
+        const first = results.unplanned
+        if (showTaggedList && first && first.items.length < retainTaggedRows) {
+          const loaded = [...first.items]
+          let nextCursor = first.nextCursor
+          while (nextCursor && loaded.length < retainTaggedRows && current === request.current) {
+            const page = resultValue(await window.captured.taskWorkspace.list({ ...filters, cursor: nextCursor }))
+            loaded.push(...page.items)
+            nextCursor = page.nextCursor
+          }
+          results.unplanned = { ...first, items: loaded, nextCursor }
+        }
         if (current !== request.current) return
-        setPages(results)
+        setLoaded({ pageKey, pages: results })
         if (clearError) setError('')
       } catch (reason) {
-        if (current === request.current)
+        if (current === request.current) {
+          setLoaded(previous => previous.pageKey === pageKey ? previous : { pageKey, pages: emptyPages })
           setError(reason instanceof Error ? reason.message : 'Tasks could not be loaded.')
+        }
       } finally {
         if (current === request.current) setLoading(false)
       }
     },
-    [filters, showTaggedList]
+    [filters, pageKey, showTaggedList]
   )
   const latestRefresh = useRef(refresh)
   latestRefresh.current = refresh
@@ -254,7 +273,6 @@ export function TasksView({
   const taskItems = items
   const total = Object.values(counts).reduce((a, b) => a + b, 0)
   const visibleHorizons = horizons.filter(horizon => horizon !== 'unplanned' || counts.unplanned > 0)
-  const categoryMap = useMemo(() => new Map(categories.map((item) => [item.id, item.name])), [categories])
   const tagColors = useMemo(
     () => new Map(tags.map((tag) => [tag.name.toLocaleLowerCase(), tag.color])),
     [tags]
@@ -265,7 +283,7 @@ export function TasksView({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
 
-  async function mutate(action: () => Promise<void>) {
+  async function mutate(action: () => Promise<void>, retainTaggedRows = 0) {
     if (lock.current) return
     lock.current = true
     setBusy(true)
@@ -280,7 +298,7 @@ export function TasksView({
     } finally {
       lock.current = false
       setBusy(false)
-      await latestRefresh.current(false)
+      await latestRefresh.current(false, retainTaggedRows)
     }
   }
   function move(
@@ -327,9 +345,12 @@ export function TasksView({
         })
       )
       if (current === request.current)
-        setPages((previous) => ({
+        setLoaded((previous) => ({
           ...previous,
-          [horizon]: { ...page, items: [...(previous[horizon]?.items ?? []), ...page.items] }
+          pages: {
+            ...previous.pages,
+            [horizon]: { ...page, items: [...(previous.pages[horizon]?.items ?? []), ...page.items] }
+          }
         }))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'More tasks could not be loaded.')
@@ -343,6 +364,19 @@ export function TasksView({
     if (!event.over || event.active.id === event.over.id) return
     const item = items.find((item) => item.id === event.active.id)
     if (!item) return
+    if (selectedTag !== undefined) {
+      const targetIndex = items.findIndex((item) => item.id === event.over?.id)
+      if (targetIndex < 0 || loading) return
+      const targetId = items[targetIndex].id
+      const after = items.indexOf(item) < targetIndex
+      void mutate(async () => {
+        resultValue(await window.captured.taskWorkspace.reorderTagged({
+          tags: [selectedTag], id: item.id, targetId, after
+        }))
+        setNotice('')
+      }, items.length)
+      return
+    }
     const target = event.over.data.current as (Destination & { item?: TaskWorkspaceItem }) | undefined
     if (!target) return
     let beforeId: string | null | undefined
@@ -406,8 +440,8 @@ export function TasksView({
       />
     )
   }
-  function quickActionsFor(item: TaskWorkspaceItem) {
-    return <TaskQuickActions item={item} busy={busy} onComplete={() => complete(item)} onPlan={horizon => move(item, { horizon })} tagPicker={tagPickerFor(item)} />
+  function quickActionsFor(item: TaskWorkspaceItem, compact = false) {
+    return <TaskQuickActions item={item} busy={busy} compact={compact} onComplete={() => complete(item)} onPlan={horizon => move(item, { horizon })} tagPicker={tagPickerFor(item)} />
   }
   function card(item: TaskWorkspaceItem, categoryId?: string | null) {
     return (
@@ -439,14 +473,9 @@ export function TasksView({
       setNotice(item.completedAt === null ? 'Task completed.' : 'Task reopened.')
     })
   }
-  const hasFilterChips = !!query.trim() || category !== 'all' || !!subcategory
-  const hasFilters = hasFilterChips || selectedTags.length > 0
-  function clearFilters() {
+  function clearSearch() {
     setQuery('')
     setSearch('')
-    setCategory('all')
-    setSubcategory('')
-    clearSelectedTags()
   }
   function section(horizon: Horizon, group: TaskWorkspaceItem[]) {
     return (
@@ -468,42 +497,11 @@ export function TasksView({
       <header className="tasks-heading">
         <div>
           <h1>
-            Tasks <span className="title-count">{total}</span>
+            {title} <span className="title-count">{total}</span>
           </h1>
         </div>
-        <button
-          type="button"
-          className="button primary small"
-          disabled={busy || !taxonomyReady}
-          onClick={() => setCreate({ horizon: 'unplanned' })}
-        >
-          <Plus size={14} /> Add task
-        </button>
       </header>
       <div className="tasks-toolbar">
-        <label className="search-box tasks-search">
-          <Search size={15} />
-          <input
-            ref={searchRef}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search tasks…"
-            aria-label="Search tasks"
-            maxLength={500}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape' && query) {
-                event.stopPropagation()
-                setQuery('')
-                setSearch('')
-              }
-            }}
-          />
-          {query ? (
-            <button type="button" aria-label="Clear search" onClick={() => { setQuery(''); setSearch(''); searchRef.current?.focus() }}>
-              <X size={13} />
-            </button>
-          ) : <kbd>Ctrl F</kbd>}
-        </label>
         {!showTaggedList && (
           <div className="planner-view-switch tasks-layout-switch" aria-label="Task layout">
             <button
@@ -528,101 +526,69 @@ export function TasksView({
             </button>
           </div>
         )}
-        <div className="tasks-filter-spacer" />
-        <AppSelect
-          aria-label="Filter tasks by category"
-          value={category}
-          onChange={(event) => {
-            setCategory(event.target.value)
-            setSubcategory('')
-          }}
-        >
-          <option value="all">All categories</option>
-          <option value="unassigned">Unassigned</option>
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
-            </option>
-          ))}
-        </AppSelect>
-        {category !== 'all' && category !== 'unassigned' && (
-          <AppSelect
-            aria-label="Filter tasks by subcategory"
-            value={subcategory}
-            onChange={(event) => setSubcategory(event.target.value)}
+        {hasSearch && (
+          <button type="button" className="filter-clear" onClick={clearSearch}>Clear filters</button>
+        )}
+        <div className="tasks-toolbar-search">
+          <label className="search-box tasks-search">
+            <Search size={15} />
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search tasks…"
+              aria-label="Search tasks"
+              maxLength={500}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && query) {
+                  event.stopPropagation()
+                  setQuery('')
+                  setSearch('')
+                }
+              }}
+            />
+            {query ? (
+              <button type="button" aria-label="Clear search" onClick={() => { setQuery(''); setSearch(''); searchRef.current?.focus() }}>
+                <X size={13} />
+              </button>
+            ) : <kbd>Ctrl F</kbd>}
+          </label>
+          <button
+            type="button"
+            className="tasks-done-filter"
+            aria-pressed={completed}
+            onClick={() => setCompleted((value) => !value)}
           >
-            <option value="">All subcategories</option>
-            {subcategories
-              .filter((sub) => sub.categoryId === category)
-              .map((sub) => (
-                <option key={sub.id} value={sub.id}>
-                  {sub.name}
-                </option>
-              ))}
-          </AppSelect>
-        )}
-        <button
-          type="button"
-          className="tasks-done-filter"
-          aria-pressed={completed}
-          onClick={() => setCompleted((value) => !value)}
-        >
-          {completed ? 'Show open tasks' : 'Completed'}
-        </button>
-        {hasFilters && (
-          <button type="button" className="filter-clear" onClick={clearFilters}>Clear filters</button>
-        )}
+            {completed ? 'Hide completed' : 'Show completed'}
+          </button>
+        </div>
       </div>
-      {hasFilterChips && (
+      {hasSearch && (
         <div className="tasks-active-filters" aria-label="Active task filters">
-          {query.trim() && (
-            <button
-              type="button"
-              onClick={() => {
-                setQuery('')
-                setSearch('')
-              }}
-            >
-              Search: {query.trim()} <X size={12} />
-            </button>
-          )}
-          {category !== 'all' && (
-            <button
-              type="button"
-              onClick={() => {
-                setCategory('all')
-                setSubcategory('')
-              }}
-            >
-              {category === 'unassigned' ? 'Unassigned' : categoryMap.get(category)} <X size={12} />
-            </button>
-          )}
-          {subcategory && (
-            <button type="button" onClick={() => setSubcategory('')}>
-              {subcategoryMap.get(subcategory)?.name} <X size={12} />
-            </button>
-          )}
+          <button type="button" onClick={clearSearch}>
+            Search: {query.trim()} <X size={12} />
+          </button>
         </div>
       )}
-      {!loading && !error && total === 0 && (
+      {!pageChanged && !loading && !error && total === 0 && (
         <div className="tasks-empty-state" role="status">
           <CalendarDays size={24} strokeWidth={1.5} />
           <h2>
-            {hasFilters
+            {hasSearch
               ? 'No tasks match these filters'
               : completed
                 ? 'No completed tasks yet'
                 : 'No tasks yet'}
           </h2>
           <p>
-            {hasFilters
+            {hasSearch
               ? 'Try a different search or clear your filters.'
               : completed
                 ? 'Completed tasks will appear here when you finish them.'
                 : 'Capture a thought, then choose its priority.'}
           </p>
-          {hasFilters ? (
-            <button type="button" className="button secondary small" onClick={clearFilters}>
+          {hasSearch ? (
+            <button type="button" className="button secondary small" onClick={clearSearch}>
               Reset task filters
             </button>
           ) : completed ? (
@@ -689,7 +655,7 @@ export function TasksView({
           </button>
         </div>
       )}
-      {!taxonomyReady || (loading && !items.length && !Object.keys(pages).length) ? (
+      {!taxonomyReady || pageChanged || (loading && !items.length && !Object.keys(pages).length) ? (
         <div className="loading-state">
           <span className="spinner" /> Loading tasks…
         </div>
@@ -705,11 +671,14 @@ export function TasksView({
         >
           {showFlatList ? (
             <section className="tasks-search-results" aria-label={search ? 'Task search results' : 'Tagged tasks'}>
-              <p>
-                {total} {search ? (total === 1 ? 'result' : 'results') : (total === 1 ? 'task' : 'tasks')} ·{' '}
-                {completed ? 'Completed tasks' : search ? 'Open and completed tasks' : 'Open tasks'}
-              </p>
-              <table className="tasks-group-table" aria-label={search ? 'Search results' : 'Tagged tasks list'}>
+              {search && (
+                <p>
+                  {total} {total === 1 ? 'result' : 'results'} ·{' '}
+                  {completed ? 'Completed tasks' : 'Open and completed tasks'}
+                </p>
+              )}
+              <table className={`tasks-group-table${showTaggedList ? ' tasks-tagged-table' : ''}`} aria-label={search ? 'Search results' : 'Tagged tasks list'}>
+                {showTaggedList && <colgroup><col /><col /><col /></colgroup>}
                 <thead>
                   <tr>
                     <th scope="col">Task</th>
@@ -718,18 +687,22 @@ export function TasksView({
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item) => (
-                    <TaskTableRow
-                      tagColors={tagColors}
-                      actions={quickActionsFor(item)}
-                      key={item.id}
-                      item={item}
-                      flatList
-                      subcategory={subcategoryMap.get(item.subcategoryId ?? '')}
-                      busy={busy}
-                      onOpen={() => setDetail(item)}
-                    />
-                  ))}
+                  <SortableContext items={items.map((item) => item.id)} strategy={verticalListSortingStrategy}>
+                    {items.map((item) => (
+                      <TaskTableRow
+                        tagColors={tagColors}
+                        actions={quickActionsFor(item, showTaggedList)}
+                        key={item.id}
+                        item={item}
+                        flatList
+                        tagged={showTaggedList}
+                        subcategory={subcategoryMap.get(item.subcategoryId ?? '')}
+                        busy={busy}
+                        reorderDisabled={loading}
+                        onOpen={() => setDetail(item)}
+                      />
+                    ))}
+                  </SortableContext>
                 </tbody>
               </table>
               {pages.unplanned?.nextCursor && (
@@ -832,10 +805,10 @@ export function TasksView({
               </div>
             </>
           )}
-          <DragOverlay dropAnimation={null} modifiers={layout === 'table' ? [alignRowPreview] : undefined}>
+          <DragOverlay dropAnimation={null} modifiers={layout === 'table' || showTaggedList ? [alignRowPreview] : undefined}>
             {dragPreview && (
               <div
-                className={`tasks-drag-preview ${layout === 'table' ? 'tasks-drag-table' : 'tasks-board tasks-drag-board'}`}
+                className={`tasks-drag-preview ${layout === 'table' || showTaggedList ? 'tasks-drag-table' : 'tasks-board tasks-drag-board'}`}
                 aria-hidden="true"
                 inert
                 ref={(node) => node?.replaceChildren(dragPreview)}
@@ -868,12 +841,11 @@ export function TasksView({
             ...create,
             categoryId:
               create.categoryId === undefined
-                ? category === 'all' || category === 'unassigned'
-                  ? null
-                  : category
+                ? category ?? null
                 : create.categoryId
           }}
           today={today}
+          initialSubcategoryId={create.categoryId === undefined || create.categoryId === category ? subcategory || null : null}
           onClose={() => setCreate(null)}
           onSave={async (body, categoryId, intention, subcategoryId, tags) => {
             await mutate(async () => {
@@ -915,7 +887,7 @@ function copyDragSource({ activatorEvent }: DragStartEvent): HTMLElement | null 
   }
 
   const table = document.createElement('table')
-  table.className = 'tasks-group-table'
+  table.className = source.closest('table')?.className ?? 'tasks-group-table'
   table.style.width = `${source.getBoundingClientRect().width}px`
   const columns = table.appendChild(document.createElement('colgroup'))
   for (const cell of source.cells) {
@@ -1002,6 +974,8 @@ function TaskTableRow({
   tagColors,
   actions,
   flatList = false,
+  tagged = false,
+  reorderDisabled = false,
   item,
   subcategory,
   busy,
@@ -1009,6 +983,8 @@ function TaskTableRow({
 }: {
   tagColors: Map<string, string>
   flatList?: boolean
+  tagged?: boolean
+  reorderDisabled?: boolean
   actions?: React.ReactNode
   backlog?: boolean
   item: TaskWorkspaceItem
@@ -1016,11 +992,12 @@ function TaskTableRow({
   busy: boolean
   onOpen: () => void
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } =
+  const canReorder = tagged || (!flatList && item.completedAt === null)
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging, isOver, activeIndex, index } =
     useSortable({
       id: item.id,
       data: { horizon: item.horizon, item },
-      disabled: flatList || busy || item.completedAt !== null
+      disabled: !canReorder || busy || reorderDisabled
     })
   return (
     <tr
@@ -1031,12 +1008,13 @@ function TaskTableRow({
     >
       <td>
         <div className="tasks-table-task">
-          {!flatList && (
+          {(tagged || !flatList) && (
             <button
               type="button"
               className="tasks-drag-handle backlog-drag-handle"
-              aria-label={`Move ${item.body.split('\n')[0] || 'task'}`}
-              disabled={busy || item.completedAt !== null}
+              ref={setActivatorNodeRef}
+              aria-label={`${tagged ? 'Reorder' : 'Move'} ${item.body.split('\n')[0] || 'task'}`}
+              disabled={!canReorder || busy || reorderDisabled}
               {...attributes}
               {...listeners}
             >
@@ -1049,7 +1027,7 @@ function TaskTableRow({
           <ImageIndicator count={item.images.length} />
           <ScheduledIndicator item={item} />
         </div>
-        {flatList && (
+        {flatList && !tagged && (
           <span className={`task-search-status ${item.completedAt !== null ? 'is-completed' : ''}`}>
             {item.completedAt !== null ? 'Completed' : 'Open'}
           </span>
@@ -1166,22 +1144,29 @@ function TaskCard({
   )
 }
 
-function TaskQuickActions({ item, busy, onPlan, onComplete, tagPicker }: {
+function TaskQuickActions({ item, busy, compact = false, onPlan, onComplete, tagPicker }: {
   item: TaskWorkspaceItem
   busy: boolean
+  compact?: boolean
   onComplete: () => void
   onPlan: (horizon: Horizon) => void
   tagPicker?: React.ReactNode
 }) {
   const label = item.body.split('\n')[0] || 'task'
+  const destinations = item.completedAt === null ? horizons.filter(horizon => horizon !== 'unplanned' && horizon !== item.horizon) : []
   return (
     <div className="tasks-quick-actions">
       <div className="tasks-quick-buttons" role="group" aria-label={`Quick actions for ${label}`}>
-        <div className="tasks-priority-buttons">
-        {item.completedAt === null && horizons.filter(horizon => horizon !== 'unplanned' && horizon !== item.horizon).map(horizon => (
+        {compact ? destinations.length > 0 && (
+          <AppSelect aria-label={`Plan ${label}`} value="" disabled={busy} onChange={event => onPlan(event.target.value as Horizon)}>
+            <option value="" disabled>Plan</option>
+            {destinations.map(horizon => <option key={horizon} value={horizon}>{horizonLabels[horizon]}</option>)}
+          </AppSelect>
+        ) : <div className="tasks-priority-buttons">
+        {destinations.map(horizon => (
           <button key={horizon} type="button" disabled={busy} title={`Move to ${horizonLabels[horizon]}`} aria-label={`Move ${label} to ${horizonLabels[horizon]}`} onClick={() => onPlan(horizon)}>{horizonLabels[horizon]}</button>
         ))}
-        </div>
+        </div>}
         <button
           type="button"
           className="tasks-done-action"
@@ -1278,6 +1263,7 @@ function CreateTaskDialog({
   tags,
   destination,
   today,
+  initialSubcategoryId,
   onClose,
   onSave
 }: {
@@ -1285,8 +1271,9 @@ function CreateTaskDialog({
   categories: Category[]
   subcategories: Subcategory[]
   tags: TagRecord[]
-  destination: Destination
+  destination: TaskCreationDestination
   today: string
+  initialSubcategoryId: string | null
   onClose: () => void
   onSave: (
     body: string,
@@ -1298,7 +1285,7 @@ function CreateTaskDialog({
 }) {
   const [body, setBody] = useState(''),
     [category, setCategory] = useState(destination.categoryId ?? '')
-  const [subcategoryId, setSubcategoryId] = useState<string | null>(null),
+  const [subcategoryId, setSubcategoryId] = useState(initialSubcategoryId),
     [labels, setLabels] = useState<string[]>([])
   const [horizon, setHorizon] = useState<Horizon>(
     destination.horizon

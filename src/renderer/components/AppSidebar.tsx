@@ -15,11 +15,12 @@ export type ViewName =
   | 'category'
   | 'review'
 
-export function AppSidebar({ view, nav, showCalendar, onCapture, children }: {
+export function AppSidebar({ view, nav, showCalendar, onAddTask, addTaskDisabled, children }: {
   view: ViewName
   nav: (view: ViewName) => void
   showCalendar: boolean
-  onCapture: () => void
+  onAddTask: () => void
+  addTaskDisabled: boolean
   children: ReactNode
 }) {
   const tasksActive = ['tasks', 'ready', 'later', 'backlog', 'inbox'].includes(view)
@@ -30,8 +31,8 @@ export function AppSidebar({ view, nav, showCalendar, onCapture, children }: {
         <span className="brand-glyph" aria-hidden="true">c</span>
         <span>captured</span>
       </button>
-      <button type="button" className="sidebar-capture capture-button" onClick={onCapture}>
-        <Plus size={16} /> Capture
+      <button type="button" className="sidebar-add-task" aria-label="Add task" disabled={addTaskDisabled} onClick={onAddTask}>
+        <Plus size={16} /><span>Add task</span>
       </button>
       <nav className="side-nav" aria-label="Main navigation">
         <button type="button" aria-current={tasksActive ? 'page' : undefined} onClick={() => nav('tasks')}>

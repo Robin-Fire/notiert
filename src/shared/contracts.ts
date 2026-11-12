@@ -8,6 +8,13 @@ export const TasksQuerySchema = Z.object({ today: Z.string(), scope: Z.enum(['al
 // Omit beforeId for default bucket placement, or pass null to explicitly append.
 export const TaskWorkspaceMoveSchema = Z.object({ id: Z.string().uuid(), expectedRevision: Z.number().int().nonnegative(), intention: TaskIntentionSchema, beforeId: Z.string().uuid().nullable().optional(), categoryId: Z.string().uuid().nullable().optional(), today: Z.string(), classify: Z.literal('task').optional(), tags: Z.array(Z.string().max(40)).max(20).optional() })
 export type TaskWorkspaceMove = z.infer<typeof TaskWorkspaceMoveSchema>
+export const TaggedTaskReorderSchema = Z.object({
+  tags: Z.array(Z.string().max(40)).min(1).max(100),
+  id: Z.string().uuid(),
+  targetId: Z.string().uuid(),
+  after: Z.boolean()
+})
+export type TaggedTaskReorder = z.infer<typeof TaggedTaskReorderSchema>
 export type TasksQuery = z.infer<typeof TasksQuerySchema>
 export type TaskWorkspaceItem = PlannerTask & { intention: TaskIntention; horizon: Horizon }
 export type TasksPage = { items: TaskWorkspaceItem[]; total: number; counts: Record<Horizon, number>; categoryCounts?: Record<string, number>; captureTotal?: number; nextCursor: z.infer<typeof TasksQuerySchema>['cursor'] | null }
@@ -131,6 +138,7 @@ export type TagRecord = { id: string; name: string; categoryId: string | null; c
 
 export type capturedApi = {
   taskWorkspace: {
+    reorderTagged(input: TaggedTaskReorder): Promise<ApiResult<void>>
     list(input: TasksQuery): Promise<ApiResult<TasksPage>>
     overview(input: TasksQuery): Promise<ApiResult<Partial<Record<Horizon, TasksPage>>>>
     complete(input: z.infer<typeof TaskCompletionSchema>): Promise<ApiResult<TaskCompletionUndo>>

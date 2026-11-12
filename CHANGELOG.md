@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.1.25 - 2026-11-12
+
+- Open one category, subcategory, or tag at a time from the sidebar. Category pages keep the priority buckets.
+- Reorder tasks within a tag and save the order for that tag. Tagged task rows give more room to task text and group priority actions in a Plan menu.
+- Move Add task to the sidebar and place search and the completed-task toggle together on the right of the Tasks toolbar.
+
 ## 0.1.24 - 2026-11-11
 
 - Show tagged tasks in one list without priority buckets.

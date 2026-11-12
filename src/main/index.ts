@@ -1,5 +1,6 @@
 import { horizonOf, horizonLabels } from '../shared/taskHorizons'
 import { TasksQuerySchema, TaskWorkspaceMoveSchema, TaskWorkspaceUndoSchema, TaskWorkspaceCreateSchema } from '../shared/contracts'
+import { TaggedTaskReorderSchema } from '../shared/contracts'
 import { z as Z } from 'zod'
 import { ItemUpdateSchema, TaskCompletionSchema, TaskCompletionUndoSchema } from '../shared/contracts'
 import { app, BrowserWindow, clipboard, ClipboardItem, dialog, globalShortcut, Menu, nativeImage, powerMonitor, screen, shell, Tray, type Display } from 'electron'
@@ -418,6 +419,10 @@ function registerIpc() {
   })
   roleHandler('items:copy', 'tasks', (_event, raw) => { const ids = IdsSchema.parse(raw); const value = requireStore().getDraftText(ids); clipboard.writeText(value); return value })
   roleHandler('tasks:list', 'tasks', (_event, raw) => requireStore().listWorkspace(TasksQuerySchema.parse(raw)))
+  roleHandler('tasks:reorder-tagged', 'tasks', (_event, raw) => {
+    requireStore().reorderTaggedTasks(TaggedTaskReorderSchema.parse(raw))
+    broadcastTaxonomyChange('tasks')
+  })
   roleHandler('tasks:overview', 'tasks', (_event, raw) => requireStore().workspaceOverview(TasksQuerySchema.parse(raw)))
   roleHandler('tasks:complete', 'tasks', (_event, raw) => { const undo = requireStore().completeWorkspace(TaskCompletionSchema.parse(raw)); broadcastTaxonomyChange(); return undo })
   roleHandler('tasks:undo-completion', 'tasks', (_event, raw) => { requireStore().undoCompletion(TaskCompletionUndoSchema.parse(raw)); broadcastTaxonomyChange() })

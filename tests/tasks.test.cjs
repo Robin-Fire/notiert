@@ -23,6 +23,27 @@ const make = (store, body, categoryId = null) => store.createPlannerTask({ body,
 function move(store, task, horizon, extra = {}) { return store.moveWorkspace({ id: task.id, expectedRevision: store.getItem(task.id).revision, intention: intentionFor(horizon, today), beforeId: null, today, ...extra }) }
 const placement = task => [task.plannedDate, task.plannedStartAt, task.plannedEndAt, task.ready, task.later, task.position, task.priorityPosition, task.beforeEventId]
 
+test('tag list order survives reopening and pagination without changing priority', () => {
+  const f = fixture()
+  try {
+    const tasks = ['First', 'Second', 'Third'].map(body => make(f.store, body))
+    for (const task of tasks) f.store.setItemTags(task.id, ['Planning', 'Work'])
+    move(f.store, tasks[0], 'now')
+    move(f.store, tasks[1], 'next')
+    const original = list(f.store, { tags: ['Work'] }).items
+    const [first, second, third] = original.map(item => item.id)
+    f.store.reorderTaggedTasks({ tags: ['Planning'], id: third, targetId: first, after: false })
+    assert.deepEqual(list(f.store, { tags: ['Work'] }).items, original)
+    assert.throws(() => f.store.reorderTaggedTasks({ tags: ['Planning'], id: third, targetId: make(f.store, 'Outside').id, after: false }), { code: 'STALE_TARGET' })
+    f.store.close()
+    f.store = new Store(f.file)
+    const page = list(f.store, { tags: ['Planning'], limit: 2 })
+    const next = list(f.store, { tags: ['Planning'], limit: 2, cursor: page.nextCursor })
+    assert.deepEqual([...page.items, ...next.items].map(item => item.id), [third, first, second])
+    assert.deepEqual(page.items[0].intention, original[2].intention)
+  } finally { f.close() }
+})
+
 test('search includes open and completed tasks across horizons with counts and pagination before filtering', () => {
   const f = fixture()
   try {

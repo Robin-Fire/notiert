@@ -2,12 +2,10 @@
 .tasks-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; margin-bottom: 16px; }
 .tasks-heading h1 { margin: 4px 0; font-size: 28px; font-weight: 600; letter-spacing: -.035em; }
 .tasks-toolbar { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; flex-shrink: 0; margin-bottom: 12px; }
-.tasks-toolbar .search-box { flex: 1 1 170px; max-width: 280px; }
-.tasks-toolbar select, .tasks-dialog select, .tasks-dialog input { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 6px 8px; font-size: var(--type-secondary); max-width: 190px; }
+.tasks-dialog select, .tasks-dialog input { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 6px 8px; font-size: var(--type-secondary); max-width: 190px; }
 .tasks-layout-switch { margin-left: 0; }
-.tasks-filter-spacer { flex: 1; }
 .tasks-layout-switch button { display: flex; align-items: center; gap: 5px; }
-.tasks-done-filter { background: transparent; color: var(--text-muted); border: 0; font-size: var(--type-secondary); padding: 5px; }
+.tasks-done-filter { flex: 0 0 auto; background: transparent; color: var(--text-muted); border: 0; font-size: calc(var(--type-secondary) - 1px); padding: 5px; white-space: nowrap; }
 .tasks-done-filter[aria-pressed=true] { color: var(--blue); }
 .tasks-board { display: flex; gap: 10px; flex: 1 0 auto; min-height: 360px; min-width: 0; overflow: visible; padding-bottom: 6px; align-items: stretch; }
 .tasks-column { display: flex; flex-direction: column; flex: 1 0 165px; min-width: 165px; border: 1px solid var(--border); border-radius: 7px; background: color-mix(in srgb, var(--surface-raised) 45%, var(--surface)); overflow: hidden; }
@@ -114,7 +112,6 @@
 :is(.tasks-backlog-page, .tasks-table-page) .tasks-heading { padding: 22px 27px 19px; margin: 0; }
 :is(.tasks-backlog-page, .tasks-table-page) .tasks-heading h1 { font-size: 21px; margin: 8px 0 5px; }
 :is(.tasks-backlog-page, .tasks-table-page) .tasks-toolbar { padding: 12px 27px; margin: 0; }
-:is(.tasks-backlog-page, .tasks-table-page) .tasks-toolbar .search-box { max-width: 390px; }
 .tasks-backlog-groups { display: block; padding: 16px 27px 40px; }
 .tasks-backlog-page .backlog-task.is-dragging { visibility: hidden; }
 .backlog-plan-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -261,9 +258,9 @@
 .tasks-board .tasks-quick-buttons, .tasks-board .tasks-priority-buttons { flex-wrap: wrap; }
 .tasks-board .tasks-priority-buttons { justify-content: flex-start; }
 @media (max-width: 1000px) { .tasks-board { padding: 16px 20px 28px; } }
-.tasks-toolbar .tasks-search { flex: 1 1 170px; max-width: 300px; min-height: 34px; margin: 0; }
+.tasks-toolbar-search { display: flex; flex: 1 1 290px; align-items: center; gap: 8px; max-width: 420px; min-width: 0; margin-left: auto; }
+.tasks-toolbar .tasks-search { flex: 1; min-width: 0; max-width: 300px; min-height: 34px; margin: 0 0 0 auto; }
 .tasks-search kbd { flex-shrink: 0; color: var(--text-muted); white-space: nowrap; }
-.tasks-toolbar .app-select { max-width: min(190px, 100%); }
 .tasks-table-panel, .tasks-group-table { min-width: 0; }
 .tasks-group-table { width: 100%; table-layout: fixed; }
 .tasks-group-table col:nth-child(2) { width: clamp(130px, 19vw, 190px); }
@@ -271,6 +268,13 @@
 .tasks-search-results .tasks-group-table th:nth-child(2) { width: 24%; }
 .tasks-search-results .tasks-group-table th:nth-child(3) { width: 36%; }
 .tasks-search-results .task-search-status { display: inline-block; margin: 2px 0 0; }
+.tasks-group-table.tasks-tagged-table col:nth-child(2) { width: 16%; }
+.tasks-group-table.tasks-tagged-table col:nth-child(3) { width: 194px; }
+.tasks-tagged-table .tasks-quick-buttons { flex-wrap: nowrap; }
+.tasks-tagged-table .tasks-quick-buttons .app-select { min-width: 0; gap: 4px; padding-inline: 6px; }
+.tasks-tagged-table .tasks-drag-handle { opacity: .65; }
+.tasks-tagged-table tr:hover .tasks-drag-handle,
+.tasks-tagged-table .tasks-drag-handle:focus-visible { opacity: 1; }
 @media (max-width: 1000px) {
   .tasks-page .tasks-active-filters { padding-inline: 20px; }
   .tasks-board .tasks-column:not(.is-collapsed) { flex-basis: 174px; min-width: 174px; }

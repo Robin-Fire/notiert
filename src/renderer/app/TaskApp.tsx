@@ -6,6 +6,7 @@ import { horizonOf, horizonLabels } from '../../shared/taskHorizons'
 import { TagFilter } from '../components/TagFilter'
 import { ItemDetailDialog } from '../components/ItemDetailDialog'
 import { AppSidebar, type ViewName } from '../components/AppSidebar'
+import type { TaskCreationDestination } from '../tasks/TasksView'
 import { TaxonomyNav } from '../components/TaxonomyNav'
 import { MigrationReviewPanel } from '../components/MigrationReviewPanel'
 import {
@@ -113,15 +114,10 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   const [cursor, setCursor] = useState<ItemPage['nextCursor']>(null)
   const [query, setQuery] = useState('')
   const [taskQuery, setTaskQuery] = useState('')
-  const [taskCategory, setTaskCategory] = useState('all')
-  const [taskSubcategory, setTaskSubcategory] = useState('')
-  const [taskTags, setTaskTags] = useState<string[]>([])
-
-  function toggleTaskTag(name: string) {
-    setTaskTags((selected) => selected.includes(name)
-      ? selected.filter((tag) => tag !== name)
-      : [...selected, name])
-  }
+  const [taskPage, setTaskPage] = useState<
+    { kind: 'category'; id: string; subcategoryId?: string } | { kind: 'tag'; id: string } | null
+  >(null)
+  const [createTask, setCreateTask] = useState<TaskCreationDestination | null>(null)
 
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [dateRange, setDateRange] = useState('all')
@@ -142,14 +138,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
     error: taxonomyError,
     refresh: loadTags
   } = useTaxonomy()
-  useEffect(() => {
-    if (!taxonomyLoaded) return
-    const available = new Set(tagRecords.map((tag) => tag.name))
-    setTaskTags((selected) => {
-      const remaining = selected.filter((tag) => available.has(tag))
-      return remaining.length === selected.length ? selected : remaining
-    })
-  }, [tagRecords, taxonomyLoaded])
+  const taskTag = taskPage?.kind === 'tag' ? tagRecords.find((tag) => tag.id === taskPage.id) : undefined
 
   const [upgradeNotice, setUpgradeNotice] = useState(false)
   const [reviewCount, setReviewCount] = useState(0)
@@ -487,13 +476,14 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
     setExcludedTags([])
     setSubcategoryFilter('')
   }
-  function nav(next: ViewName) {
+  function nav(next: ViewName, addTask = false) {
     requestLeaveRef.current(() => {
       setSelectedSubcategoryId(null)
       setNoSubcategory(false)
       setSelectedTagId(null)
       setSelectedCategoryId(null)
       setView(next)
+      setCreateTask(addTask ? { horizon: 'unplanned' } : null)
       setShowCompleted(false)
       setDetailId(null)
       setFocusedId(null)
@@ -502,8 +492,10 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
       clearFilters()
     })
   }
-  const taskCategoryId = categories.find((category) => category.id === taskCategory)?.id
-  const taskSubcategoryId = subcategories.find((subcategory) => subcategory.id === taskSubcategory && subcategory.categoryId === taskCategoryId)?.id
+  const taskCategory = taskPage?.kind === 'category' ? categories.find((category) => category.id === taskPage.id) : undefined
+  const taskSubcategory = taskPage?.kind === 'category' && taskCategory
+    ? subcategories.find((subcategory) => subcategory.id === taskPage.subcategoryId && subcategory.categoryId === taskCategory.id)
+    : undefined
   const selectedTag = tagRecords.find((tag) => tag.id === selectedTagId) ?? null
   const selectedCategory = categories.find((category) => category.id === selectedCategoryId) ?? null
   async function reorderTask(id: string, categoryId: string | null, requestedBeforeId: string | null) {
@@ -906,35 +898,36 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
         view={view}
         nav={(next) => {
           if (next === 'tasks' && !editItem) {
-            setTaskCategory('all')
-            setTaskSubcategory('')
-            setTaskTags([])
+            setTaskPage(null)
             setTaskQuery('')
           }
           nav(next)
         }}
         showCalendar={settings?.showCalendar !== false}
-        onCapture={() => window.captured.windows.openCapture(
-          view === 'tasks' && taskCategoryId ? { categoryId: taskCategoryId, subcategoryId: taskSubcategoryId } : undefined
-        )}
+        addTaskDisabled={!taxonomyLoaded}
+        onAddTask={() => {
+          if (view === 'tasks') setCreateTask({ horizon: 'unplanned' })
+          else nav('tasks', true)
+        }}
       >
         <TaxonomyNav
           categories={categories}
           subcategories={subcategories}
           tags={tagRecords}
-          activeCategory={view === 'tasks' ? taskCategoryId : undefined}
-          activeSubcategory={view === 'tasks' ? taskSubcategoryId : undefined}
-          activeTags={view === 'tasks' ? taskTags : []}
+          activeCategory={view === 'tasks' ? taskCategory?.id : undefined}
+          activeSubcategory={view === 'tasks' ? taskSubcategory?.id : undefined}
+          activeTagId={view === 'tasks' ? taskTag?.id : undefined}
           onCategory={(id, subcategoryId) => {
             if (editItem) return
-            const active = view === 'tasks' && taskCategoryId === id && taskSubcategoryId === subcategoryId
-            setTaskCategory(active ? 'all' : id)
-            setTaskSubcategory(active ? '' : subcategoryId ?? '')
+            const active = view === 'tasks' && taskCategory?.id === id && taskSubcategory?.id === subcategoryId
+            setTaskPage(active ? null : { kind: 'category', id, subcategoryId })
+            setTaskQuery('')
             if (view !== 'tasks') nav('tasks')
           }}
-          onTag={(name) => {
+          onTag={(id) => {
             if (editItem) return
-            toggleTaskTag(name)
+            setTaskPage(view === 'tasks' && taskTag?.id === id ? null : { kind: 'tag', id })
+            setTaskQuery('')
             if (view !== 'tasks') nav('tasks')
           }}
           onChanged={loadTags}
@@ -1023,12 +1016,12 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
               subcategories={subcategories}
               tags={tagRecords}
               taxonomyReady={taxonomyLoaded}
-              category={taskCategoryId ?? (taskCategory === 'unassigned' ? 'unassigned' : 'all')}
-              subcategory={taskSubcategoryId ?? ''}
-              setCategory={setTaskCategory}
-              setSubcategory={setTaskSubcategory}
-              selectedTags={taskTags}
-              clearSelectedTags={() => setTaskTags([])}
+              create={createTask}
+              setCreate={setCreateTask}
+              title={taskSubcategory?.name ?? taskCategory?.name ?? taskTag?.name ?? 'Tasks'}
+              category={taskCategory?.id}
+              subcategory={taskSubcategory?.id}
+              selectedTag={taskTag?.name}
               query={taskQuery}
               setQuery={setTaskQuery}
               searchRef={searchRef}
