@@ -120,7 +120,9 @@ export class Store {
     if (!validLocalDate(input.today)) throw new AppError('INVALID_INPUT', 'Choose a valid local date.')
     if (input.cursor && (input.cursor.sequence !== this.changeSequence || input.cursor.today !== input.today)) throw new AppError('STALE_PAGE', 'Tasks changed. Refresh the board.')
     const bucket = "CASE WHEN n.kind='inbox' THEN 'unplanned' ELSE coalesce(i.kind,'unplanned') END"
-    const where = ["n.deleted_at IS NULL", input.completed ? "n.kind='task' AND n.task_status='done'" : input.query.trim() ? "n.kind='task'" : "(n.kind='inbox' OR (n.kind='task' AND n.task_status='open'))"]
+    const taskStatus = input.completed ? 'done' : 'open'
+    const taskFilter = `n.kind='task' AND n.task_status='${taskStatus}'`
+    const where = ["n.deleted_at IS NULL", input.completed || input.query.trim() ? taskFilter : `(n.kind='inbox' OR (${taskFilter}))`]
     const params: (string | number | null)[] = []
     if (input.scope === 'planned') where.push("n.kind='task' AND coalesce(i.kind,'unplanned')<>'unplanned'")
     if (input.scope === 'backlog') where.push("(n.kind='inbox' OR coalesce(i.kind,'unplanned')='unplanned')")

@@ -20,8 +20,21 @@
   background: var(--surface);
 }
 
-.task-description-editor:focus-within {
-  border-color: var(--accent);
+.task-description-editor.rte-root:has(.ProseMirror:focus) {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-halo);
+  outline: 1px solid transparent;
+  outline-offset: -1px;
+}
+
+.task-description-editor .ProseMirror:focus {
+  outline: none;
+}
+
+@media (forced-colors: active) {
+  .task-description-editor.rte-root:has(.ProseMirror:focus) {
+    outline-color: Highlight;
+  }
 }
 
 .task-description-editor.rte-root[data-variant="default"] .rte-toolbar {

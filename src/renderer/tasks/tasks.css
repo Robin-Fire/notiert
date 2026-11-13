@@ -70,7 +70,6 @@
 .tasks-dialog form { display: grid; gap: 12px; }
 .tasks-dialog label { display: grid; gap: 5px; font-size: var(--type-secondary); }
 .tasks-dialog p { color: var(--text-muted); font-size: var(--type-secondary); }
-.tasks-page :is(button,input,select,textarea):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 @media (max-width: 1000px) { .tasks-page { padding: 20px 14px 12px; } .tasks-layout-switch { margin-left: 0; } }
 @media (prefers-reduced-motion: reduce) { .tasks-card { transition: none !important; } }
 

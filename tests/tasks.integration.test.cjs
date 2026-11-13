@@ -715,7 +715,7 @@ test('selecting another sidebar tag replaces the active tag and its tasks', asyn
   } finally { app.unmount() }
 })
 
-test('search finds completed Backlog and planned tasks and editing retains their completed state', async () => {
+test('search hides completed tasks until toggled and editing retains their completed state', async () => {
   browserWorkspace()
   const saved = []
   for (const body of ['Bookmark phrase open', 'Bookmark phrase archived', 'Bookmark phrase planned']) {
@@ -728,10 +728,19 @@ test('search finds completed Backlog and planned tasks and editing retains their
   try {
     const search = await screen.findByRole('textbox', { name: 'Search tasks' })
     fireEvent.change(search, { target: { value: 'Bookmark phrase' } })
-    const results = within(await screen.findByRole('table', { name: 'Search results' }))
+    let results = within(await screen.findByRole('table', { name: 'Search results' }))
+    await results.findByRole('button', { name: 'Bookmark phrase open' })
+    assert.equal(results.queryByText('Completed', { exact: true }), null)
+    fireEvent.click(screen.getByRole('button', { name: 'Show completed', exact: true }))
+    results = within(await screen.findByRole('table', { name: 'Search results' }))
     await results.findByRole('button', { name: 'Bookmark phrase archived' })
     assert.equal(results.getAllByText('Completed', { exact: true }).length, 2)
-    assert.equal(results.getAllByText('Open', { exact: true }).length, 1)
+    assert.equal(results.queryByText('Open', { exact: true }), null)
+    fireEvent.click(screen.getByRole('button', { name: 'Hide completed', exact: true }))
+    await screen.findByRole('button', { name: 'Bookmark phrase open' })
+    assert.equal(screen.queryByRole('button', { name: 'Bookmark phrase archived' }), null)
+    fireEvent.click(screen.getByRole('button', { name: 'Show completed', exact: true }))
+    results = within(await screen.findByRole('table', { name: 'Search results' }))
     fireEvent.click(results.getByRole('button', { name: 'Bookmark phrase archived' }))
     const dialog = within(await screen.findByRole('dialog', { name: 'Task' }))
     const editor = dialog.getByRole('textbox', { name: 'Full task text' })
@@ -745,9 +754,7 @@ test('search finds completed Backlog and planned tasks and editing retains their
     assert.match(updated.body, /Additional reference details/)
     fireEvent.change(search, { target: { value: 'Additional reference details' } })
     await screen.findByRole('button', { name: /^Bookmark phrase archived/ })
-    backlogNav()
-    const backlogSearch = await screen.findByRole('textbox', { name: 'Search tasks' })
-    fireEvent.change(backlogSearch, { target: { value: 'Bookmark phrase planned' } })
+    fireEvent.change(search, { target: { value: 'Bookmark phrase planned' } })
     await screen.findByRole('button', { name: 'Bookmark phrase planned' })
   } finally { app.unmount() }
 })
@@ -861,6 +868,7 @@ test('notes UI is absent and former reference content is found as a completed ta
   try {
     assert.equal(screen.queryByRole('button', { name: 'Legacy notes', exact: true }), null)
     const search = await screen.findByRole('textbox', { name: 'Search tasks' })
+    fireEvent.click(screen.getByRole('button', { name: 'Show completed', exact: true }))
     fireEvent.change(search, { target: { value: 'Ideas for the next release' } })
     const results = within(await screen.findByRole('table', { name: 'Search results' }))
     await results.findByRole('button', { name: /^Ideas for the next release/ })

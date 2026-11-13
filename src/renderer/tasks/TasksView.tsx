@@ -713,7 +713,7 @@ export function TasksView({
               {search && (
                 <p>
                   {total} {total === 1 ? 'result' : 'results'} ·{' '}
-                  {completed ? 'Completed tasks' : 'Open and completed tasks'}
+                  {completed ? 'Completed tasks' : 'Open tasks'}
                 </p>
               )}
               <table className={`tasks-group-table${showTaggedList ? ' tasks-tagged-table' : ''}`} aria-label={search ? 'Search results' : 'Tagged tasks list'}>

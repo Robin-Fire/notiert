@@ -44,7 +44,7 @@ test('tag list order survives reopening and pagination without changing priority
   } finally { f.close() }
 })
 
-test('search includes open and completed tasks across horizons with counts and pagination before filtering', () => {
+test('search filters by completion across horizons before counting and paginating', () => {
   const f = fixture()
   try {
     for (let index = 0; index < 56; index++) {
@@ -55,19 +55,21 @@ test('search includes open and completed tasks across horizons with counts and p
     }
     const removed = make(f.store, 'Reference record removed')
     f.store.trash([removed.id])
-    const page = list(f.store, { scope: 'all', query: 'saved information', tags: ['reference'], limit: 50 })
-    assert.equal(page.total, 56)
-    assert.equal(page.items.length, 50)
-    assert.ok(page.items.some(item => item.completedAt !== null))
-    assert.ok(page.items.some(item => item.completedAt === null))
-    const next = list(f.store, { scope: 'all', query: 'saved information', tags: ['reference'], limit: 50, cursor: page.nextCursor })
-    assert.equal(next.items.length, 6)
-    assert.equal(new Set([...page.items, ...next.items].map(item => item.id)).size, 56)
-    assert.equal(list(f.store, { query: 'Reference record', completed: true }).total, 28)
+    for (const completed of [false, true]) {
+      const filter = { scope: 'all', query: 'saved information', tags: ['reference'], completed, limit: 20 }
+      const page = list(f.store, filter)
+      assert.equal(page.total, 28)
+      assert.equal(page.items.length, 20)
+      const next = list(f.store, { ...filter, cursor: page.nextCursor })
+      assert.equal(next.items.length, 8)
+      const matches = [...page.items, ...next.items]
+      assert.equal(new Set(matches.map(item => item.id)).size, 28)
+      assert.ok(matches.every(item => (item.completedAt !== null) === completed))
+    }
     assert.equal(list(f.store, { scope: 'all' }).total, 28)
     const overview = f.store.workspaceOverview({ today, query: 'saved information', scope: 'all' })
     assert.deepEqual(Object.keys(overview), ['unplanned'])
-    assert.equal(overview.unplanned.total, 56)
+    assert.equal(overview.unplanned.total, 28)
   } finally { f.close() }
 })
 
@@ -92,7 +94,7 @@ test('schema 17 preserves former notes as completed tasks and captures as Backlo
     assert.equal(migrated.images[0].id, image.id)
     assert.equal(migrated.createdAt, before.createdAt)
     assert.equal(migrated.intention.kind, 'unplanned')
-    assert.equal(list(f.store, { query: 'Saved reference content' }).items[0].id, reference)
+    assert.equal(list(f.store, { query: 'Saved reference content', completed: true }).items[0].id, reference)
     assert.equal(f.store.getItem(capture).kind, 'task')
     assert.equal(f.store.getItem(capture).completedAt, null)
     assert.deepEqual(f.store.getItem(active.id), { ...originalTask, revision: originalTask.revision + 1 })

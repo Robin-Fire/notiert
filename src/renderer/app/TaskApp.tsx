@@ -247,7 +247,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
       excludedTags: excludedTags.length ? excludedTags : undefined,
       tags:
         view === 'tag' ? [selectedTagName ?? '__missing_tag__'] : tagFilters.length ? tagFilters : undefined,
-      includeCompleted: scope === 'items' && (showCompleted || !!debouncedQuery.trim()),
+      includeCompleted: scope === 'items' && showCompleted,
       limit: 50,
       sort: view === 'category' ? 'priority' : 'newest'
     }

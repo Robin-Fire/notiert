@@ -86,7 +86,8 @@
 }
 
 :root {
-  --focus-ring: var(--text-secondary);
+  --focus-ring: var(--blue);
+  --focus-halo: color-mix(in srgb, var(--focus-ring) 16%, transparent);
   --type-caption: 0.75rem;
   --type-secondary: 0.8125rem;
   --type-body: 0.875rem;
@@ -163,7 +164,13 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 ::selection { background: #b9d0ff; color: #101014; }
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 :is(input, textarea, select, [data-slot=select-trigger]):focus-visible { outline-width: 1px; outline-offset: -1px; }
-:root .dialog-card :is(input, textarea, select, [data-slot=select-trigger]):focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
+:is(.search-box, .tag-editor-field, .tag-filter-find, .task-tag-search):has(input:focus) {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-halo);
+  outline: 1px solid transparent;
+  outline-offset: -1px;
+}
+:is(.search-box, .tag-editor-field, .tag-filter-find, .task-tag-search) input:focus { outline: none; }
 kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place-items: center; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-raised); color: var(--text-secondary); font: var(--type-caption)/1 var(--font-mono); }
 
 /* The capture bar remains a single calm surface floating over the active work. */
@@ -328,7 +335,6 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .pop-menu button:hover { background: var(--surface-raised); color: var(--text); }
 .toolbar { display: flex; min-height: 55px; flex: 0 0 auto; align-items: center; gap: 8px; padding: 10px 27px; border-bottom: 1px solid var(--border); }
 .search-box { display: flex; min-width: 190px; max-width: 340px; height: 32px; flex: 1; align-items: center; gap: 8px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-muted); }
-.search-box:focus-within { border-color: var(--border-strong); box-shadow: 0 0 0 2px rgb(100 116 139 / 9%); }
 .search-box input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: var(--type-body); }
 .search-box input::placeholder { color: var(--text-muted); }
 .search-box kbd { height: 17px; min-width: 26px; border-color: var(--border); background: var(--surface-raised); font-size: var(--type-caption); white-space: nowrap; }
@@ -581,7 +587,10 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 }
 @media (forced-colors: active) {
   .toggle, .button, .item-row, .theme-card { forced-color-adjust: auto; }
-  :focus-visible { outline: 2px solid Highlight; }
+  :root { --focus-ring: Highlight; }
+  :is(.search-box, .tag-editor-field, .tag-filter-find, .task-tag-search):has(input:focus) {
+    outline-color: Highlight;
+  }
 }
 
 /* Inbox + Calenban */
@@ -743,7 +752,6 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .planner-undo-toast button { margin-left: 9px; padding: 2px 5px; border: 0; background: transparent; color: var(--blue); font-weight: 600; }
 .tag-editor { display: grid; min-width: 0; gap: 4px; }
 .tag-editor-field { display: flex; min-height: 34px; align-items: center; flex-wrap: wrap; gap: 4px; padding: 4px 7px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text-muted); }
-.tag-editor-field:focus-within { border-color: var(--border-strong); box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 12%, transparent); }
 .tag-editor-field > svg { flex: 0 0 auto; }
 .tag-chip { display: inline-flex; max-width: 100%; align-items: center; gap: 3px; padding: 3px 4px 3px 7px; border-radius: 4px; background: var(--surface-raised); color: var(--text-secondary); font-size: var(--type-secondary); white-space: nowrap; }
 .tag-chip button { display: grid; width: 17px; height: 17px; flex: 0 0 auto; place-items: center; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--text-muted); }
@@ -889,7 +897,6 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .tag-filter-popover { width: 240px; max-width: calc(100vw - 24px); gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); box-shadow: var(--shadow-card); }
 .tag-filter-title { padding: 1px 3px; color: var(--text-secondary); font-size: var(--type-secondary); font-weight: 600; }
 .tag-filter-find { display: flex; align-items: center; gap: 7px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 5px; color: var(--text-muted); }
-.tag-filter-find:focus-within { border-color: var(--border-strong); }
 .tag-filter-find input { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: var(--type-body); }
 .tag-filter-list { max-height: 224px; overflow-y: auto; }
 .tag-filter-option { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px; border: 0; border-radius: 5px; background: transparent; color: var(--text-secondary); text-align: left; font-size: var(--type-body); }
@@ -1014,7 +1021,6 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .task-tag-title { font-size: var(--type-secondary); font-weight: 600; }
 .task-tag-search { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; color: var(--text-muted); }
 .task-tag-search input { width: 100%; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text); font-size: var(--type-secondary); }
-.task-tag-search:focus-within { border-color: var(--focus-ring); }
 .task-tag-options { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; gap: 2px; }
 .task-tag-options button { display: flex; align-items: center; gap: 6px; padding: 7px 8px; border: 0; border-radius: 4px; color: var(--text-secondary); background: transparent; text-align: left; font-size: var(--type-secondary); }
 .task-tag-options button span { flex: 1; overflow-wrap: anywhere; }
