@@ -1012,6 +1012,8 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
               category={taskCategory?.id}
               subcategory={taskSubcategory?.id}
               selectedTag={taskTag?.name}
+              captureProtection={settings?.captureProtection}
+              onCaptureProtectionChange={(captureProtection) => saveSettings({ captureProtection })}
               query={taskQuery}
               setQuery={setTaskQuery}
               searchRef={searchRef}

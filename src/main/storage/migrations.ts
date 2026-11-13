@@ -6,11 +6,13 @@ import { addLocalDays, fromLocalISODate, mondayISO, toLocalISODate } from '../..
 import { horizonOf, type TaskIntention } from '../../shared/taskHorizons'
 import type { Store } from './database'
 
+export const SCHEMA_VERSION = 19
+
 export function migrateDatabase(store: Pick<Store, 'db' | 'path' | 'migrationReview'>) {
     const hasMigrationTable = Boolean(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").get())
     const currentVersion = hasMigrationTable ? (store.db.prepare('SELECT max(version) AS version FROM schema_migrations').get() as { version: number | null }).version ?? 0 : 0
-    if (currentVersion > 18) throw new AppError('DB_NEWER_VERSION', 'This database has an unsupported captured schema.')
-    if (hasMigrationTable && currentVersion < 18) {
+    if (currentVersion > SCHEMA_VERSION) throw new AppError('DB_NEWER_VERSION', 'This database has an unsupported captured schema.')
+    if (hasMigrationTable && currentVersion < SCHEMA_VERSION) {
       const backupDirectory = path.join(path.dirname(store.path), 'backups')
       fs.mkdirSync(backupDirectory, { recursive: true })
       const checkpoint = store.db.pragma('wal_checkpoint(TRUNCATE)') as { busy: number }[]
@@ -277,6 +279,10 @@ export function migrateDatabase(store: Pick<Store, 'db' | 'path' | 'migrationRev
         CREATE TRIGGER task_intention_unfile AFTER UPDATE OF kind ON notes WHEN NEW.kind<>'task' BEGIN DELETE FROM task_intentions WHERE note_id=NEW.id; END;`)
       store.db.prepare('INSERT INTO schema_migrations VALUES(18,?)').run(Date.now())
     })()
+    if (!applied.has(19)) store.db.transaction(() => {
+      store.db.exec('ALTER TABLE notes ADD COLUMN body_html TEXT')
+      store.db.prepare('INSERT INTO schema_migrations VALUES(19,?)').run(Date.now())
+    })()
     const version = store.db.prepare('SELECT max(version) AS version FROM schema_migrations').get() as { version: number | null }
-    if (version.version !== 18) throw new AppError('DB_INVALID_SCHEMA', 'This database has an unsupported captured schema.')
+    if (version.version !== SCHEMA_VERSION) throw new AppError('DB_INVALID_SCHEMA', 'This database has an unsupported captured schema.')
 }

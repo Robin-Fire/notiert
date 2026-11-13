@@ -8,7 +8,9 @@ const { buildSync } = require('esbuild')
 const root = path.resolve(__dirname, '..')
 const generated = path.join(__dirname, '.generated', 'tasks-ui')
 fs.mkdirSync(generated, { recursive: true })
-buildSync({ absWorkingDir: root, entryPoints: ['src/renderer/app/TaskApp.tsx'], outfile: path.join(generated, 'TaskApp.cjs'), bundle: true, platform: 'node', format: 'cjs', packages: 'external', loader: { '.css': 'empty' } })
+// Load the same editorcn ES module as the renderer build.
+const editorEntry = path.join(path.dirname(require.resolve('@editorcn/editor')), 'index.js')
+buildSync({ alias: { '@editorcn/editor': editorEntry, '@editorcn/editor/style.css': require.resolve('@editorcn/editor/style.css') }, external: [editorEntry], absWorkingDir: root, entryPoints: ['src/renderer/app/TaskApp.tsx'], outfile: path.join(generated, 'TaskApp.cjs'), bundle: true, platform: 'node', format: 'cjs', packages: 'external', loader: { '.css': 'empty' } })
 buildSync({ absWorkingDir: root, entryPoints: ['src/renderer/browserPreview.ts'], outfile: path.join(generated, 'browserPreview.cjs'), bundle: true, platform: 'node', format: 'cjs', packages: 'external' })
 buildSync({ absWorkingDir: root, entryPoints: ['src/renderer/calenban/useCalendarMutations.ts'], outfile: path.join(generated, 'mutations.cjs'), bundle: true, platform: 'node', format: 'cjs', packages: 'external' })
 buildSync({ absWorkingDir: root, entryPoints: ['src/renderer/calenban/usePlannerData.ts'], outfile: path.join(generated, 'plannerData.cjs'), bundle: true, platform: 'node', format: 'cjs', packages: 'external' })
@@ -30,6 +32,8 @@ global.MouseEvent = dom.window.MouseEvent
 global.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
 dom.window.HTMLElement.prototype.scrollTo = function () {}
 dom.window.HTMLElement.prototype.scrollIntoView = function () {}
+dom.window.Range.prototype.getClientRects = () => []
+dom.window.Range.prototype.getBoundingClientRect = () => new dom.window.DOMRect()
 dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} })
 global.localStorage = dom.window.localStorage
 global.IS_REACT_ACT_ENVIRONMENT = true
@@ -41,6 +45,11 @@ async function selectOption(control, value) {
   const option = await waitFor(() => { const option = [...document.querySelectorAll('[data-slot="select-item"]')].find(item => item.dataset.value === String(value) && item.closest('[data-slot="select-content"]')?.hasAttribute('data-open')); assert.ok(option, `Select option ${value}`); return option })
   fireEvent.pointerDown(option, { pointerType: 'mouse', button: 0 })
   fireEvent.click(option, { detail: 1 })
+}
+function pasteText(editor, text, html = '') {
+  fireEvent.paste(editor, {
+    clipboardData: { items: [], getData: (type) => type === 'text/plain' ? text : type === 'text/html' ? html : '' }
+  })
 }
 function sidebar() {
   return within(screen.getByRole('complementary', { name: 'Workspace sidebar' }))
@@ -149,7 +158,7 @@ test('opening notes quickly keeps the selected detail and ignores results after 
     fireEvent.click(screen.getByRole('button', { name: 'Open task Second note' }))
     await act(async () => requests[1].resolve({ ok: true, value: second }))
     await act(async () => requests[0].resolve({ ok: true, value: first }))
-    assert.equal(screen.getByRole('textbox', { name: 'Full task text' }).value, second.body)
+    assert.equal(screen.getByRole('textbox', { name: 'Full task text' }).textContent, second.body)
     assert.equal(document.querySelector('.detail-panel'), null)
     fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }))
     fireEvent.click(screen.getByRole('button', { name: 'Open task First note' }))
@@ -246,7 +255,7 @@ test('opening an Inbox capture opens the shared editor without leaving Inbox', a
     fireEvent.click(screen.getByRole('button', { name: 'captured home' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Captured thought' }))
     await screen.findByRole('dialog', { name: 'Task' })
-    assert.equal(screen.getByRole('textbox', { name: 'Full task text' }).value, 'Captured thought')
+    assert.equal(screen.getByRole('textbox', { name: 'Full task text' }).textContent, 'Captured thought')
     assert.ok(screen.getByRole('dialog', { name: 'Task' }))
     assert.ok(screen.getByRole('heading', { name: /^Tasks/ }))
   } finally { app.unmount() }
@@ -258,10 +267,10 @@ test('shared modal protects dirty edits on Close and Escape before navigation', 
   try {
     fireEvent.click(await screen.findByRole('button', { name: /Open task Existing note/ }))
     const editor = await screen.findByRole('textbox', { name: 'Full task text' })
-    fireEvent.change(editor, { target: { value: 'Unsaved wording' } })
+    pasteText(editor, 'Unsaved wording ')
     window.confirm = () => false
     fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }))
-    assert.equal(editor.value, 'Unsaved wording')
+    assert.ok(editor.textContent.includes('Unsaved wording'))
     fireEvent.keyDown(editor, { key: 'Escape' })
     assert.ok(screen.getByRole('dialog', { name: 'Task' }))
     window.confirm = () => true
@@ -337,11 +346,12 @@ test('creating a task from the calendar submits a real timed task', async () => 
     const meetingDialog = await screen.findByRole('dialog', { name: 'Add a meeting' })
     fireEvent.click(within(meetingDialog).getByRole('button', { name: 'Task', exact: true }))
     const dialog = within(screen.getByRole('dialog', { name: 'Add a task' }))
-    fireEvent.change(dialog.getByLabelText('Task'), { target: { value: 'Time for focused work' } })
+    pasteText(dialog.getByRole('textbox', { name: 'Task' }), 'Time for focused work', '<p><strong>Time for focused work</strong></p>')
     fireEvent.change(dialog.getByLabelText('Starts'), { target: { value: '2026-10-01T10:15' } })
     fireEvent.change(dialog.getByLabelText('Ends'), { target: { value: '2026-10-01T11:00' } })
     fireEvent.click(dialog.getByRole('button', { name: 'Add task' }))
     await waitFor(() => assert.equal(created.body, 'Time for focused work'))
+    assert.equal(created.bodyHtml, '<p><strong>Time for focused work</strong></p>')
     assert.equal(created.placement.kind, 'timed')
     assert.equal(created.placement.endAt - created.placement.startAt, 45 * 60_000)
     await waitFor(() => assert.equal(screen.queryByRole('dialog', { name: 'Add a task' }), null))
@@ -531,10 +541,10 @@ test('screenshots paste into note edits, discard safely, and save with text', as
     await screen.findByRole('textbox', { name: 'Full task text' })
     paste()
     await screen.findByRole('button', { name: 'Remove image 1' })
-    fireEvent.change(screen.getByRole('textbox', { name: 'Full task text' }), { target: { value: 'Screenshot context' } })
+    pasteText(screen.getByRole('textbox', { name: 'Full task text' }), 'Screenshot context ')
     fireEvent.click(screen.getByRole('button', { name: 'Save changes', exact: true }))
     await waitFor(() => assert.equal(saved?.images.length, 1))
-    assert.equal(saved.body, 'Screenshot context')
+    assert.ok(saved.body.includes('Screenshot context'))
     assert.ok(saved.images[0].dataUrl.startsWith('data:image/png;base64,'))
   } finally { window.confirm = originalConfirm; app.unmount(); delete global.FileReader }
 })
@@ -614,7 +624,7 @@ test('Add task keeps the selected category and subcategory context', async () =>
     const dialog = within(await screen.findByRole('dialog',{name:'Add task'}))
     assert.equal(dialog.getByRole('combobox',{name:'Item category'}).value, category.id)
     assert.equal(dialog.getByRole('combobox',{name:'Item subcategory'}).value, sub.id)
-    fireEvent.change(dialog.getByRole('textbox',{name:'Task text'}),{target:{value:'Context note'}})
+    pasteText(dialog.getByRole('textbox', { name: 'Task text' }), 'Context note')
     fireEvent.click(dialog.getByRole('button',{name:'Add task'}))
     await waitFor(()=>assert.ok(!screen.queryByRole('dialog',{name:'Add task'})))
     const inbox=(await window.captured.taskWorkspace.list({ today: workspaceToday(), scope: 'backlog' })).value.items.find(item=>item.body==='Context note')
@@ -724,7 +734,10 @@ test('search finds completed Backlog and planned tasks and editing retains their
     assert.equal(results.getAllByText('Open', { exact: true }).length, 1)
     fireEvent.click(results.getByRole('button', { name: 'Bookmark phrase archived' }))
     const dialog = within(await screen.findByRole('dialog', { name: 'Task' }))
-    fireEvent.change(dialog.getByRole('textbox', { name: 'Full task text' }), { target: { value: 'Bookmark phrase archived\nAdditional reference details' } })
+    const editor = dialog.getByRole('textbox', { name: 'Full task text' })
+    const selection = window.getSelection()
+    selection.selectAllChildren(editor)
+    pasteText(editor, 'Bookmark phrase archived\nAdditional reference details')
     fireEvent.click(dialog.getByRole('button', { name: 'Save changes', exact: true }))
     await waitFor(() => assert.ok(screen.queryByRole('dialog', { name: 'Task' }) === null))
     const updated = (await window.captured.items.get(saved[1].id)).value
@@ -1137,7 +1150,7 @@ test('new tasks default to Unsorted and priority choices contain only the five f
     fireEvent.click(addTask)
     const dialog = within(await screen.findByRole('dialog', { name: 'Add task' }))
     assert.ok(dialog.getByRole('combobox', { name: 'Task priority' }).textContent.includes('Unsorted'))
-    fireEvent.change(dialog.getByRole('textbox', { name: 'Task text' }), { target: { value: 'New medium priority task' } })
+    pasteText(dialog.getByRole('textbox', { name: 'Task text' }), 'New medium priority task')
     await selectOption(dialog.getByRole('combobox', { name: 'Task priority' }), 'soon')
     fireEvent.click(dialog.getByRole('button', { name: 'Add task', exact: true }))
     const card = await screen.findByRole('button', { name: 'New medium priority task', exact: true })

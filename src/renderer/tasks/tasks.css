@@ -1,6 +1,10 @@
 .tasks-page { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; padding: 26px 24px 24px; overflow: auto; }
 .tasks-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; margin-bottom: 16px; }
 .tasks-heading h1 { margin: 4px 0; font-size: 28px; font-weight: 600; letter-spacing: -.035em; }
+.tasks-heading-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.tasks-spotlight { display: grid; width: 35px; height: 35px; place-items: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); }
+.tasks-spotlight[aria-pressed="true"] { color: var(--color-rose-500); }
+.tasks-spotlight:disabled { opacity: .55; }
 .tasks-add-task { display: inline-flex; flex: 0 0 auto; min-height: 35px; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid #52525b; border-radius: 6px; background: #35353a; color: #fafafa; font-size: var(--type-body); font-weight: 600; transition: background 120ms ease, border-color 120ms ease, transform 120ms ease; }
 .tasks-add-task:hover:not(:disabled) { border-color: #71717a; background: #45454c; }
 .tasks-add-task:active:not(:disabled) { transform: translateY(1px); }
@@ -29,7 +33,7 @@
 .tasks-card-heading { display: flex; gap: 5px; align-items: flex-start; }
 .tasks-drag-handle { border: 0; color: var(--text-muted); background: transparent; padding: 2px 0; cursor: grab; touch-action: none; }
 .tasks-card-heading input[type=checkbox] { margin: 3px 0 0; accent-color: var(--blue); width: 12px; height: 12px; flex-shrink: 0; }
-.tasks-card-body { background: transparent; padding: 0; border: 0; color: var(--text); text-align: left; white-space: pre-line; overflow-wrap: anywhere; font-size: var(--type-secondary); line-height: 1.5; font-weight: 500; min-width: 0; flex: 1; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+.tasks-card-body { background: transparent; padding: 0; border: 0; color: var(--text); text-align: left; white-space: pre-line; overflow-wrap: anywhere; font-size: var(--type-secondary); line-height: 1.5; font-weight: 400; min-width: 0; flex: 1; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 .tasks-card-meta { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: var(--type-caption); color: var(--text-muted); }
 .tasks-category-label { padding: 0 4px; font-size: 10px; line-height: 15px; border-radius: 3px; background: var(--surface-raised); color: var(--text-secondary); }
 .tasks-card-tags { display: flex; gap: 5px; flex-wrap: wrap; color: var(--text-muted); font-size: var(--type-caption); margin-top: 5px; overflow-wrap: anywhere; }
@@ -65,7 +69,6 @@
 .tasks-dialog { width: min(100%, 460px); }
 .tasks-dialog form { display: grid; gap: 12px; }
 .tasks-dialog label { display: grid; gap: 5px; font-size: var(--type-secondary); }
-.tasks-dialog textarea { min-height: 95px; resize: vertical; padding: 9px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 5px; }
 .tasks-dialog p { color: var(--text-muted); font-size: var(--type-secondary); }
 .tasks-page :is(button,input,select,textarea):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 @media (max-width: 1000px) { .tasks-page { padding: 20px 14px 12px; } .tasks-layout-switch { margin-left: 0; } }
@@ -213,7 +216,7 @@
 .tasks-group-table col:nth-child(3) { width: 316px; }
 .tasks-group-table td { height: 48px; padding: 0 12px; overflow: hidden; }
 .tasks-group-table .tasks-table-task { min-width: 0; gap: 8px; }
-.tasks-group-table .backlog-task-title, .tasks-search-results .backlog-task-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 500; line-height: 20px; }
+.tasks-group-table .backlog-task-title, .tasks-search-results .backlog-task-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 400; line-height: 20px; }
 .tasks-group-table .backlog-task-title:hover { text-decoration: none; }
 .tasks-table-metadata {
   display: flex;

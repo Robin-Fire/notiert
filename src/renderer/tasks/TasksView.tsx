@@ -1,5 +1,7 @@
 import { AppSelect } from '../components/AppSelect'
 import { TaskTagPicker } from '../components/TaskTagPicker'
+import { TaskDescriptionField, type TaskDescription } from '../components/TaskDescriptionField'
+import { useImagePaste } from '../components/useImagePaste'
 import './tasks.css'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -31,6 +33,7 @@ import {
   GripVertical,
   Plus,
   Search,
+  Spotlight,
   Table2,
   Undo2,
   X
@@ -43,7 +46,8 @@ import type {
   TasksQuery,
   TaskWorkspaceItem,
   TaskWorkspaceUndo,
-  TaskCompletionUndo
+  TaskCompletionUndo,
+  TaskWorkspaceCreate
 } from '../../shared/contracts'
 import {
   horizons,
@@ -104,6 +108,8 @@ export function TasksView({
   category,
   subcategory,
   selectedTag,
+  captureProtection,
+  onCaptureProtectionChange,
   query,
   setQuery,
   searchRef,
@@ -115,12 +121,17 @@ export function TasksView({
   category?: string
   subcategory?: string
   selectedTag?: string
+  captureProtection?: boolean
+  onCaptureProtectionChange: (enabled: boolean) => Promise<boolean>
   query: string
   setQuery: (query: string) => void
   searchRef: React.RefObject<HTMLInputElement | null>
   taxonomyReady: boolean
 }) {
   const [create, setCreate] = useState<TaskCreationDestination | null>(null)
+  const [savingCaptureProtection, setSavingCaptureProtection] = useState(false)
+  const [captureProtectionError, setCaptureProtectionError] = useState(false)
+  const shareVisible = captureProtection === false
   const [layout, setLayout] = useState<Layout>(() =>
     (['time', 'table'] as Layout[]).includes(preference<Layout>('tasks-layout-v1', 'time'))
       ? preference<Layout>('tasks-layout-v1', 'time')
@@ -497,15 +508,38 @@ export function TasksView({
             {title} <span className="title-count">{total}</span>
           </h1>
         </div>
-        <button
-          type="button"
-          className="tasks-add-task"
-          disabled={busy || !taxonomyReady}
-          onClick={() => setCreate({ horizon: 'unplanned' })}
-        >
-          <Plus size={16} /> Add task
-        </button>
+        <div className="tasks-heading-actions">
+          <button
+            type="button"
+            className="tasks-spotlight"
+            aria-label="Show app in screen shares"
+            aria-pressed={shareVisible}
+            title={shareVisible ? 'Hide app from screen shares' : 'Show app in screen shares'}
+            disabled={captureProtection === undefined || savingCaptureProtection}
+            onClick={async () => {
+              setSavingCaptureProtection(true)
+              setCaptureProtectionError(false)
+              try {
+                const saved = await onCaptureProtectionChange(shareVisible)
+                setCaptureProtectionError(!saved)
+              } finally {
+                setSavingCaptureProtection(false)
+              }
+            }}
+          >
+            <Spotlight size={20} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="tasks-add-task"
+            disabled={busy || !taxonomyReady}
+            onClick={() => setCreate({ horizon: 'unplanned' })}
+          >
+            <Plus size={16} /> Add task
+          </button>
+        </div>
       </header>
+      {captureProtectionError && <p className="inline-error" role="alert">Could not change capture exclusion.</p>}
       <div className="tasks-toolbar">
         {!showTaggedList && (
           <div className="planner-view-switch tasks-layout-switch" aria-label="Task layout">
@@ -852,16 +886,10 @@ export function TasksView({
           today={today}
           initialSubcategoryId={create.categoryId === undefined || create.categoryId === category ? subcategory || null : null}
           onClose={() => setCreate(null)}
-          onSave={async (body, categoryId, intention, subcategoryId, tags) => {
+          onSave={async (input) => {
             await mutate(async () => {
               resultValue(
-                await window.captured.taskWorkspace.create({
-                  body,
-                  categoryId,
-                  intention,
-                  subcategoryId,
-                  tags
-                })
+                await window.captured.taskWorkspace.create(input)
               )
               setCreate(null)
               setUndo(null)
@@ -1218,7 +1246,6 @@ function Modal({
       }
       layer = layer.parentElement
     }
-    ref.current?.querySelector<HTMLElement>('textarea,input,select,button')?.focus()
     return () => {
       background.forEach(({ element, inert }) => {
         element.inert = inert
@@ -1242,7 +1269,7 @@ function Modal({
           if (event.key === 'Tab') {
             const controls = [
               ...(ref.current?.querySelectorAll<HTMLElement>(
-                'input:not(:disabled),select:not(:disabled),textarea:not(:disabled),button:not(:disabled)'
+                '[contenteditable="true"],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),button:not(:disabled)'
               ) ?? [])
             ]
             if (event.shiftKey && document.activeElement === controls[0]) {
@@ -1280,15 +1307,9 @@ function CreateTaskDialog({
   today: string
   initialSubcategoryId: string | null
   onClose: () => void
-  onSave: (
-    body: string,
-    categoryId: string | null,
-    intention: TaskIntention,
-    subcategoryId: string | null,
-    tags: string[]
-  ) => Promise<void>
+  onSave: (input: TaskWorkspaceCreate) => Promise<void>
 }) {
-  const [body, setBody] = useState(''),
+  const [description, setDescription] = useState<TaskDescription>({ body: '' }),
     [category, setCategory] = useState(destination.categoryId ?? '')
   const [subcategoryId, setSubcategoryId] = useState(initialSubcategoryId),
     [labels, setLabels] = useState<string[]>([])
@@ -1296,6 +1317,9 @@ function CreateTaskDialog({
     destination.horizon
   )
   const [busy, setBusy] = useState(false)
+  const [descriptionError, setDescriptionError] = useState('')
+  const imageEdit = useImagePaste(setDescriptionError)
+  const hasContent = Boolean(description.body.trim() || imageEdit.images.length)
   return (
     <Modal
       title="Add task"
@@ -1306,28 +1330,24 @@ function CreateTaskDialog({
       <form
         onSubmit={(event) => {
           event.preventDefault()
-          if (busy) return
+          if (busy || imageEdit.isPending() || !hasContent) return
+          if (description.body.length > 50_000 || (description.bodyHtml?.length ?? 0) > 600_000) {
+            setDescriptionError('Shorten the task description before saving.')
+            return
+          }
           setBusy(true)
-          void onSave(
-            body,
-            category || null,
-            intentionFor(horizon, today),
+          setDescriptionError('')
+          void onSave({
+            ...description,
+            categoryId: category || null,
+            intention: intentionFor(horizon, today),
             subcategoryId,
-            collectTags(labels)
-          ).finally(() => setBusy(false))
+            tags: collectTags(labels),
+            images: imageEdit.images
+          }).finally(() => setBusy(false))
         }}
       >
-        <label>
-          Task
-          <textarea
-            required
-            aria-label="Task text"
-            maxLength={50000}
-            value={body}
-            disabled={busy}
-            onChange={(event) => setBody(event.target.value)}
-          />
-        </label>
+        <TaskDescriptionField label="Task" accessibleName="Task text" value={description} onChange={setDescription} images={imageEdit} disabled={busy} />
         <CategoryPicker
           categories={categories}
           subcategories={subcategories}
@@ -1361,18 +1381,16 @@ function CreateTaskDialog({
               ))}
           </AppSelect>
         </label>
-        <div>
-          {error && (
-            <div className="inline-error" role="alert">
-              {error}
-            </div>
-          )}
-        </div>
+        {(descriptionError || error) && (
+          <div className="inline-error" role="alert">
+            {descriptionError || error}
+          </div>
+        )}
         <div className="dialog-actions">
           <button type="button" className="button secondary" disabled={busy} onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="button primary" disabled={!body.trim() || busy}>
+          <button type="submit" className="button primary" disabled={!hasContent || busy || imageEdit.pending}>
             {busy ? 'Adding…' : 'Add task'}
           </button>
         </div>

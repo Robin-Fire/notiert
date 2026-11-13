@@ -429,7 +429,7 @@ function registerIpc() {
   roleHandler('tasks:move', 'tasks', (_event, raw) => { const undo = requireStore().moveWorkspace(TaskWorkspaceMoveSchema.parse(raw)); broadcastTaxonomyChange(); return undo })
   roleHandler('tasks:move-many', 'tasks', (_event, raw) => { requireStore().moveWorkspaceMany(Z.array(TaskWorkspaceMoveSchema).min(1).max(100).parse(raw)); broadcastTaxonomyChange() })
   roleHandler('tasks:undo', 'tasks', (_event, raw) => { requireStore().undoWorkspace(TaskWorkspaceUndoSchema.parse(raw)); broadcastTaxonomyChange() })
-  roleHandler('tasks:create', 'tasks', (_event, raw) => { const input = TaskWorkspaceCreateSchema.parse(raw); requireStore().createWorkspaceTask(input.body, input.categoryId, input.intention, input.subcategoryId, input.tags); broadcastTaxonomyChange() })
+  roleHandler('tasks:create', 'tasks', (_event, raw) => { const input = TaskWorkspaceCreateSchema.parse(raw); requireStore().createWorkspaceTask(input); broadcastTaxonomyChange() })
   roleHandler('planner:backlog-count', 'tasks', () => requireStore().listWorkspace(TasksQuerySchema.parse({ today: toLocalISODate(new Date()), scope: 'backlog' })).total)
   roleHandler('planner:tasks', 'tasks', (_event, raw) => { const input = PlannerQuerySchema.parse(raw); return requireStore().listPlanner(input.from, input.to) })
   roleHandler('planner:backlog', 'tasks', (_event, raw) => { const input = PlannerBacklogQuerySchema.parse(raw ?? {}); return requireStore().listBacklog(input) })

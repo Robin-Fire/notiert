@@ -1,5 +1,5 @@
 import { ItemUpdateSchema, TaskCompletionSchema, TaskCompletionUndoSchema, type ItemUpdate, type TaskCompletionUndo } from '../shared/contracts'
-import { horizons, horizonOf, intentionFor, type TaskIntention } from '../shared/taskHorizons'
+import { horizons, horizonOf, intentionFor } from '../shared/taskHorizons'
 import { toLocalISODate } from '../shared/plannerDates'
 import { TasksQuerySchema, TaskWorkspaceCreateSchema, TaskWorkspaceMoveSchema, TaskWorkspaceUndoSchema, type TasksQuery, type TasksPage, type TaskWorkspaceMove, type TaskWorkspaceUndo, type TaskWorkspaceItem } from '../shared/contracts'
 import { TaggedTaskReorderSchema, type TaggedTaskReorder } from '../shared/contracts'
@@ -218,7 +218,7 @@ const workspace = {
     if(input.priorityPosition!==undefined && 'priorityPosition' in item)item.priorityPosition=plannerTasks().some(task=>task.id!==item.id&&task.categoryId===input.categoryId&&task.priorityPosition===input.priorityPosition)?nextPriority(input.categoryId):input.priorityPosition
     Object.assign(item,{kind:input.kind,categoryId:input.categoryId,subcategoryId:input.subcategoryId,tags:input.tags,intention:input.intention??undefined,processedAt:input.kind==='inbox'?null:item.processedAt,revision:item.revision+1,updatedAt:Date.now()});changed();return ok(undefined)
   },
-  create: async (raw: { body: string; categoryId: string | null; intention: TaskIntention; subcategoryId?: string | null; tags?: string[] }) => {
+  create: async (raw: Parameters<Window['captured']['taskWorkspace']['create']>[0]) => {
     const parsed=TaskWorkspaceCreateSchema.safeParse(raw)
     if(!parsed.success)return failure('Choose valid task details.')
     const input=parsed.data
@@ -226,7 +226,7 @@ const workspace = {
     if(input.categoryId&&!categories.some(category=>category.id===input.categoryId))return failure('That category no longer exists.')
     if(input.subcategoryId&&!subcategories.some(sub=>sub.id===input.subcategoryId&&sub.categoryId===input.categoryId))return failure('That subcategory no longer exists.')
     const timestamp=Date.now(),id=crypto.randomUUID()
-    const task:PlannerTask={id,body:input.body,categoryId:input.categoryId,subcategoryId:input.subcategoryId,tags:input.tags,images:[],meetingId:null,meetingTitle:null,createdAt:timestamp,updatedAt:timestamp,deletedAt:null,revision:1,kind:'task',processedAt:timestamp,completedAt:null,later:false,plannedDate:null,plannedStartAt:null,plannedEndAt:null,position:0,priorityPosition:nextPriority(input.categoryId),beforeEventId:null,ready:false,intention:{...input.intention,position:Math.max(-1,...plannerTasks().map(task=>task.intention?.position??0))+1}}
+    const task:PlannerTask={id,body:input.body,bodyHtml:input.bodyHtml,categoryId:input.categoryId,subcategoryId:input.subcategoryId,tags:input.tags,images:input.images ?? [],meetingId:null,meetingTitle:null,createdAt:timestamp,updatedAt:timestamp,deletedAt:null,revision:1,kind:'task',processedAt:timestamp,completedAt:null,later:false,plannedDate:null,plannedStartAt:null,plannedEndAt:null,position:0,priorityPosition:nextPriority(input.categoryId),beforeEventId:null,ready:false,intention:{...input.intention,position:Math.max(-1,...plannerTasks().map(task=>task.intention?.position??0))+1}}
     for(const name of task.tags)if(!tags.some(tag=>tag.name.toLowerCase()===name.toLowerCase()))tags.push({id:crypto.randomUUID(),name,categoryId:null,color:'#85858e',count:0})
     items.push(task);changed();return ok(undefined)
   }
@@ -266,7 +266,7 @@ const api = {
     updateTag: ({id,name,color}:{id:string;name?:string;color:string})=>{const tag=tags.find(item=>item.id===id);if(tag){if(name&&tags.some(other=>other.id!==id&&other.name.toLowerCase()===name.toLowerCase()))return failure('Tag already exists.');if(name){const old=tag.name;tag.name=name;items.forEach(item=>{item.tags=item.tags.map(value=>value===old?name:value)})}tag.color=color}changed();return ok(undefined)},
     deleteTag: (id: string) => { const index = tags.findIndex((tag) => tag.id === id); if (index < 0) return failure('That tag no longer exists.'); const [tag] = tags.splice(index, 1); items.forEach((item) => { item.tags = item.tags.filter((name) => name.toLocaleLowerCase() !== tag!.name.toLocaleLowerCase()) }); changed(); return ok(undefined) },
     get: (id: string) => ok(items.find((item) => item.id === id) ?? null), image: (id: string) => ok((items.flatMap(item => item.images).find(image => image.id === id) as (ImageRef & { dataUrl?: string }) | undefined)?.dataUrl ?? ''),
-    update: ({ id, body }: { id: string; body: string }) => { const item = items.find((entry) => entry.id === id)!; item.body = body; item.revision++; changed(); return ok(item) },
+    update: ({ id, body }: { id: string; body: string }) => { const item = items.find((entry) => entry.id === id)!; if (item.body !== body) item.bodyHtml = undefined; item.body = body; item.revision++; changed(); return ok(item) },
     updateItem: (raw: ItemUpdate) => {
       const parsed = ItemUpdateSchema.safeParse(raw)
       if (!parsed.success) return failure('Choose valid item details.')
@@ -279,6 +279,7 @@ const api = {
       const subcategoryId = input.subcategoryId === undefined ? categoryId === item.categoryId ? item.subcategoryId : null : input.subcategoryId
       if (categoryId && !categories.some(category => category.id === categoryId)) return failure('That category no longer exists.')
       if (subcategoryId && !subcategories.some(sub => sub.id === subcategoryId && sub.categoryId === categoryId)) return failure('That subcategory no longer exists.')
+      if (input.bodyHtml !== undefined || input.body !== item.body) item.bodyHtml = input.bodyHtml
       item.body = input.body; item.tags = input.tags
       if (input.images !== undefined) item.images = input.images
       assignCategory(item, categoryId); item.subcategoryId = subcategoryId
@@ -319,7 +320,7 @@ const api = {
       const parsed = PlannerTaskCreateSchema.safeParse(raw)
       if (!parsed.success) return failure('Choose valid task details and times.')
       const input = parsed.data, timestamp = Date.now()
-      const task: PlannerTask = { id: crypto.randomUUID(), body: input.body, meetingId: null, meetingTitle: null, createdAt: timestamp, updatedAt: timestamp, deletedAt: null, revision: 1, kind: 'task', processedAt: timestamp, completedAt: null, later: input.placement.kind === 'later', subcategoryId:input.subcategoryId??null, categoryId: input.categoryId, tags: input.tags, images: [], ...placementFields(input.placement), priorityPosition: nextPriority(input.categoryId), position: readyTasks().length }
+      const task: PlannerTask = { id: crypto.randomUUID(), body: input.body, bodyHtml: input.bodyHtml, meetingId: null, meetingTitle: null, createdAt: timestamp, updatedAt: timestamp, deletedAt: null, revision: 1, kind: 'task', processedAt: timestamp, completedAt: null, later: input.placement.kind === 'later', subcategoryId:input.subcategoryId??null, categoryId: input.categoryId, tags: input.tags, images: input.images ?? [], ...placementFields(input.placement), priorityPosition: nextPriority(input.categoryId), position: readyTasks().length }
       if (input.placement.kind === 'backlog-top') { plannerTasks().filter((entry) => !entry.later && !entry.ready && !entry.plannedDate && entry.categoryId === input.categoryId).forEach((entry) => { entry.priorityPosition++ }); task.priorityPosition = 0 }
       for (const name of input.tags) if (!tags.some((tag) => tag.name.toLocaleLowerCase() === name.toLocaleLowerCase())) tags.push({ id: crypto.randomUUID(), name, categoryId: null, color: '#85858e', count: 0 })
       task.intention={kind:task.later?'later':'unplanned',targetDate:null,position:Math.max(-1,...plannerTasks().map(task=>task.intention?.position??0))+1}

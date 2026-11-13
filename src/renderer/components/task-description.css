@@ -1,0 +1,64 @@
+.task-description {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.task-description > span:first-child {
+  color: var(--text-secondary);
+  font-size: var(--type-secondary);
+}
+
+.task-description-editor.rte-root {
+  --background: var(--surface);
+  --muted: var(--surface-raised);
+  --muted-foreground: var(--text-muted);
+  --foreground: var(--text);
+  --accent-foreground: var(--accent-text);
+  --primary: var(--accent);
+  --radius: 8px;
+  background: var(--surface);
+}
+
+.task-description-editor:focus-within {
+  border-color: var(--accent);
+}
+
+.task-description-editor.rte-root[data-variant="default"] .rte-toolbar {
+  justify-content: flex-start;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+  border-radius: 7px 7px 0 0;
+}
+
+.task-description-editor.rte-root[data-variant="default"] .rte-control-button:hover:not(:disabled):not([aria-pressed="true"]) {
+  background: var(--surface);
+}
+
+.task-description-editor.rte-root[data-variant="default"] .ProseMirror {
+  min-height: 88px;
+  max-height: 30dvh;
+  padding: 9px 12px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: var(--type-body);
+}
+
+.task-detail-dialog .task-description-editor.rte-root .ProseMirror {
+  min-height: 150px;
+}
+
+.task-description-editor .rte-content .ProseMirror p,
+.task-description-editor .rte-content .ProseMirror ul {
+  margin-bottom: 0;
+  color: inherit;
+  font-size: inherit;
+  line-height: 1.65;
+}
+
+.task-description .image-paste-hint,
+.task-detail-dialog .task-description .image-paste-hint {
+  margin: 0;
+}

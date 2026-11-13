@@ -81,7 +81,7 @@ test('schema 17 preserves former notes as completed tasks and captures as Backlo
     const active = make(f.store, 'Existing task')
     const originalTask = f.store.getItem(active.id)
     const before = f.store.getItem(reference)
-    f.store.db.prepare('DELETE FROM schema_migrations WHERE version>=17').run()
+    f.store.db.exec('ALTER TABLE notes DROP COLUMN body_html; DELETE FROM schema_migrations WHERE version>=17')
     f.store.close(); f.store = new Store(f.file)
     const migrated = f.store.getItem(reference)
     assert.equal(migrated.kind, 'task')
@@ -341,7 +341,7 @@ test('schema 13 upgrades without changing calendar fields and creates a restorab
   try {
     const backlog = make(f.store, 'Backlog'), ready = f.store.createPlannerTask({ body: 'Ready', tags: [], placement: { kind: 'ready' } }), later = f.store.createPlannerTask({ body: 'Later', tags: [], placement: { kind: 'later' } })
     const timed = f.store.createPlannerTask({ body: 'Scheduled', tags: [], placement: { kind: 'timed', startAt: new Date('2026-11-03T10:00').getTime(), endAt: new Date('2026-11-03T11:00').getTime() } })
-    f.store.db.exec('DROP TRIGGER task_intention_insert; DROP TRIGGER task_intention_classify; DROP TRIGGER task_intention_unfile; DROP TABLE task_intentions; ALTER TABLE drafts DROP COLUMN capture_kind; DELETE FROM schema_migrations WHERE version>=14;')
+    f.store.db.exec('DROP TRIGGER task_intention_insert; DROP TRIGGER task_intention_classify; DROP TRIGGER task_intention_unfile; DROP TABLE task_intentions; ALTER TABLE drafts DROP COLUMN capture_kind; ALTER TABLE notes DROP COLUMN body_html; DELETE FROM schema_migrations WHERE version>=14;')
     f.store.close(); upgraded = new Store(f.file)
     assert.equal(upgraded.getItem(backlog.id).intention.kind, 'unplanned')
     assert.equal(upgraded.getItem(ready.id).intention.kind, 'now')
@@ -352,7 +352,7 @@ test('schema 13 upgrades without changing calendar fields and creates a restorab
     assert.equal(upgraded.checkIntegrity(pre), undefined)
     const backup = path.join(f.folder, 'schema14.sqlite'); await upgraded.backupTo(backup); assert.equal(upgraded.checkIntegrity(backup), undefined)
     upgraded.replaceWith(pre); assert.equal(upgraded.getItem(later.id).intention.kind, 'later')
-    assert.equal(upgraded.db.prepare('SELECT max(version) AS version FROM schema_migrations').get().version, 18)
+    assert.equal(upgraded.db.prepare('SELECT max(version) AS version FROM schema_migrations').get().version, 19)
   } finally { upgraded?.close(); f.close() }
 })
 
@@ -369,7 +369,7 @@ test('schema 18 converts date plans once, preserves ordering and calendar fields
       return task
     })
     const before = tasks.map(task => placement(f.store.getItem(task.id)))
-    f.store.db.prepare('DELETE FROM schema_migrations WHERE version=18').run()
+    f.store.db.exec('ALTER TABLE notes DROP COLUMN body_html; DELETE FROM schema_migrations WHERE version>=18')
     f.store.close(); f.store = new Store(f.file)
     tasks.forEach((task, index) => {
       assert.equal(f.store.getItem(task.id).intention.kind, expected[index])

@@ -1,4 +1,4 @@
-import { migrateDatabase } from './migrations'
+import { migrateDatabase, SCHEMA_VERSION } from './migrations'
 import Database from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
@@ -12,7 +12,7 @@ import { placementFields, validLocalDate } from '../../shared/calendarSchedule'
 import { horizons, horizonOf, intentionFor, validIntention, type TaskIntention } from '../../shared/taskHorizons'
 import { addLocalDays, fromLocalISODate, mondayISO, toLocalISODate } from '../../shared/plannerDates'
 import { TasksQuerySchema, TaskWorkspaceMoveSchema, TaskWorkspaceUndoSchema, type TasksQuery, type TasksPage, type TaskWorkspaceMove, type TaskWorkspaceUndo, type TaskWorkspaceItem } from '../../shared/contracts'
-import type { TaggedTaskReorder } from '../../shared/contracts'
+import type { TaggedTaskReorder, TaskWorkspaceCreate } from '../../shared/contracts'
 import { reorderTaggedTaskIds, taggedTaskOrderKey } from '../../shared/taggedTaskOrder'
 import { ItemUpdateSchema, TaskCompletionSchema, TaskCompletionUndoSchema, type ItemUpdate, type TaskCompletionUndo } from '../../shared/contracts'
 
@@ -29,11 +29,11 @@ function decodeImage(dataUrl: string) {
     return { mimeType, data }
 }
 
-type ItemRow = { id: string; body: string; meeting_id: string | null; created_at: number; updated_at: number; deleted_at: number | null; revision: number; meeting_title: string | null; kind: 'inbox' | 'note' | 'task'; processed_at: number | null; completed_at: number | null; tag_names: string | null; image_refs: string | null; task_status: 'open' | 'done' | null; planned_date: string | null; task_position: number; backlog_position: number; before_event_id: string | null; project_id: string | null; subcategory_id: string | null; task_ready: number; is_later: number; intention_json?: string | null }
+type ItemRow = { id: string; body: string; body_html: string | null; meeting_id: string | null; created_at: number; updated_at: number; deleted_at: number | null; revision: number; meeting_title: string | null; kind: 'inbox' | 'note' | 'task'; processed_at: number | null; completed_at: number | null; tag_names: string | null; image_refs: string | null; task_status: 'open' | 'done' | null; planned_date: string | null; task_position: number; backlog_position: number; before_event_id: string | null; project_id: string | null; subcategory_id: string | null; task_ready: number; is_later: number; intention_json?: string | null }
 type PlannerEventRow = { id: string; title: string; start_at: number; end_at: number; all_day: number; series_id: string | null }
 const ITEM_PROJECTION = "n.*,(SELECT json_object('kind',i.kind,'targetDate',i.target_date,'position',i.position) FROM task_intentions i WHERE i.note_id=n.id) AS intention_json,m.title AS meeting_title,(SELECT group_concat(t.name,char(31)) FROM note_tags nt JOIN item_tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id) AS tag_names,(SELECT group_concat(ref,char(31)) FROM (SELECT i.id||':'||i.mime_type AS ref FROM item_images i WHERE i.note_id=n.id ORDER BY i.position)) AS image_refs"
 const ITEM_FROM = 'FROM notes n LEFT JOIN legacy_meeting_sessions m ON m.id=n.meeting_id'
-const itemFrom = (row: ItemRow): ItemRecord & { meetingTitle: string | null } => ({ id: row.id, body: row.body, meetingId: row.meeting_id, createdAt: row.created_at, updatedAt: row.updated_at, deletedAt: row.deleted_at, revision: row.revision, meetingTitle: row.meeting_title, kind: row.kind, intention: row.intention_json ? JSON.parse(row.intention_json) : undefined, processedAt: row.processed_at, completedAt: row.completed_at, later: Boolean(row.is_later), categoryId: row.project_id, subcategoryId: row.subcategory_id, tags: row.tag_names ? row.tag_names.split('\x1f') : [], images: row.image_refs ? row.image_refs.split('\x1f').map((value) => { const [id, mimeType] = value.split(':'); return { id: id!, mimeType: mimeType as ImageRef['mimeType'] } }) : [] })
+const itemFrom = (row: ItemRow): ItemRecord & { meetingTitle: string | null } => ({ id: row.id, body: row.body, ...(row.body_html == null ? {} : { bodyHtml: row.body_html }), meetingId: row.meeting_id, createdAt: row.created_at, updatedAt: row.updated_at, deletedAt: row.deleted_at, revision: row.revision, meetingTitle: row.meeting_title, kind: row.kind, intention: row.intention_json ? JSON.parse(row.intention_json) : undefined, processedAt: row.processed_at, completedAt: row.completed_at, later: Boolean(row.is_later), categoryId: row.project_id, subcategoryId: row.subcategory_id, tags: row.tag_names ? row.tag_names.split('\x1f') : [], images: row.image_refs ? row.image_refs.split('\x1f').map((value) => { const [id, mimeType] = value.split(':'); return { id: id!, mimeType: mimeType as ImageRef['mimeType'] } }) : [] })
 const eventFrom = (row: PlannerEventRow): PlannerEvent => ({ id: row.id, title: row.title, startAt: row.start_at, endAt: row.end_at, allDay: Boolean(row.all_day), seriesId: row.series_id })
 const taskFrom = (row: ItemRow & { planned_start_at?: number | null; planned_end_at?: number | null }): PlannerTask => ({ ...itemFrom(row), plannedDate: row.planned_date, plannedStartAt: row.planned_start_at ?? null, plannedEndAt: row.planned_end_at ?? null, position: row.task_position, priorityPosition: row.backlog_position, beforeEventId: row.before_event_id, ready: Boolean(row.task_ready), later: Boolean(row.is_later) })
 function normalizeTags(tags: string[]) {
@@ -228,11 +228,17 @@ export class Store {
     this.changeSequence++
   }
 
-  createWorkspaceTask(body: string, categoryId: string | null, intention: TaskIntention, subcategoryId: string | null = null, tags: string[] = []) {
-    this.db.transaction(() => {
-      const task = this.createPlannerTask({ body, categoryId, subcategoryId, tags, placement: { kind: 'backlog' } })
-      this.moveWorkspace({ id: task.id, expectedRevision: task.revision, intention, today: toLocalISODate(new Date()), beforeId: null })
-    })()
+  createWorkspaceTask({ intention, ...input }: TaskWorkspaceCreate) {
+    const sequence = this.changeSequence
+    try {
+      this.db.transaction(() => {
+        const task = this.createPlannerTask({ ...input, placement: { kind: 'backlog' } })
+        this.moveWorkspace({ id: task.id, expectedRevision: task.revision, intention, today: toLocalISODate(new Date()), beforeId: null })
+      })()
+    } catch (error) {
+      this.changeSequence = sequence
+      throw error
+    }
   }
 
   getCaptureDraft() {
@@ -797,7 +803,8 @@ export class Store {
       if (input.categoryId && !this.db.prepare('SELECT id FROM categories WHERE id=?').get(input.categoryId)) throw new AppError('CATEGORY_MISSING', 'That category no longer exists.')
       this.validateSubcategory(input.categoryId,input.subcategoryId ?? null)
       const id = randomUUID(), now = Date.now()
-      this.db.prepare("INSERT INTO notes(id,body,created_at,updated_at,kind,processed_at,task_status,project_id,subcategory_id,backlog_position) VALUES(?,?,?,?,'task',?,'open',?,?,?)").run(id, input.body, now, now, now, input.categoryId, input.subcategoryId ?? null, this.nextBacklogPosition(input.categoryId))
+      this.db.prepare("INSERT INTO notes(id,body,body_html,created_at,updated_at,kind,processed_at,task_status,project_id,subcategory_id,backlog_position) VALUES(?,?,?,?,?,'task',?,'open',?,?,?)").run(id, input.body, input.bodyHtml ?? null, now, now, now, input.categoryId, input.subcategoryId ?? null, this.nextBacklogPosition(input.categoryId))
+      if (input.images?.length) this.replaceItemImages(id, input.images)
       this.replaceItemTags(id, normalizeTags(input.tags), input.categoryId)
       this.syncSearch(id)
       const scheduled = this.schedulePlannerTask({ id, expectedRevision: 1, placement: input.placement })
@@ -942,8 +949,9 @@ export class Store {
     if (current.revision !== expectedRevision) throw new AppError('REVISION_CONFLICT', 'This task changed elsewhere. Reload it before saving.')
     if ([...body].length > 50_000) throw new AppError('TASK_TOO_LONG', 'Tasks can contain up to 50,000 characters.')
     const now = Date.now()
+    const plainBody = body.replace(/\r\n?/g, '\n')
     const transaction = this.db.transaction(() => {
-      const changed = this.db.prepare('UPDATE notes SET body=?,updated_at=?,revision=revision+1 WHERE id=? AND revision=? AND deleted_at IS NULL').run(body.replace(/\r\n?/g, '\n'), now, id, expectedRevision)
+      const changed = this.db.prepare('UPDATE notes SET body=?,body_html=CASE WHEN body=? THEN body_html END,updated_at=?,revision=revision+1 WHERE id=? AND revision=? AND deleted_at IS NULL').run(plainBody, plainBody, now, id, expectedRevision)
       if (!changed.changes) throw new AppError('REVISION_CONFLICT', 'This task changed elsewhere. Reload it before saving.')
       this.syncSearch(id)
     })
@@ -962,7 +970,7 @@ export class Store {
       const result = this.db.transaction(() => {
         const current = this.getItem(input.id)
         if ((input.plan || input.placement) && (current?.kind !== 'task' || current.completedAt !== null)) throw new AppError('INVALID_INPUT', 'Only open tasks can be planned or scheduled.')
-        let updated = this.updateItem(input.id, input.expectedRevision, input.body, input.tags, input.categoryId, input.images, input.subcategoryId)
+        let updated = this.updateItem(input.id, input.expectedRevision, input.body, input.tags, input.categoryId, input.images, input.subcategoryId, input.bodyHtml)
         if (input.plan) {
           this.moveWorkspace({ id: input.id, expectedRevision: updated.revision, ...input.plan })
           updated = this.getItem(input.id)!
@@ -1005,7 +1013,20 @@ export class Store {
     this.changeSequence++
   }
 
-  updateItem(id: string, expectedRevision: number, body: string, tags: string[], requestedCategoryId?: string | null, images?: (ImageRef & { dataUrl?: string })[], requestedSubcategoryId?: string | null) {
+  private replaceItemImages(id: string, images: NonNullable<ItemUpdate['images']>) {
+    if (images.length > 5 || new Set(images.map(image => image.id)).size !== images.length) throw new AppError('INVALID_IMAGE', 'Choose up to five distinct images.')
+    const rows = images.map(image => {
+      if (image.dataUrl !== undefined) return { id: randomUUID(), ...decodeImage(image.dataUrl) }
+      const row = this.db.prepare('SELECT id,mime_type AS mimeType,data FROM item_images WHERE id=? AND note_id=?').get(image.id, id) as { id: string; mimeType: ImageRef['mimeType']; data: Buffer } | undefined
+      if (!row) throw new AppError('INVALID_IMAGE', 'This attached image is no longer available.')
+      return row
+    })
+    if (rows.reduce((total, row) => total + row.data.length, 0) > 20_000_000) throw new AppError('INVALID_IMAGE', 'Images can total up to 20 MB.')
+    this.db.prepare('DELETE FROM item_images WHERE note_id=?').run(id)
+    rows.forEach((row, position) => this.db.prepare('INSERT INTO item_images(id,note_id,position,mime_type,data) VALUES(?,?,?,?,?)').run(row.id, id, position, row.mimeType, row.data))
+  }
+
+  updateItem(id: string, expectedRevision: number, body: string, tags: string[], requestedCategoryId?: string | null, images?: (ImageRef & { dataUrl?: string })[], requestedSubcategoryId?: string | null, bodyHtml?: string | null) {
     const current = this.getItem(id)
     if (!current || current.deletedAt !== null) throw new AppError('NOT_FOUND', 'This item no longer exists.')
     if (current.revision !== expectedRevision) throw new AppError('REVISION_CONFLICT', 'This item changed elsewhere. Reload it before saving.')
@@ -1019,20 +1040,11 @@ export class Store {
     const transaction = this.db.transaction(() => {
       const movedTask = current.kind === 'task' && current.categoryId !== categoryId
       const priorityPosition = movedTask ? this.nextBacklogPosition(categoryId) : null
-      const changed = this.db.prepare('UPDATE notes SET body=?,project_id=?,subcategory_id=?,backlog_position=coalesce(?,backlog_position),updated_at=?,revision=revision+1 WHERE id=? AND revision=? AND deleted_at IS NULL').run(body.replace(/\r\n?/g, '\n'), categoryId, subcategoryId, priorityPosition, now, id, expectedRevision)
+      const plainBody = body.replace(/\r\n?/g, '\n')
+      const formattedBody = bodyHtml === undefined && plainBody === current.body ? current.bodyHtml : bodyHtml
+      const changed = this.db.prepare('UPDATE notes SET body=?,body_html=?,project_id=?,subcategory_id=?,backlog_position=coalesce(?,backlog_position),updated_at=?,revision=revision+1 WHERE id=? AND revision=? AND deleted_at IS NULL').run(plainBody, formattedBody ?? null, categoryId, subcategoryId, priorityPosition, now, id, expectedRevision)
       if (!changed.changes) throw new AppError('REVISION_CONFLICT', 'This item changed elsewhere. Reload it before saving.')
-      if (images !== undefined) {
-        if (images.length > 5 || new Set(images.map(image => image.id)).size !== images.length) throw new AppError('INVALID_IMAGE', 'Choose up to five distinct images.')
-        const rows = images.map(image => {
-          if (image.dataUrl !== undefined) return { id: randomUUID(), ...decodeImage(image.dataUrl) }
-          const row = this.db.prepare('SELECT id,mime_type AS mimeType,data FROM item_images WHERE id=? AND note_id=?').get(image.id, id) as { id: string; mimeType: ImageRef['mimeType']; data: Buffer } | undefined
-          if (!row) throw new AppError('INVALID_IMAGE', 'This attached image is no longer available.')
-          return row
-        })
-        if (rows.reduce((total, row) => total + row.data.length, 0) > 20_000_000) throw new AppError('INVALID_IMAGE', 'Images can total up to 20 MB.')
-        this.db.prepare('DELETE FROM item_images WHERE note_id=?').run(id)
-        rows.forEach((row, position) => this.db.prepare('INSERT INTO item_images(id,note_id,position,mime_type,data) VALUES(?,?,?,?,?)').run(row.id, id, position, row.mimeType, row.data))
-      }
+      if (images !== undefined) this.replaceItemImages(id, images)
       this.replaceItemTags(id, cleanTags, categoryId)
       this.syncSearch(id)
     })
@@ -1111,7 +1123,7 @@ export class Store {
       const required = ['notes', 'drafts', 'app_state', 'schema_migrations', 'note_search', ...(version.version && version.version >= 3 ? ['legacy_meeting_sessions', 'planner_events', 'item_tags', 'note_tags'] : ['meetings']), ...(version.version && version.version >= 4 ? ['item_images', 'capture_draft_images'] : []), ...(version.version && version.version >= 5 ? ['categories'] : []), ...(version.version && version.version >= 12 ? ['subcategories','taxonomy_migration_review','taxonomy_migration_mapping'] : []), ...(version.version && version.version >= 14 ? ['task_intentions'] : [])]
       const tables = new Set((database.prepare("SELECT name FROM sqlite_master WHERE type IN ('table','view')").all() as { name: string }[]).map((row) => row.name))
       if (required.some((name) => !tables.has(name))) throw new AppError('DB_INVALID_SCHEMA', 'The selected file is not a complete captured backup.')
-      if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].includes(version.version ?? 0)) throw new AppError(version.version && version.version > 18 ? 'DB_NEWER_VERSION' : 'DB_INVALID_SCHEMA', 'This backup has an unsupported captured schema.')
+      if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, SCHEMA_VERSION].includes(version.version ?? 0)) throw new AppError(version.version && version.version > SCHEMA_VERSION ? 'DB_NEWER_VERSION' : 'DB_INVALID_SCHEMA', 'This backup has an unsupported captured schema.')
       if ((database.pragma('foreign_key_check') as unknown[]).length) throw new AppError('DB_CORRUPT', 'The selected backup contains invalid note links.')
       if (version.version! >= 14) {
         if (!(database.pragma('table_info(drafts)') as { name: string }[]).some(column => column.name === 'capture_kind')) throw new AppError('DB_INVALID_SCHEMA', 'This backup is missing capture type storage.')

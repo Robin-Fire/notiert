@@ -3,7 +3,6 @@ import { z as Z } from 'zod'
 import { validIntention, type TaskIntention, type Horizon } from './taskHorizons'
 
 export const TaskIntentionSchema = Z.object({ kind: Z.enum(['unplanned', 'now', 'next', 'soon', 'day', 'week', 'later']), targetDate: Z.string().nullable(), position: Z.number().int().nonnegative().default(0) }).refine(validIntention, 'Choose a valid priority.')
-export const TaskWorkspaceCreateSchema = Z.object({ body: Z.string().trim().min(1).max(50000), categoryId: Z.string().uuid().nullable(), subcategoryId: Z.string().uuid().nullable().default(null), tags: Z.array(Z.string().max(40)).max(20).default([]), intention: TaskIntentionSchema })
 export const TasksQuerySchema = Z.object({ today: Z.string(), scope: Z.enum(['all', 'planned', 'backlog']).optional(), query: Z.string().max(500).default(''), categoryId: Z.string().uuid().nullable().optional(), subcategoryId: Z.string().uuid().optional(), tags: Z.array(Z.string().max(40)).max(100).default([]), excludedTags: Z.array(Z.string().max(40)).max(100).default([]), completed: Z.boolean().default(false), horizon: Z.enum(['unplanned', 'now', 'next', 'soon', 'later']).optional(), cursor: Z.object({ position: Z.number().int().nonnegative(), id: Z.string(), sequence: Z.number().int(), today: Z.string() }).optional(), limit: Z.number().int().min(1).max(100).default(50) })
 // Omit beforeId for default bucket placement, or pass null to explicitly append.
 export const TaskWorkspaceMoveSchema = Z.object({ id: Z.string().uuid(), expectedRevision: Z.number().int().nonnegative(), intention: TaskIntentionSchema, beforeId: Z.string().uuid().nullable().optional(), categoryId: Z.string().uuid().nullable().optional(), today: Z.string(), classify: Z.literal('task').optional(), tags: Z.array(Z.string().max(40)).max(20).optional() })
@@ -22,10 +21,23 @@ export type TaskWorkspaceUndo = { id: string; expectedRevision: number; kind: 'i
 export const TaskWorkspaceUndoSchema = Z.object({ id: Z.string().uuid(), expectedRevision: Z.number().int().nonnegative(), kind: Z.enum(['inbox', 'task']), categoryId: Z.string().uuid().nullable(), subcategoryId: Z.string().uuid().nullable(), tags: Z.array(Z.string().max(40)).max(20), intention: TaskIntentionSchema.nullable(), beforeId: Z.string().uuid().nullable().optional(), today: Z.string().optional(), priorityPosition: Z.number().int().nonnegative().optional() })
 
 export const ImageRefSchema = Z.object({ id: Z.string().uuid(), mimeType: Z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']) })
+const ImageDataSchema = Z.string().max(7_000_000)
+const BodyHtmlSchema = Z.string().max(600_000).nullable().optional()
+const TaskDescriptionCreateSchema = Z.object({
+  body: Z.string().trim().max(50_000),
+  bodyHtml: BodyHtmlSchema,
+  images: Z.array(ImageRefSchema.extend({ dataUrl: ImageDataSchema })).max(5).optional()
+})
+const hasTaskContent = ({ body, images }: z.infer<typeof TaskDescriptionCreateSchema>) => Boolean(body || images?.length)
+export const TaskWorkspaceCreateSchema = TaskDescriptionCreateSchema.extend({
+  categoryId: Z.string().uuid().nullable(), subcategoryId: Z.string().uuid().nullable().default(null),
+  tags: Z.array(Z.string().max(40)).max(20).default([]), intention: TaskIntentionSchema
+}).refine(hasTaskContent, 'Enter task text or paste an image.')
+export type TaskWorkspaceCreate = z.output<typeof TaskWorkspaceCreateSchema>
 export type ImageRef = z.infer<typeof ImageRefSchema>
 export type CaptureImage = ImageRef & { dataUrl: string }
 export const ItemRecordSchema = Z.object({
-  id: Z.string(), body: Z.string(), meetingId: Z.string().nullable(), createdAt: Z.number(), updatedAt: Z.number(),
+  id: Z.string(), body: Z.string(), bodyHtml: BodyHtmlSchema, meetingId: Z.string().nullable(), createdAt: Z.number(), updatedAt: Z.number(),
   deletedAt: Z.number().nullable(), revision: Z.number(), kind: Z.enum(['inbox', 'note', 'task']).default('task'),
   processedAt: Z.number().nullable().default(null), completedAt: Z.number().nullable().default(null), later: Z.boolean().default(false), categoryId: Z.string().nullable().default(null), subcategoryId: Z.string().nullable().default(null), tags: Z.array(Z.string()).default([]), images: Z.array(ImageRefSchema).default([]), intention: TaskIntentionSchema.optional(),
 })
@@ -38,10 +50,10 @@ export const TaskPlacementSchema = Z.discriminatedUnion('kind', [
 ])
 export const PlannerTaskScheduleSchema = Z.object({ id: Z.string().uuid(), expectedRevision: Z.number().int().nonnegative(), placement: TaskPlacementSchema })
 export const ItemUpdateSchema = Z.object({
-  id: Z.string().uuid(), expectedRevision: Z.number().int().nonnegative(), body: Z.string().max(100000),
+  id: Z.string().uuid(), expectedRevision: Z.number().int().nonnegative(), body: Z.string().max(100000), bodyHtml: BodyHtmlSchema,
   tags: Z.array(Z.string().max(80)).max(20), categoryId: Z.string().uuid().nullable().optional(),
   subcategoryId: Z.string().uuid().nullable().optional(),
-  images: Z.array(ImageRefSchema.extend({ dataUrl: Z.string().max(7_000_000).optional() })).max(5).optional(),
+  images: Z.array(ImageRefSchema.extend({ dataUrl: ImageDataSchema.optional() })).max(5).optional(),
   plan: Z.object({ intention: TaskIntentionSchema, today: Z.string() }).optional(),
   placement: TaskPlacementSchema.optional(),
 })
@@ -49,7 +61,10 @@ export type ItemUpdate = z.infer<typeof ItemUpdateSchema>
 export const TaskCompletionSchema = Z.object({ id: Z.string().uuid(), expectedRevision: Z.number().int().nonnegative(), completed: Z.boolean() })
 export const TaskCompletionUndoSchema = Z.object({ expectedRevision: Z.number().int().nonnegative(), task: PlannerTaskSchema })
 export type TaskCompletionUndo = z.infer<typeof TaskCompletionUndoSchema>
-export const PlannerTaskCreateSchema = Z.object({ body: Z.string().trim().min(1).max(50000), categoryId: Z.string().uuid().nullable().default(null), subcategoryId: Z.string().uuid().nullable().optional(), tags: Z.array(Z.string().max(40)).max(20).default([]), placement: TaskPlacementSchema })
+export const PlannerTaskCreateSchema = TaskDescriptionCreateSchema.extend({
+  categoryId: Z.string().uuid().nullable().default(null), subcategoryId: Z.string().uuid().nullable().optional(),
+  tags: Z.array(Z.string().max(40)).max(20).default([]), placement: TaskPlacementSchema
+}).refine(hasTaskContent, 'Enter task text or paste an image.')
 export const PlannerEventTimingSchema = Z.object({ id: Z.string().uuid(), startAt: CalendarInstantSchema, endAt: CalendarInstantSchema, allDay: Z.boolean(), expectedStartAt: CalendarInstantSchema, expectedEndAt: CalendarInstantSchema, expectedAllDay: Z.boolean() }).refine((value) => value.endAt > value.startAt, 'End time must be after start time.')
 export const PlannerReadySchema = Z.object({ id: Z.string().uuid() })
 export const PlannerCompleteSchema = Z.object({ id: Z.string().uuid(), completed: Z.boolean() })

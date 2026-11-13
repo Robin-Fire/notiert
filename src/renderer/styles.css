@@ -246,7 +246,7 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .backlog-drag-handle:disabled { cursor: default; opacity: .45; }
 .backlog-task.is-dragging { z-index: 2; outline: 1px solid var(--border-strong); outline-offset: -1px; border-radius: 6px; background: var(--surface); box-shadow: var(--shadow-card); }
 .backlog-task-main { display: grid; min-width: 0; flex: 1; gap: 4px; }
-.backlog-task-title { width: max-content; max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--text); font-size: var(--type-body); font-weight: 550; line-height: 1.5; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
+.backlog-task-title { width: max-content; max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--text); font-size: var(--type-body); font-weight: 400; line-height: 1.5; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
 .backlog-task-title:hover { text-decoration: underline; }
 .backlog-task-tags { display: flex; flex-wrap: wrap; gap: 5px; color: var(--text-muted); font: var(--type-caption) var(--font-mono); }
 .backlog-task select { max-width: 130px; height: 27px; padding: 0 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text-secondary); font-size: var(--type-secondary); }

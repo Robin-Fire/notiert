@@ -15,6 +15,7 @@ module.exports = function legacyTaxonomy(store, assignments = []) {
     CREATE INDEX item_tags_order ON item_tags(category_id,position,id);
     DROP INDEX planner_events_series;
     ALTER TABLE planner_events DROP COLUMN series_id;
+    ALTER TABLE notes DROP COLUMN body_html;
     DELETE FROM schema_migrations WHERE version>=12;
   `)
   for (const [tagId, categoryId] of assignments) store.db.prepare('UPDATE item_tags SET category_id=? WHERE id=?').run(categoryId, tagId)

@@ -8,7 +8,7 @@ import { CheckCircle2, Copy, Save, Trash2, X } from 'lucide-react'
 import type { ItemRecord, PlannerTask } from '../../shared/contracts'
 import { collectTags, TagEditor } from '../components/TagEditor'
 import { useImagePaste } from '../components/useImagePaste'
-import { ItemImages } from '../components/ItemImages'
+import { TaskDescriptionField, TaskDescriptionImages, type TaskDescription } from './TaskDescriptionField'
 import { DEFAULT_DURATION, localDateTime } from '../../shared/calendarSchedule'
 import { toLocalISODate } from '../../shared/plannerDates'
 import type { TaskPlacement } from '../../shared/contracts'
@@ -33,11 +33,11 @@ export function ItemDetailDialog({
   const taxonomy = useTaxonomy()
   const [categoryId, setCategoryId] = useState(task.categoryId)
   const [subcategoryId, setSubcategoryId] = useState(task.subcategoryId ?? null)
-  const [body, setBody] = useState(task.body)
+  const [description, setDescription] = useState<TaskDescription>({ body: task.body, bodyHtml: task.bodyHtml })
   const [tags, setTags] = useState(initialTags ?? task.tags)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const imageEdit = useImagePaste(setError)
+  const imageEdit = useImagePaste(setError, task.images)
   const [busy, setBusy] = useState(false)
   const [plan, setPlan] = useState(() =>
     task.intention ? horizonOf(task.intention, toLocalISODate(new Date())) : 'unplanned'
@@ -89,7 +89,8 @@ export function ItemDetailDialog({
     subcategoryId !== (task.subcategoryId ?? null) ||
     imageEdit.pending ||
     imageEdit.images.map((image) => image.id).join() !== task.images.map((image) => image.id).join() ||
-    body !== task.body ||
+    description.body !== task.body ||
+    (description.bodyHtml ?? null) !== (task.bodyHtml ?? null) ||
     collectTags(tags).join('\u0000') !== task.tags.join('\u0000')
 
   useEffect(() => {
@@ -104,7 +105,6 @@ export function ItemDetailDialog({
       }
       layer = layer.parentElement
     }
-    imageEdit.reset(task.images)
     dialogRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus()
     return () => {
       background.forEach(({ element, inert }) => {
@@ -130,7 +130,7 @@ export function ItemDetailDialog({
     if (event.key !== 'Tab' || !dialogRef.current) return
     const focusable = [
       ...dialogRef.current.querySelectorAll<HTMLElement>(
-        'a[href], textarea:not(:disabled), input:not(:disabled), select:not(:disabled), button:not(:disabled)'
+        'a[href], [contenteditable="true"], textarea:not(:disabled), input:not(:disabled), select:not(:disabled), button:not(:disabled)'
       )
     ]
     const first = focusable[0],
@@ -146,6 +146,10 @@ export function ItemDetailDialog({
 
   async function save() {
     if (busy || imageEdit.isPending()) return
+    if (description.body.length > 50_000 || (description.bodyHtml?.length ?? 0) > 600_000) {
+      setError('Shorten the task description before saving.')
+      return
+    }
     let startAt = new Date(start).getTime(),
       endAt = new Date(end).getTime()
     if (
@@ -166,7 +170,7 @@ export function ItemDetailDialog({
         await window.captured.items.updateItem({
           id: task.id,
           expectedRevision: task.revision,
-          body,
+          ...description,
           categoryId,
           subcategoryId,
           tags: collectTags(tags),
@@ -229,28 +233,33 @@ export function ItemDetailDialog({
           }}><X size={18} /></button>
         </header>
         <div className="task-detail-content">
-          <label className="task-detail-body-label">
-            Description
-            <textarea
-              className="item-editor task-detail-editor"
-              value={body}
+          {isTask ? (
+            <TaskDescriptionField
+              label="Description"
+              accessibleName="Full task text"
+              value={description}
+              onChange={setDescription}
+              images={imageEdit}
               disabled={busy}
-              onPaste={imageEdit.onPaste}
-              maxLength={50_000}
-              onChange={(event) => setBody(event.target.value)}
-              aria-label="Full task text"
             />
-          </label>
-          <div className="task-editor-links"><LinkedText text={body} linksOnly /></div>
-          <ItemImages
-            images={imageEdit.images}
-            expanded
-            onRemove={imageEdit.remove}
-            disabled={busy || imageEdit.pending}
-          />
-          <span className="image-paste-hint">
-            {imageEdit.pending ? 'Reading image…' : 'Paste a screenshot with Ctrl+V · up to 5 images'}
-          </span>
+          ) : (
+            <>
+              <label className="task-detail-body-label">
+                Description
+                <textarea
+                  className="item-editor task-detail-editor"
+                  value={description.body}
+                  disabled={busy}
+                  onPaste={imageEdit.onPaste}
+                  maxLength={50_000}
+                  onChange={(event) => setDescription({ body: event.target.value })}
+                  aria-label="Full task text"
+                />
+              </label>
+              <TaskDescriptionImages images={imageEdit} disabled={busy} />
+            </>
+          )}
+          <div className="task-editor-links"><LinkedText text={description.body} linksOnly /></div>
           <section className="task-detail-organization" aria-label="Organization">
           <CategoryPicker
             categories={taxonomy.categories}
