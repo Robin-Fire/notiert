@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.1.29 - 2026-11-17
+
+- Put newly tagged tasks at the top of their tag pages and keep drag-to-reorder available.
+- Remove categories and subcategories from the workspace and capture interface while preserving existing tasks and tags.
+- Make the sidebar collapsible and move the screen-sharing toggle to its footer.
+- Give task names more room in Table view and move completed tasks into the Tasks view options menu.
+- Move search to the left of the Tasks toolbar and simplify the task editor actions.
+
 ## 0.1.26 - 2026-11-12
 
 - Move Add task to the top-right corner of the Tasks header.

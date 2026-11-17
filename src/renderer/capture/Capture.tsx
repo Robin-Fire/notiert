@@ -1,5 +1,4 @@
 import { TaskTagPicker } from '../components/TaskTagPicker'
-import { AppSelect } from '../components/AppSelect'
 import {
   useCallback,
   useEffect,
@@ -9,8 +8,8 @@ import {
   type CompositionEvent,
   type KeyboardEvent
 } from 'react'
-import { AlertCircle, ArrowUpRight, Copy, CornerDownLeft, Folder, RotateCcw, Tag, X } from 'lucide-react'
-import type { CaptureState, Category, Subcategory } from '../../shared/contracts'
+import { AlertCircle, ArrowUpRight, Copy, CornerDownLeft, RotateCcw, Tag, X } from 'lucide-react'
+import type { CaptureState } from '../../shared/contracts'
 
 export function Capture() {
   const [state, setState] = useState<CaptureState>({
@@ -23,11 +22,8 @@ export function Capture() {
     available: false,
     categoryId: null
   })
-  const [subcategories, setSubcategories] = useState<Subcategory[]>([])
   const captureTags = useRef<string[]>([])
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([])
-  const subcategoryId = useRef<string | null>(null)
-  const [categories, setCategories] = useState<Category[]>([])
   const [body, setBody] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -40,18 +36,13 @@ export function Capture() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const revision = useRef(0)
   const generation = useRef(0)
-  const categoryId = useRef<string | null>(null)
   const draftTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const bodyRef = useRef('')
   bodyRef.current = body
 
   useEffect(() => {
-    const refreshCategories = async () => {
+    const refreshTags = async () => {
       try {
-        const result = await window.captured.capture.categories()
-        if (result.ok) setCategories(result.value)
-        const subs = await window.captured.capture.subcategories()
-        if (subs.ok) setSubcategories(subs.value)
         const tags = await window.captured.capture.tags()
         if (tags.ok) setTagSuggestions(tags.value)
       } catch {
@@ -64,10 +55,8 @@ export function Capture() {
       if (typeof next.generation === 'number') generation.current = next.generation
       if (typeof next.revision === 'number') revision.current = next.revision
       if (next.tags !== undefined) captureTags.current = next.tags
-      if (next.subcategoryId !== undefined) subcategoryId.current = next.subcategoryId
-      if (next.categoryId !== undefined) categoryId.current = next.categoryId
       if (next.theme) document.documentElement.dataset.theme = next.theme
-      if (next.available !== undefined) void refreshCategories()
+      if (next.available !== undefined) void refreshTags()
     }
     void window.captured.capture.getState().then((result) => {
       if (result.ok) apply(result.value)
@@ -102,15 +91,14 @@ export function Capture() {
   }, [])
 
   const persistDraft = useCallback(
-    async (draft: string, selectedCategory = categoryId.current) => {
+    async (draft: string) => {
       if (!state.available || saving) return
       revision.current += 1
       const result = await window.captured.capture.updateDraft({
         body: draft,
         generation: generation.current,
         revision: revision.current,
-        categoryId: selectedCategory,
-        subcategoryId: subcategoryId.current,
+        categoryId: null,
         tags: captureTags.current,
         captureKind: 'task'
       })
@@ -143,8 +131,7 @@ export function Capture() {
           body: draft,
           generation: generation.current,
           revision: revision.current + 1,
-          categoryId: categoryId.current,
-          subcategoryId: subcategoryId.current,
+          categoryId: null,
           tags: captureTags.current,
           captureKind: 'task'
         })
@@ -194,8 +181,7 @@ export function Capture() {
         requestId: id,
         generation: generation.current,
         body,
-        categoryId: categoryId.current,
-        subcategoryId: subcategoryId.current,
+        categoryId: null,
         tags: captureTags.current,
         captureKind: 'task'
       })
@@ -212,8 +198,7 @@ export function Capture() {
       captureTags.current = []
       setState((current) => ({
         ...current,
-        categoryId: categoryId.current,
-        subcategoryId: subcategoryId.current,
+        categoryId: null,
         tags: [],
         captureKind: 'task'
       }))
@@ -356,41 +341,6 @@ export function Capture() {
             onCompositionEnd={(_event: CompositionEvent<HTMLTextAreaElement>) => setComposing(false)}
             onBlur={() => { void flushDraft() }}
           />
-          {categories.length > 0 && (
-            <label className="capture-category-control">
-              <Folder size={13} />
-              <span>Category</span>
-              <AppSelect
-                aria-label="Capture category"
-                side="top"
-                disabled={saving}
-                value={state.subcategoryId ? `subcategory:${state.subcategoryId}` : state.categoryId ?? ''}
-                onChange={(event) => {
-                  const value = event.target.value
-                  const subcategory = value.startsWith('subcategory:')
-                    ? subcategories.find((item) => item.id === value.slice(12))
-                    : undefined
-                  const selected = subcategory?.categoryId ?? (value || null)
-                  categoryId.current = selected
-                  subcategoryId.current = subcategory?.id ?? null
-                  setState((current) => ({ ...current, categoryId: selected, subcategoryId: subcategoryId.current }))
-                  void persistDraft(bodyRef.current, selected)
-                }}
-              >
-                <option value="">Unassigned</option>
-                {categories.map((category) => (
-                  <optgroup key={category.id} label={category.name}>
-                    <option value={category.id}>{category.name}</option>
-                    {subcategories.filter((item) => item.categoryId === category.id).map((item) => (
-                      <option key={item.id} value={`subcategory:${item.id}`}>
-                        {category.name} / {item.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </AppSelect>
-            </label>
-          )}
           <div className="capture-category-control capture-tag-control">
             <Tag size={13} />
             <span>Tags</span>

@@ -1,17 +1,15 @@
 import { useSyncExternalStore } from 'react'
-import type { Category, Subcategory, TagRecord, capturedApi } from '../../shared/contracts'
+import type { TagRecord, capturedApi } from '../../shared/contracts'
 import { resultValue } from '../apiResult'
 
 type TaxonomyState = {
-  categories: Category[]
-  subcategories: Subcategory[]
   tags: TagRecord[]
   ready: boolean
   error: string
 }
 
 function createTaxonomyStore(api: capturedApi['items']) {
-  let state: TaxonomyState = { categories: [], subcategories: [], tags: [], ready: false, error: '' }
+  let state: TaxonomyState = { tags: [], ready: false, error: '' }
   const listeners = new Set<() => void>()
   let unsubscribe: (() => void) | undefined
   let pending: Promise<void> | undefined
@@ -23,12 +21,12 @@ function createTaxonomyStore(api: capturedApi['items']) {
       try {
         const value = resultValue(await api.taxonomy())
         if (current !== request) return
-        state = { ...value, subcategories: value.subcategories ?? [], ready: true, error: '' }
+        state = { tags: value.tags, ready: true, error: '' }
       } catch (reason) {
         if (current !== request) return
         state = {
           ...state,
-          error: reason instanceof Error ? reason.message : 'Categories and tags could not be loaded.'
+          error: reason instanceof Error ? reason.message : 'Tags could not be loaded.'
         }
       }
       publish()

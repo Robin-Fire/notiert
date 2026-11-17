@@ -1,10 +1,9 @@
 import { LinkedText } from './LinkedText'
 import { AppSelect } from './AppSelect'
 import { horizonOf, horizonLabels, horizons, intentionFor } from '../../shared/taskHorizons'
-import { CategoryPicker } from '../components/CategoryPicker'
 import { useTaxonomy } from '../components/useTaxonomy'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { CheckCircle2, Copy, Save, Trash2, X } from 'lucide-react'
+import { CheckCircle2, Save, Trash2, X } from 'lucide-react'
 import type { ItemRecord, PlannerTask } from '../../shared/contracts'
 import { collectTags, TagEditor } from '../components/TagEditor'
 import { useImagePaste } from '../components/useImagePaste'
@@ -31,12 +30,9 @@ export function ItemDetailDialog({
 }) {
   const isTask = task.kind === 'task'
   const taxonomy = useTaxonomy()
-  const [categoryId, setCategoryId] = useState(task.categoryId)
-  const [subcategoryId, setSubcategoryId] = useState(task.subcategoryId ?? null)
   const [description, setDescription] = useState<TaskDescription>({ body: task.body, bodyHtml: task.bodyHtml })
   const [tags, setTags] = useState(initialTags ?? task.tags)
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
   const imageEdit = useImagePaste(setError, task.images)
   const [busy, setBusy] = useState(false)
   const [plan, setPlan] = useState(() =>
@@ -85,8 +81,6 @@ export function ItemDetailDialog({
   const changed =
     planChanged ||
     placementChanged ||
-    categoryId !== task.categoryId ||
-    subcategoryId !== (task.subcategoryId ?? null) ||
     imageEdit.pending ||
     imageEdit.images.map((image) => image.id).join() !== task.images.map((image) => image.id).join() ||
     description.body !== task.body ||
@@ -171,8 +165,6 @@ export function ItemDetailDialog({
           id: task.id,
           expectedRevision: task.revision,
           ...description,
-          categoryId,
-          subcategoryId,
           tags: collectTags(tags),
           images: imageEdit.images,
           ...(planChanged ? { plan: { today, intention: plannedIntention } } : {}),
@@ -185,15 +177,6 @@ export function ItemDetailDialog({
       setError(reason instanceof Error ? reason.message : 'The item could not be saved.')
     } finally {
       setBusy(false)
-    }
-  }
-
-  async function copy() {
-    try {
-      const text = resultValue(await window.captured.items.copy([task.id]))
-      setNotice(text ? 'Copied to clipboard.' : 'Nothing to copy.')
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'The item could not be copied.')
     }
   }
 
@@ -261,17 +244,6 @@ export function ItemDetailDialog({
           )}
           <div className="task-editor-links"><LinkedText text={description.body} linksOnly /></div>
           <section className="task-detail-organization" aria-label="Organization">
-          <CategoryPicker
-            categories={taxonomy.categories}
-            subcategories={taxonomy.subcategories}
-            categoryId={categoryId}
-            subcategoryId={subcategoryId}
-            onChange={(category, subcategory) => {
-              setCategoryId(category)
-              setSubcategoryId(subcategory)
-            }}
-            disabled={busy}
-          />
           <div className="task-detail-tags">
             <span>Tags</span>
             <TagEditor
@@ -352,7 +324,7 @@ export function ItemDetailDialog({
             <div className="inline-error" role="alert">
               {taxonomy.error}
               <button type="button" onClick={() => void taxonomy.refresh()}>
-                Retry categories and tags
+                Retry tags
               </button>
             </div>
           )}
@@ -361,17 +333,9 @@ export function ItemDetailDialog({
               {error}
             </div>
           )}
-          {notice && (
-            <div role="status" className="task-detail-notice">
-              {notice}
-            </div>
-          )}
         </div>
         <div className="task-detail-actions">
           <div className="task-detail-secondary-actions">
-            <button className="button secondary small" onClick={() => void copy()} disabled={busy}>
-              <Copy size={14} /> Copy
-            </button>
             {isTask && (
               <button
                 className="button secondary small"
@@ -394,7 +358,7 @@ export function ItemDetailDialog({
                   }
                 }}
               >
-                {task.completedAt === null ? 'Complete' : 'Reopen'}
+                {task.completedAt === null ? 'Done' : 'Reopen'}
               </button>
             )}
 

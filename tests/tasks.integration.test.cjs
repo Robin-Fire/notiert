@@ -178,11 +178,11 @@ test('taxonomy refresh ignores old responses and does not trigger another notes 
   try {
     await act(async () => changed())
     assert.equal(requests.length, 2)
-    await act(async () => requests[1]({ ok: true, value: { categories: [{ id: noteId, name: 'Current category' }], tags: [] } }))
-    await act(async () => requests[0]({ ok: true, value: { categories: [{ id: noteId, name: 'Old category' }], tags: [] } }))
+    await act(async () => requests[1]({ ok: true, value: { tags: [{ id: noteId, name: 'Current label', color: '#85858e', count: 1 }] } }))
+    await act(async () => requests[0]({ ok: true, value: { tags: [{ id: noteId, name: 'Old label', color: '#85858e', count: 1 }] } }))
     assert.equal(listCalls, 1)
-    assert.ok(screen.getByRole('button', { name: 'Edit category Current category' }))
-    assert.equal(screen.queryByRole('button', { name: 'Edit category Old category' }), null)
+    assert.ok(screen.getByRole('button', { name: 'Edit tag Current label' }))
+    assert.equal(screen.queryByRole('button', { name: 'Edit tag Old label' }), null)
   } finally { app.unmount() }
 })
 
@@ -201,48 +201,23 @@ test('capture window action opens the browser preview editor and saves to Tasks'
   } finally { app.unmount() }
 })
 
-test('browser capture saves the chosen category to Inbox', async () => {
-  localStorage.clear()
-  delete require.cache[require.resolve(path.join(generated, 'browserPreview.cjs'))]
-  require(path.join(generated, 'browserPreview.cjs'))
-  const app = render(React.createElement(TaskApp))
-  try {
-    act(() => window.captured.windows.openCapture())
-    const category = await screen.findByRole('combobox', { name: 'Capture category' })
-    await selectOption(category, '11111111-1111-4111-8111-111111111111')
-    fireEvent.change(screen.getByRole('textbox', { name: 'Capture text' }), { target: { value: 'Categorized browser capture' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save task' }))
-    await screen.findByRole('heading', { name: /^Tasks/ })
-    const inbox = await window.captured.taskWorkspace.list({ today: workspaceToday(), scope: 'backlog' })
-    assert.equal(inbox.value.items.find((item) => item.body === 'Categorized browser capture').categoryId, '11111111-1111-4111-8111-111111111111')
-  } finally { app.unmount() }
-})
-
-test('category and tag management requires confirmation before deletion', async () => {
+test('tag management requires confirmation before deletion', async () => {
   const categoryId = '77777777-7777-4777-8777-777777777777'
   const tagId = '88888888-8888-4888-8888-888888888888'
   let taxonomy = { categories: [{ id: categoryId, name: 'Client A' }], tags: [{ id: tagId, name: 'Planning', categoryId, color: '#85858e', count: 1 }] }
-  let deletedCategory, deletedTag, approve = false
+  let deletedTag, approve = false
   const confirmations = []
   const originalConfirm = window.confirm
   window.confirm = (message) => { confirmations.push(message); return approve }
   const app = setup({ taxonomy: async () => ({ ok: true, value: taxonomy }) })
-  app.api.items.deleteCategory = async (id) => { deletedCategory = id; taxonomy = { categories: [], tags: taxonomy.tags.map((tag) => ({ ...tag, categoryId: null })) }; return { ok: true, value: undefined } }
   app.api.items.deleteTag = async (id) => { deletedTag = id; taxonomy = { ...taxonomy, tags: taxonomy.tags.filter((tag) => tag.id !== id) }; return { ok: true, value: undefined } }
   try {
-    fireEvent.click(await sidebar().findByRole('button', { name: 'Edit category Client A' }))
-    await screen.findByRole('dialog', { name: 'Edit category' })
-    fireEvent.click(screen.getByRole('button', { name: 'Delete', exact: true }))
-    assert.equal(deletedCategory, undefined)
-    assert.match(confirmations.at(-1), /Tasks become unassigned/i)
-
-    approve = true
-    fireEvent.click(screen.getByRole('button', { name: 'Delete', exact: true }))
-    await waitFor(() => assert.equal(deletedCategory, categoryId))
-    await waitFor(() => assert.ok(!sidebar().queryByRole('button', { name: 'Edit category Client A' })))
-
+    assert.equal(sidebar().queryByRole('button', { name: 'Categories' }), null)
     fireEvent.click(await screen.findByRole('button', { name: 'Edit tag Planning' }))
     await screen.findByRole('dialog', { name: 'Edit tag' })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete', exact: true }))
+    assert.equal(deletedTag, undefined)
+    approve = true
     fireEvent.click(screen.getByRole('button', { name: 'Delete', exact: true }))
     await waitFor(() => assert.equal(deletedTag, tagId))
     assert.match(confirmations.at(-1), /from all tasks/i)
@@ -254,9 +229,17 @@ test('opening an Inbox capture opens the shared editor without leaving Inbox', a
   try {
     fireEvent.click(screen.getByRole('button', { name: 'captured home' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Captured thought' }))
-    await screen.findByRole('dialog', { name: 'Task' })
-    assert.equal(screen.getByRole('textbox', { name: 'Full task text' }).textContent, 'Captured thought')
-    assert.ok(screen.getByRole('dialog', { name: 'Task' }))
+    const modal = await screen.findByRole('dialog', { name: 'Task' })
+    const dialog = within(modal)
+    const editor = dialog.getByRole('textbox', { name: 'Full task text' })
+    assert.equal(editor.textContent, 'Captured thought')
+    assert.ok(dialog.getByRole('button', { name: 'Done', exact: true }))
+    assert.equal(dialog.queryByRole('button', { name: 'Copy', exact: true }), null)
+    pasteText(editor, 'https://example.com https://example.org followed by ')
+    const links = within(modal.querySelector('.task-editor-links'))
+    await links.findByRole('link', { name: 'https://example.org' })
+    assert.deepEqual(links.getAllByRole('link').map(link => link.href), ['https://example.com/', 'https://example.org/'])
+    assert.equal(modal.querySelector('.task-editor-links').textContent, 'https://example.comhttps://example.org')
     assert.ok(screen.getByRole('heading', { name: /^Tasks/ }))
   } finally { app.unmount() }
 })
@@ -550,44 +533,6 @@ test('screenshots paste into note edits, discard safely, and save with text', as
 })
 
 
-test('editor category changes preserve independent tags', async () => {
-  const categoryId='77777777-7777-4777-8777-777777777777',otherCategory='66666666-6666-4666-8666-666666666666',subcategoryId='88888888-8888-4888-8888-888888888888'
-  const item={...makeNote(noteId,'Organized note','note',categoryId),subcategoryId,tags:['Waiting','Follow-up']}
-  let saved
-  const app=setup({taxonomy:async()=>({ok:true,value:{categories:[{id:categoryId,name:'Work'},{id:otherCategory,name:'Personal'}],subcategories:[{id:subcategoryId,name:'Project Alpha',categoryId,color:'#85858e',count:1}],tags:[]}}),itemsApi:{get:async()=>({ok:true,value:item}),list:async()=>({ok:true,value:{items:[item],nextCursor:null,total:1}}),updateItem:async input=>{saved=input;return {ok:true,value:{...item,...input,revision:2}}}}})
-  try {
-    fireEvent.click(await screen.findByRole('button',{name:/Open task Organized note/}))
-    await screen.findByRole('dialog', {name: 'Task'})
-    assert.equal(document.querySelector('.detail-panel'), null)
-    await waitFor(() => assert.equal(screen.getByRole('combobox',{name:'Item subcategory'}).value,subcategoryId))
-    await selectOption(screen.getByRole('combobox',{name:'Item category'}), otherCategory)
-    assert.equal(screen.getByRole('combobox',{name:'Item subcategory'}).value,'')
-    fireEvent.click(screen.getByRole('button',{name:'Save changes',exact:true}))
-    await waitFor(()=>assert.equal(saved?.subcategoryId,null))
-    assert.equal(saved.categoryId,otherCategory)
-    assert.deepEqual(saved.tags,['Waiting','Follow-up'])
-  }finally{app.unmount()}
-})
-
-test('migration review supports explicit empty assignment and keeps Trash separate', async () => {
-  const categoryId='77777777-7777-4777-8777-777777777777',subcategoryId='88888888-8888-4888-8888-888888888888'
-  let resolved
-  const app=setup({taxonomy:async()=>({ok:true,value:{categories:[{id:categoryId,name:'Work'}],subcategories:[{id:subcategoryId,name:'Project',categoryId,color:'#85858e',count:1}],tags:[]}}),itemsApi:{migrationStatus:async()=>({ok:true,value:{upgraded:true,acknowledged:false}}),migrationReview:async()=>({ok:true,value:[{noteId,reason:'multiple-matching-subcategories',candidates:[subcategoryId]},{noteId:captureId,reason:'foreign-category-labels',candidates:[subcategoryId]}]}),get:async id=>({ok:true,value:{...makeNote(id,id===noteId?'Ambiguous task':'Deleted task','task',categoryId),deletedAt:id===captureId?1:null}}),resolveMigrationReview:async input=>{resolved=input;return {ok:true,value:undefined}}}})
-  try {
-    assert.equal(screen.queryByRole('button',{name:/Review subcategories/}),null)
-    fireEvent.click(await screen.findByRole('button',{name:'Review assignments'}))
-    await screen.findByRole('button',{name:'Ambiguous task'})
-    assert.equal(screen.queryByRole('button',{name:/Deleted task/}),null)
-    fireEvent.click(screen.getByRole('checkbox',{name:'Include Trash'}))
-    await screen.findByRole('button',{name:/Deleted task/})
-    fireEvent.click(screen.getByRole('button',{name:'Keep without subcategory'}))
-    await waitFor(()=>assert.equal(resolved?.subcategoryId,null))
-    assert.equal(resolved.id,noteId)
-    assert.equal(resolved.expectedRevision,1)
-    await waitFor(()=>assert.equal(screen.queryByRole('button',{name:'Ambiguous task'}),null))
-  }finally{app.unmount()}
-})
-
 test('browser preview upgrades category-linked tags without losing ambiguous labels', async () => {
   localStorage.clear()
   const categoryId='77777777-7777-4777-8777-777777777777'
@@ -612,24 +557,20 @@ test('browser preview upgrades category-linked tags without losing ambiguous lab
 })
 
 
-test('Add task keeps the selected category and subcategory context', async () => {
+test('Add task preselects the current tag', async () => {
   localStorage.clear();delete require.cache[require.resolve(path.join(generated,'browserPreview.cjs'))];require(path.join(generated,'browserPreview.cjs'))
-  const category=(await window.captured.items.createCategory('Client context')).value
-  const sub=(await window.captured.items.createSubcategory({name:'Project context',categoryId:category.id})).value
   const tag=(await window.captured.items.createTag({name:'context-tag'})).value
   const app=render(React.createElement(TaskApp))
   try {
-    fireEvent.click(await sidebar().findByRole('button', { name: /^Project context/ }))
+    fireEvent.click(await sidebar().findByRole('button', { name: /^context-tag/ }))
     fireEvent.click(screen.getByRole('button',{name:'Add task',exact:true}))
     const dialog = within(await screen.findByRole('dialog',{name:'Add task'}))
-    assert.equal(dialog.getByRole('combobox',{name:'Item category'}).value, category.id)
-    assert.equal(dialog.getByRole('combobox',{name:'Item subcategory'}).value, sub.id)
+    assert.equal(dialog.queryByRole('combobox', { name: 'Item category' }), null)
     pasteText(dialog.getByRole('textbox', { name: 'Task text' }), 'Context note')
     fireEvent.click(dialog.getByRole('button',{name:'Add task'}))
     await waitFor(()=>assert.ok(!screen.queryByRole('dialog',{name:'Add task'})))
     const inbox=(await window.captured.taskWorkspace.list({ today: workspaceToday(), scope: 'backlog' })).value.items.find(item=>item.body==='Context note')
-    assert.equal(inbox.subcategoryId,sub.id)
-    fireEvent.click(await sidebar().findByRole('button',{name:new RegExp('^'+tag.name)}))
+    assert.deepEqual(inbox.tags, [tag.name])
     assert.ok(screen.getByRole('button', { name: 'Add task', exact: true }).closest('.tasks-heading'))
   }finally{app.unmount()}
 })
@@ -671,7 +612,7 @@ test('routine item changes refresh notes without reloading taxonomy or migration
     assert.equal(migrationReads, previous.migrationReads)
     app.notifyTaxonomy()
     await waitFor(() => assert.equal(taxonomyReads, previous.taxonomyReads + 1))
-    assert.equal(migrationReads, previous.migrationReads + 2)
+    assert.equal(migrationReads, 0)
   } finally { app.unmount() }
 })
 
@@ -731,15 +672,18 @@ test('search hides completed tasks until toggled and editing retains their compl
     let results = within(await screen.findByRole('table', { name: 'Search results' }))
     await results.findByRole('button', { name: 'Bookmark phrase open' })
     assert.equal(results.queryByText('Completed', { exact: true }), null)
-    fireEvent.click(screen.getByRole('button', { name: 'Show completed', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Task view options' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Show completed' }))
     results = within(await screen.findByRole('table', { name: 'Search results' }))
     await results.findByRole('button', { name: 'Bookmark phrase archived' })
     assert.equal(results.getAllByText('Completed', { exact: true }).length, 2)
     assert.equal(results.queryByText('Open', { exact: true }), null)
-    fireEvent.click(screen.getByRole('button', { name: 'Hide completed', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Task view options' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Hide completed' }))
     await screen.findByRole('button', { name: 'Bookmark phrase open' })
     assert.equal(screen.queryByRole('button', { name: 'Bookmark phrase archived' }), null)
-    fireEvent.click(screen.getByRole('button', { name: 'Show completed', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Task view options' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Show completed' }))
     results = within(await screen.findByRole('table', { name: 'Search results' }))
     fireEvent.click(results.getByRole('button', { name: 'Bookmark phrase archived' }))
     const dialog = within(await screen.findByRole('dialog', { name: 'Task' }))
@@ -868,7 +812,8 @@ test('notes UI is absent and former reference content is found as a completed ta
   try {
     assert.equal(screen.queryByRole('button', { name: 'Legacy notes', exact: true }), null)
     const search = await screen.findByRole('textbox', { name: 'Search tasks' })
-    fireEvent.click(screen.getByRole('button', { name: 'Show completed', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Task view options' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Show completed' }))
     fireEvent.change(search, { target: { value: 'Ideas for the next release' } })
     const results = within(await screen.findByRole('table', { name: 'Search results' }))
     await results.findByRole('button', { name: /^Ideas for the next release/ })
@@ -923,21 +868,18 @@ test('integrated captures offer task planning and retain draft tags through Undo
   } finally { app.unmount() }
 })
 
-test('typed capture bypasses sorting and category/subcategory survive direct Task creation', async () => {
+test('quick capture creates a task with the supplied tags', async () => {
   browserWorkspace()
-  const work = (await window.captured.items.taxonomy()).value.categories[0]
-  const sub = (await window.captured.items.createSubcategory({ name: 'Sub context', categoryId: work.id })).value
   const app = render(React.createElement(TaskApp))
   try {
-    act(() => window.captured.windows.openCapture())
+    act(() => window.captured.windows.openCapture({ categoryId: null, tags: ['Planning'] }))
     const dialog = within(await screen.findByRole('dialog', { name: 'Capture a thought' }))
     fireEvent.change(dialog.getByRole('textbox', { name: 'Capture text' }), { target: { value: 'Directly captured task' } })
-    await selectOption(dialog.getByRole('combobox', { name: 'Capture category' }), work.id)
-    await selectOption(dialog.getByRole('combobox', { name: 'Capture subcategory' }), sub.id)
+    assert.equal(dialog.queryByRole('combobox', { name: 'Capture category' }), null)
     fireEvent.click(dialog.getByRole('button', { name: 'Save task' }))
     await screen.findByRole('button', { name: 'Directly captured task' })
     const item = (await window.captured.taskWorkspace.list({ today: workspaceToday(), query: 'Directly captured task' })).value.items[0]
-    assert.equal(item.kind, 'task'); assert.equal(item.categoryId, work.id); assert.equal(item.subcategoryId, sub.id)
+    assert.equal(item.kind, 'task'); assert.equal(item.categoryId, null); assert.deepEqual(item.tags, ['Planning'])
     assert.equal(item.horizon, 'unplanned')
   } finally { app.unmount() }
 })
@@ -950,9 +892,11 @@ test('Tasks completion and reopening retain the plan, and rejected moves leave t
     tasksNav()
     fireEvent.click(await screen.findByRole('button', { name: 'Complete Finish planned work' }))
     await waitFor(() => assert.ok(screen.queryByRole('button', { name: 'Finish planned work' }) === null))
-    fireEvent.click(screen.getByRole('button', { name: 'Show completed', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Task view options' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Show completed' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Reopen Finish planned work' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Hide completed', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Task view options' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Hide completed' }))
     await screen.findByRole('button', { name: 'Finish planned work' })
     const originalSave = window.captured.items.updateItem
     window.captured.items.updateItem = async () => ({ ok: false, code: 'STALE_REVISION', message: 'Changed elsewhere; refresh before saving.' })
@@ -1077,7 +1021,7 @@ test('Tasks search includes planned work, backlog tasks, and captures then resto
   } finally { app.unmount() }
 })
 
-test('sidebar categories and tags open separate pages and categories keep priority buckets', async () => {
+test('legacy categorized tasks appear in Tasks and on their tag pages', async () => {
   browserWorkspace()
   const category = (await window.captured.items.taxonomy()).value.categories[0]
   const sub = (await window.captured.items.createSubcategory({ name: 'Project group', categoryId: category.id })).value
@@ -1087,31 +1031,20 @@ test('sidebar categories and tags open separate pages and categories keep priori
   const app = render(React.createElement(TaskApp))
   try {
     await screen.findByRole('button', { name: 'Unassigned review task' })
-    fireEvent.click(sidebar().getByRole('button', { name: category.name, exact: true }))
-    assert.ok(screen.getByRole('heading', { level: 1 }).textContent.startsWith(category.name))
-    assert.ok((await screen.findByRole('button', { name: 'Direct category task' })).closest('[data-horizon="now"]'))
-    assert.equal(screen.queryByRole('button', { name: 'Unassigned review task' }), null)
-    assert.equal(screen.queryByRole('button', { name: 'Clear filters', exact: true }), null)
+    await screen.findByRole('button', { name: 'Direct category task' })
+    await screen.findByRole('button', { name: 'Nested category task' })
+    assert.equal(sidebar().queryByRole('button', { name: category.name, exact: true }), null)
     fireEvent.click(sidebar().getByRole('button', { name: /^Waiting/ }))
     await waitFor(() => assert.ok(!screen.queryByRole('button', { name: 'Direct category task' })))
     assert.ok(sidebar().getByRole('button', { name: /^Waiting/, pressed: true }))
     fireEvent.click(sidebar().getByRole('button', { name: /^Review/ }))
     assert.ok(sidebar().getByRole('button', { name: /^Review/, pressed: true }))
     await screen.findByRole('button', { name: 'Unassigned review task' })
-    assert.ok(sidebar().getByRole('button', { name: category.name, exact: true, pressed: false }))
     assert.equal(screen.queryByRole('button', { name: 'Nested category task' }), null)
-    fireEvent.click(sidebar().getByRole('button', { name: /^Project group/ }))
-    assert.ok((await screen.findByRole('button', { name: 'Nested category task' })).closest('[data-horizon="next"]'))
-    assert.equal(screen.queryByRole('button', { name: 'Direct category task' }), null)
-    assert.ok(sidebar().getByRole('button', { name: /^Review/, pressed: false }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Search tasks' }), { target: { value: 'Unassigned' } })
-    await screen.findByRole('heading', { name: 'No tasks match these filters' })
-    fireEvent.click(screen.getByRole('button', { name: 'Clear filters', exact: true }))
-    await screen.findByRole('button', { name: 'Nested category task' })
-    assert.equal(screen.queryByRole('button', { name: 'Unassigned review task' }), null)
+    await screen.findByRole('button', { name: 'Direct category task' })
     tasksNav()
-    await screen.findByRole('button', { name: 'Unassigned review task' })
-    assert.ok(sidebar().getByRole('button', { name: /^Waiting/, pressed: false }))
+    await screen.findByRole('button', { name: 'Nested category task' })
+    assert.ok(sidebar().getByRole('button', { name: /^Review/, pressed: false }))
     assert.ok(screen.getByRole('heading', { name: /^Tasks/ }))
   } finally { app.unmount() }
 })
@@ -1148,9 +1081,8 @@ test('new tasks default to Unsorted and priority choices contain only the five f
   try {
     const search = await screen.findByRole('textbox', { name: 'Search tasks' })
     const toolbar = search.closest('.tasks-toolbar')
-    const showCompleted = within(toolbar).getByRole('button', { name: 'Show completed', exact: true })
-    assert.equal(toolbar.lastElementChild, showCompleted.parentElement)
-    assert.equal(search.closest('label').nextElementSibling, showCompleted)
+    assert.ok(within(toolbar).getByRole('button', { name: 'Task view options' }))
+    assert.equal(screen.queryByRole('button', { name: 'Show completed' }), null)
     assert.equal(within(toolbar).queryByRole('combobox', { name: 'Filter tasks by category' }), null)
     const addTask = screen.getByRole('button', { name: 'Add task', exact: true })
     assert.ok(addTask.closest('.tasks-heading'))
@@ -1171,17 +1103,22 @@ test('new tasks default to Unsorted and priority choices contain only the five f
     assert.equal(screen.queryByRole('textbox', { name: 'Task plan date' }), null)
   } finally { app.unmount() }
 })
-test('sidebar restores category and tag expansion after remount', async () => {
-  const first = setup({ taxonomy: async () => ({ ok: true, value: { categories: [{ id: 'work', name: 'Work', color: '#85858e' }], subcategories: [{ id: 'project', categoryId: 'work', name: 'Project', color: '#85858e', count: 1 }], tags: [{ id: 'tag', name: 'Waiting', color: '#85858e', count: 1 }] } }) })
-  fireEvent.click(await screen.findByRole('button', { name: 'Collapse Work' }))
-  fireEvent.click(screen.getByRole('button', { name: /^Tags$/ }))
+test('sidebar restores its collapsed state and shows tags when reopened', async () => {
+  const first = setup()
+  const tag = await sidebar().findByRole('button', { name: /^Work/ })
+  assert.ok(tag)
+  assert.equal(sidebar().queryByRole('heading', { name: 'Tags' }), null)
+  fireEvent.click(sidebar().getByRole('button', { name: 'Hide sidebar' }))
+  assert.equal(sidebar().queryByRole('button', { name: /^Work/ }), null)
   first.unmount()
+
   const second = render(React.createElement(TaskApp))
-  assert.equal((await screen.findByRole('button', { name: 'Expand Work' })).getAttribute('aria-expanded'), 'false')
-  assert.equal(screen.getByRole('button', { name: /^Tags$/ }).getAttribute('aria-expanded'), 'false')
-  fireEvent.click(screen.getByRole('button', { name: /^Categories$/ }))
-  second.unmount()
-  const third = render(React.createElement(TaskApp))
-  assert.equal((await screen.findByRole('button', { name: /^Categories$/ })).getAttribute('aria-expanded'), 'false')
-  third.unmount()
+  try {
+    const toggle = sidebar().getByRole('button', { name: 'Show sidebar' })
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+    fireEvent.click(toggle)
+    assert.equal(toggle.getAttribute('aria-expanded'), 'true')
+    await sidebar().findByRole('button', { name: /^Work/ })
+    assert.equal(sidebar().queryByRole('button', { name: 'Add tag' }), null)
+  } finally { second.unmount() }
 })

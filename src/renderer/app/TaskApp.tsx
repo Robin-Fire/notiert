@@ -1,13 +1,11 @@
 import { LinkedText } from '../components/LinkedText'
 import { SettingsPanel } from '../settings/SettingsPanel'
 import { useTaxonomy } from '../components/useTaxonomy'
-import { AppSelect } from '../components/AppSelect'
 import { horizonOf, horizonLabels } from '../../shared/taskHorizons'
 import { TagFilter } from '../components/TagFilter'
 import { ItemDetailDialog } from '../components/ItemDetailDialog'
 import { AppSidebar, type ViewName } from '../components/AppSidebar'
 import { TaxonomyNav } from '../components/TaxonomyNav'
-import { MigrationReviewPanel } from '../components/MigrationReviewPanel'
 import {
   lazy,
   Suspense,
@@ -16,9 +14,7 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode
+  type KeyboardEvent as ReactKeyboardEvent
 } from 'react'
 import {
   ArrowLeft,
@@ -28,8 +24,6 @@ import {
   ChevronDown,
   Copy,
   FileText,
-  FolderKanban,
-  GripVertical,
   Info,
   Search,
   Trash2,
@@ -47,23 +41,6 @@ import { localDateBounds, toLocalISODate } from '../../shared/plannerDates'
 import { collectTags, TagEditor } from '../components/TagEditor'
 import { ImageIndicator, ItemImages } from '../components/ItemImages'
 import { resultValue } from '../apiResult'
-import {
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  closestCenter,
-  type DragEndEvent,
-  useSensor,
-  useSensors
-} from '@dnd-kit/core'
-import {
-  SortableContext,
-  arrayMove,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 
 const CalendarView = lazy(() =>
   import('../calenban/CalendarView').then((module) => ({ default: module.CalendarView }))
@@ -113,9 +90,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   const [cursor, setCursor] = useState<ItemPage['nextCursor']>(null)
   const [query, setQuery] = useState('')
   const [taskQuery, setTaskQuery] = useState('')
-  const [taskPage, setTaskPage] = useState<
-    { kind: 'category'; id: string; subcategoryId?: string } | { kind: 'tag'; id: string } | null
-  >(null)
+  const [taskPage, setTaskPage] = useState<string | null>(null)
 
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [dateRange, setDateRange] = useState('all')
@@ -123,26 +98,18 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   const [showCompleted, setShowCompleted] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [excludedTags, setExcludedTags] = useState<string[]>([])
-  const [subcategoryFilter, setSubcategoryFilter] = useState('')
   const activeFilterCount =
-    tagFilters.length + excludedTags.length + (subcategoryFilter ? 1 : 0) + (dateRange === 'all' ? 0 : 1)
-  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string | null>(null)
-  const [noSubcategory, setNoSubcategory] = useState(false)
+    tagFilters.length + excludedTags.length + (dateRange === 'all' ? 0 : 1)
   const {
-    categories,
-    subcategories,
     tags: tagRecords,
     ready: taxonomyLoaded,
     error: taxonomyError,
     refresh: loadTags
   } = useTaxonomy()
-  const taskTag = taskPage?.kind === 'tag' ? tagRecords.find((tag) => tag.id === taskPage.id) : undefined
+  const taskTag = tagRecords.find((tag) => tag.id === taskPage)
 
-  const [upgradeNotice, setUpgradeNotice] = useState(false)
-  const [reviewCount, setReviewCount] = useState(0)
   const availableTags = useMemo(() => tagRecords.map((tag) => tag.name), [tagRecords])
   const [selectedTagId, setSelectedTagId] = useState<string | null>(null)
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
   const [customFrom, setCustomFrom] = useState(todayISO())
   const [customTo, setCustomTo] = useState(todayISO())
   const [detailId, setDetailId] = useState<string | null>(null)
@@ -154,7 +121,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   useEffect(() => {
     setSelectionMode(false)
     setSelected([])
-  }, [view, selectedCategoryId, selectedTagId, selectedSubcategoryId])
+  }, [view, selectedTagId])
   const [settings, setSettings] = useState<Settings | null>(null)
   const [displays, setDisplays] = useState<{ id: number; label: string; primary: boolean }[]>([])
   const requestLeaveRef = useRef<(action: () => void) => void>(() => {})
@@ -168,8 +135,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   const [browserCaptureOpen, setBrowserCaptureOpen] = useState(false)
   const [browserCaptureText, setBrowserCaptureText] = useState('')
   const [browserCaptureTags, setBrowserCaptureTags] = useState<string[]>([])
-  const [browserCaptureSubcategoryId, setBrowserCaptureSubcategoryId] = useState<string | null>(null)
-  const [browserCaptureCategoryId, setBrowserCaptureCategoryId] = useState<string | null>(null)
   const [recordingShortcut, setRecordingShortcut] = useState(false)
   const [updateStatus, setUpdateStatus] = useState<{ status: string; version?: string }>({ status: 'idle' })
   const [firstRun, setFirstRun] = useState(false)
@@ -197,22 +162,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
     }
   }, [])
 
-  const loadMigration = useCallback(() => {
-    if (window.captured.items.migrationStatus)
-      void window.captured.items
-        .migrationStatus()
-        .then((result) => {
-          if (result.ok) setUpgradeNotice(result.value.upgraded && !result.value.acknowledged)
-        })
-        .catch(() => {})
-    if (window.captured.items.migrationReview)
-      void window.captured.items
-        .migrationReview()
-        .then((result) => {
-          if (result.ok) setReviewCount(result.value.length)
-        })
-        .catch(() => {})
-  }, [])
   const selectedTagName = tagRecords.find((tag) => tag.id === selectedTagId)?.name
   const filter = useMemo<ItemFilter>(() => {
     let dateFrom: number | undefined, dateTo: number | undefined
@@ -231,30 +180,19 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
     }
     const scope = view === 'trash' ? 'trash' : 'items'
     return {
-      subcategoryId:
-        subcategoryFilter && subcategoryFilter !== 'none'
-          ? subcategoryFilter
-          : view === 'category'
-            ? (selectedSubcategoryId ?? undefined)
-            : undefined,
-      noSubcategory: subcategoryFilter === 'none' || (view === 'category' && noSubcategory),
       query: debouncedQuery,
       scope,
       dateFrom,
       dateTo,
-      categoryId: view === 'category' ? (selectedCategoryId ?? undefined) : undefined,
       kinds: ['task'],
       excludedTags: excludedTags.length ? excludedTags : undefined,
       tags:
         view === 'tag' ? [selectedTagName ?? '__missing_tag__'] : tagFilters.length ? tagFilters : undefined,
       includeCompleted: scope === 'items' && showCompleted,
       limit: 50,
-      sort: view === 'category' ? 'priority' : 'newest'
+      sort: 'newest'
     }
   }, [
-    subcategoryFilter,
-    selectedSubcategoryId,
-    noSubcategory,
     dateRange,
     customFrom,
     customTo,
@@ -262,7 +200,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
     tagFilters,
     excludedTags,
     selectedTagName,
-    selectedCategoryId,
     showCompleted,
     view
   ])
@@ -271,7 +208,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
 
   const loadItems = useCallback(
     async (nextCursor?: ItemPage['nextCursor'], append = false) => {
-      if (!['all', 'trash', 'tag', 'category'].includes(view)) return
+      if (!['all', 'trash', 'tag'].includes(view)) return
       if (activeFilter.current !== filter) return
       const request = ++itemsRequest.current
       setLoading(true)
@@ -309,8 +246,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   )
   useEffect(() => {
     void loadSettings()
-    loadMigration()
-  }, [loadSettings, loadMigration])
+  }, [loadSettings])
   useEffect(
     () =>
       window.captured.items.onChanged(() => {
@@ -318,9 +254,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
       }),
     [loadItems]
   )
-  useEffect(() => {
-    loadMigration()
-  }, [loadMigration, categories, subcategories, tagRecords])
   useEffect(() => {
     if (settings?.showCalendar === false && view === 'calenban') setView('tasks')
   }, [settings?.showCalendar, view])
@@ -356,14 +289,14 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
       if (
         (event.ctrlKey || event.metaKey) &&
         event.key.toLowerCase() === 'f' &&
-        (view === 'all' || view === 'trash' || view === 'tag' || view === 'category') &&
+        (view === 'all' || view === 'trash' || view === 'tag') &&
         !(event.target instanceof HTMLElement && event.target.closest('[role="dialog"]'))
       ) {
         event.preventDefault()
         searchRef.current?.focus()
         return
       }
-      if (view !== 'all' && view !== 'trash' && view !== 'tag' && view !== 'category') return
+      if (view !== 'all' && view !== 'trash' && view !== 'tag') return
       if (isTextEntry(event.target)) return
       if (
         event.target instanceof HTMLElement &&
@@ -412,11 +345,9 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   useEffect(() => {
     const open = (event: Event) => {
       const context = (event as CustomEvent).detail as
-        | { categoryId: string | null; subcategoryId?: string | null; tags?: string[] }
+        | { tags?: string[] }
         | undefined
       if (context && !browserCaptureText.trim()) {
-        setBrowserCaptureCategoryId(context.categoryId)
-        setBrowserCaptureSubcategoryId(context.subcategoryId ?? null)
         setBrowserCaptureTags(context.tags ?? [])
       }
       setBrowserCaptureOpen(true)
@@ -434,8 +365,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
           generation: 0,
           body: browserCaptureText,
           captureKind: 'task',
-          categoryId: browserCaptureCategoryId,
-          subcategoryId: browserCaptureSubcategoryId,
           tags: collectTags(browserCaptureTags)
         })
       )
@@ -451,7 +380,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   async function openItem(id: string) {
     const request = ++detailRequest.current
     activeDetailId.current = id
-    const useModal = view === 'all' || view === 'category' || view === 'tag'
+    const useModal = view === 'all' || view === 'tag'
     if (!useModal) setDetailId(id)
     setDetail(null)
     try {
@@ -472,14 +401,10 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
     setDateRange('all')
     setTagFilters([])
     setExcludedTags([])
-    setSubcategoryFilter('')
   }
   function nav(next: ViewName) {
     requestLeaveRef.current(() => {
-      setSelectedSubcategoryId(null)
-      setNoSubcategory(false)
       setSelectedTagId(null)
-      setSelectedCategoryId(null)
       setView(next)
       setShowCompleted(false)
       setDetailId(null)
@@ -489,34 +414,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
       clearFilters()
     })
   }
-  const taskCategory = taskPage?.kind === 'category' ? categories.find((category) => category.id === taskPage.id) : undefined
-  const taskSubcategory = taskPage?.kind === 'category' && taskCategory
-    ? subcategories.find((subcategory) => subcategory.id === taskPage.subcategoryId && subcategory.categoryId === taskCategory.id)
-    : undefined
   const selectedTag = tagRecords.find((tag) => tag.id === selectedTagId) ?? null
-  const selectedCategory = categories.find((category) => category.id === selectedCategoryId) ?? null
-  async function reorderTask(id: string, categoryId: string | null, requestedBeforeId: string | null) {
-    try {
-      let beforeId = requestedBeforeId
-      if (beforeId === null && cursor) {
-        let nextCursor: typeof cursor | null = cursor
-        while (nextCursor && beforeId === null) {
-          const nextPage: ItemPage = resultValue(
-            await window.captured.items.list({ ...filter, cursor: nextCursor })
-          )
-          beforeId =
-            nextPage.items.find(
-              (item) => item.kind === 'task' && item.completedAt == null && item.categoryId === categoryId
-            )?.id ?? null
-          nextCursor = nextPage.nextCursor
-        }
-      }
-      resultValue(await window.captured.planner.reorderBacklog({ id, categoryId, beforeId }))
-      await loadItems()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'To-do priority could not be saved.')
-    }
-  }
   async function setTaskCompleted(id: string, completed: boolean): Promise<boolean> {
     try {
       resultValue(await window.captured.planner.setTaskCompleted({ id, completed }))
@@ -625,7 +523,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
   const renderRows = () => {
     const hasFilters = !!(
       excludedTags.length ||
-      subcategoryFilter ||
       debouncedQuery ||
       (view !== 'tag' && tagFilters.length) ||
       dateRange !== 'all'
@@ -639,8 +536,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
           <h2>
             {view === 'tag' && !hasFilters
               ? 'No items with this tag yet.'
-              : view === 'category' && !hasFilters
-                ? 'No items in this category yet.'
                 : hasFilters
                   ? 'No matching items.'
                   : view === 'trash'
@@ -652,8 +547,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
               ? 'Try another phrase or clear the filters.'
               : view === 'tag'
                 ? 'Items using this tag will appear here.'
-                : view === 'category'
-                  ? 'Items assigned to this category will appear here, including items with no tag.'
                   : view === 'trash'
                     ? 'Deleted items stay here until you remove them permanently.'
                     : `Press ${settings?.shortcut.replace('Control', 'Ctrl') ?? 'Ctrl+N'} from any app to capture an item.`}
@@ -663,7 +556,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
               Clear filters
             </button>
           ) : (
-            view === 'tag' || view === 'category' ? (
+            view === 'tag' ? (
               <button className="button secondary" onClick={() => nav('tasks')}>
                 Go to tasks <ArrowRight size={15} />
               </button>
@@ -675,26 +568,12 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
           )}
         </div>
       )
-    const renderRow = (item: ItemDetail, sortable?: SortableRowProps) => (
+    const renderRow = (item: ItemDetail) => (
       <article
-        ref={sortable?.ref}
-        style={sortable?.style}
         key={item.id}
         data-item-id={item.id}
-        className={`item-row ${sortable ? 'priority-item-row' : ''} ${item.completedAt != null ? 'is-completed' : ''} ${detailId === item.id || focusedId === item.id ? 'is-active' : ''} ${selected.includes(item.id) ? 'is-selected' : ''}`}
+        className={`item-row ${item.completedAt != null ? 'is-completed' : ''} ${detailId === item.id || focusedId === item.id ? 'is-active' : ''} ${selected.includes(item.id) ? 'is-selected' : ''}`}
       >
-        {sortable && (
-          <button
-            type="button"
-            className="item-drag-handle"
-            aria-label={`Reorder task ${item.body.trim() ? excerpt(item.body).slice(0, 80) : 'without a title'}`}
-            title="Drag to change priority"
-            {...sortable.attributes}
-            {...sortable.listeners}
-          >
-            <GripVertical size={14} />
-          </button>
-        )}
         {selectionMode ? (
           <input
             className="row-select"
@@ -731,14 +610,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
                 {horizonLabels[horizonOf(item.intention, toLocalISODate(new Date()))]}
               </span>
             )}
-            {item.subcategoryId && (
-              <span className="subcategory-label">
-                {(view === 'category'
-                  ? ''
-                  : (categories.find((category) => category.id === item.categoryId)?.name ?? '') + ' / ') +
-                  subcategories.find((subcategory) => subcategory.id === item.subcategoryId)?.name}
-              </span>
-            )}
             <ImageIndicator count={item.images.length} />
             {item.tags.map((tag) => (
               <span
@@ -758,49 +629,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
       </article>
     )
 
-    if (view === 'category') {
-      const groups = [
-        { id: null, name: selectedCategory?.name ?? 'Tasks', color: selectedCategory?.color },
-        ...subcategories.filter(
-          (subcategory) =>
-            subcategory.categoryId === selectedCategoryId &&
-            (!selectedSubcategoryId || subcategory.id === selectedSubcategoryId)
-        )
-      ]
-      return (
-        <>
-          {groups.map((group) => {
-            const groupItems = items.filter((item) => (item.subcategoryId ?? null) === group.id)
-            if (!groupItems.length) return null
-            const tasks = groupItems.filter((item) => item.kind === 'task' && item.completedAt == null)
-            const remaining = groupItems.filter((item) => item.kind !== 'task' || item.completedAt != null)
-            return (
-              <CategoryTaskGroup
-                key={group.id ?? 'direct'}
-                title={group.name}
-                color={group.color}
-              >
-                {tasks.length > 0 && (
-                  <PriorityTaskGroup
-                    categoryId={selectedCategoryId}
-                    title={group.name}
-                    tasks={tasks}
-                    renderRow={renderRow}
-                    onReorder={reorderTask}
-                  />
-                )}
-                {remaining.map((item) => renderRow(item))}
-              </CategoryTaskGroup>
-            )
-          })}
-          {cursor && (
-            <button className="load-more" onClick={() => void loadItems(cursor, true)} disabled={loading}>
-              Load more <ChevronDown size={14} />
-            </button>
-          )}
-        </>
-      )
-    }
     const groups = new Map<string, ItemDetail[]>()
     for (const item of items) {
       const label = itemDateLabel(view === 'trash' ? (item.deletedAt ?? item.createdAt) : item.createdAt)
@@ -826,32 +654,12 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
 
   useEffect(() => {
     if (!taxonomyLoaded) return
-    if (
-      view === 'category' &&
-      selectedCategoryId &&
-      !categories.some((item) => item.id === selectedCategoryId)
-    ) {
-      setView('tasks')
-      setSelectedCategoryId(null)
-      setSelectedSubcategoryId(null)
-      setNoSubcategory(false)
-    }
     if (view === 'tag' && selectedTagId && !tagRecords.some((item) => item.id === selectedTagId)) {
       setView('tasks')
       setSelectedTagId(null)
     }
-    if (selectedSubcategoryId && !subcategories.some((item) => item.id === selectedSubcategoryId))
-      setSelectedSubcategoryId(null)
-  }, [
-    taxonomyLoaded,
-    categories,
-    subcategories,
-    tagRecords,
-    view,
-    selectedCategoryId,
-    selectedSubcategoryId,
-    selectedTagId
-  ])
+
+  }, [taxonomyLoaded, tagRecords, view, selectedTagId])
 
   const requestEditorLeave = (action: () => void) => {
     if (!editItem) action()
@@ -901,24 +709,15 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
           nav(next)
         }}
         showCalendar={settings?.showCalendar !== false}
+        captureProtection={settings?.captureProtection}
+        onCaptureProtectionChange={(captureProtection) => saveSettings({ captureProtection })}
       >
         <TaxonomyNav
-          categories={categories}
-          subcategories={subcategories}
           tags={tagRecords}
-          activeCategory={view === 'tasks' ? taskCategory?.id : undefined}
-          activeSubcategory={view === 'tasks' ? taskSubcategory?.id : undefined}
           activeTagId={view === 'tasks' ? taskTag?.id : undefined}
-          onCategory={(id, subcategoryId) => {
-            if (editItem) return
-            const active = view === 'tasks' && taskCategory?.id === id && taskSubcategory?.id === subcategoryId
-            setTaskPage(active ? null : { kind: 'category', id, subcategoryId })
-            setTaskQuery('')
-            if (view !== 'tasks') nav('tasks')
-          }}
           onTag={(id) => {
             if (editItem) return
-            setTaskPage(view === 'tasks' && taskTag?.id === id ? null : { kind: 'tag', id })
+            setTaskPage(view === 'tasks' && taskTag?.id === id ? null : id)
             setTaskQuery('')
             if (view !== 'tasks') nav('tasks')
           }}
@@ -930,23 +729,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
           <div className="inline-error" role="alert">
             {taxonomyError}
             <button type="button" onClick={() => void loadTags()}>
-              Retry categories and tags
-            </button>
-          </div>
-        )}
-        {upgradeNotice && view !== 'review' && (
-          <div className="taxonomy-upgrade-notice">
-            Your existing tags were preserved. {reviewCount} items need a subcategory review.{' '}
-            <button onClick={() => nav('review')}>Review assignments</button>
-            <button
-              aria-label="Dismiss taxonomy upgrade notice"
-              onClick={() => {
-                void window.captured.items.acknowledgeMigration().then((result) => {
-                  if (result.ok) setUpgradeNotice(false)
-                })
-              }}
-            >
-              Dismiss
+              Retry tags
             </button>
           </div>
         )}
@@ -978,22 +761,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
             setRecordingShortcut={setRecordingShortcut}
             onShortcutKey={onShortcutKey}
           />
-        ) : view === 'review' ? (
-          <MigrationReviewPanel
-            categories={categories}
-            subcategories={subcategories}
-            onChanged={() => {
-              void loadTags()
-              void loadItems()
-            }}
-            onOpen={(id, deleted) =>
-              requestEditorLeave(() => {
-                setView(deleted ? 'trash' : 'all')
-                clearFilters()
-                void openItem(id)
-              })
-            }
-          />
         ) : ['tasks', 'inbox', 'backlog', 'ready', 'later'].includes(view) ? (
           <Suspense
             fallback={
@@ -1004,16 +771,10 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
           >
             <TasksView
               key="tasks"
-              categories={categories}
-              subcategories={subcategories}
               tags={tagRecords}
               taxonomyReady={taxonomyLoaded}
-              title={taskSubcategory?.name ?? taskCategory?.name ?? taskTag?.name ?? 'Tasks'}
-              category={taskCategory?.id}
-              subcategory={taskSubcategory?.id}
+              title={taskTag?.name ?? 'Tasks'}
               selectedTag={taskTag?.name}
-              captureProtection={settings?.captureProtection}
-              onCaptureProtectionChange={(captureProtection) => saveSettings({ captureProtection })}
               query={taskQuery}
               setQuery={setTaskQuery}
               searchRef={searchRef}
@@ -1033,7 +794,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
           <>
             <header className="main-header">
               <div className="title-stack">
-                {view !== 'tag' && view !== 'category' && (
+                {view !== 'tag' && (
                   <div className="eyebrow">{view === 'trash' ? 'ARCHIVE' : 'YOUR TASKS'}</div>
                 )}
                 <h1>
@@ -1041,8 +802,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
                     ? 'Trash'
                     : view === 'tag'
                       ? (selectedTag?.name ?? 'Tag')
-                      : view === 'category'
-                        ? `${selectedCategory?.name ?? 'Category'}${selectedSubcategoryId ? ' / ' + (subcategories.find((item) => item.id === selectedSubcategoryId)?.name ?? 'Subcategory') : noSubcategory ? ' / No subcategory' : ''}`
                         : 'All tasks'}{' '}
                   <span className="title-count">{total.toLocaleString()}</span>
                 </h1>
@@ -1127,32 +886,12 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
               >
                 {selectionMode ? 'Done selecting' : 'Select items'}
               </button>
-              {view !== 'category' && (
                 <span className="result-count">
                   {total.toLocaleString()} {total === 1 ? 'item' : 'items'}
                 </span>
-              )}
             </div>
             {filtersOpen && (
               <div id="item-filters" className="filter-panel" aria-label="Filters">
-                <div className="filter-row">
-                  <span className="filter-heading">SUBCATEGORY</span>
-                  <AppSelect
-                    aria-label="Subcategory filter"
-                    value={subcategoryFilter}
-                    onChange={(event) => requestEditorLeave(() => setSubcategoryFilter(event.target.value))}
-                  >
-                    <option value="">All subcategories</option>
-                    <option value="none">No subcategory</option>
-                    {subcategories
-                      .filter((item) => view !== 'category' || item.categoryId === selectedCategoryId)
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {categories.find((category) => category.id === item.categoryId)?.name} / {item.name}
-                        </option>
-                      ))}
-                  </AppSelect>
-                </div>
                 {view !== 'tag' && (
                   <div className="filter-row">
                     <span className="filter-heading">TAGS</span>
@@ -1187,7 +926,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
                     className="filter-clear"
                     onClick={() => requestEditorLeave(clearFilters)}
                     disabled={
-                      !subcategoryFilter &&
                       !excludedTags.length &&
                       !query &&
                       !tagFilters.length &&
@@ -1367,17 +1105,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
 
                       <>
                         <div className="detail-tags">
-                          <span className="tags-field-label">Category</span>
-                          <span className="detail-tag-list">
-                            {(categories.find((category) => category.id === detail.categoryId)?.name ??
-                              'Unassigned') +
-                              (detail.subcategoryId
-                                ? ' / ' +
-                                  (subcategories.find((item) => item.id === detail.subcategoryId)?.name ?? '')
-                                : '')}
-                          </span>
-                        </div>
-                        <div className="detail-tags">
                           <span className="tags-field-label">Tags</span>
                           <span className="detail-tag-list">
                             {detail.tags.length
@@ -1454,42 +1181,6 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
                 if (event.key === 'Escape') setBrowserCaptureOpen(false)
               }}
             />
-            <label className="browser-capture-category">
-              Category{' '}
-              <AppSelect
-                aria-label="Capture category"
-                value={browserCaptureCategoryId ?? ''}
-                onChange={(event) => {
-                  setBrowserCaptureCategoryId(event.target.value || null)
-                  setBrowserCaptureSubcategoryId(null)
-                }}
-              >
-                <option value="">Unassigned</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </AppSelect>
-            </label>
-            <label>
-              Subcategory
-              <AppSelect
-                aria-label="Capture subcategory"
-                disabled={!browserCaptureCategoryId}
-                value={browserCaptureSubcategoryId ?? ''}
-                onChange={(event) => setBrowserCaptureSubcategoryId(event.target.value || null)}
-              >
-                <option value="">No subcategory</option>
-                {subcategories
-                  .filter((sub) => sub.categoryId === browserCaptureCategoryId)
-                  .map((sub) => (
-                    <option key={sub.id} value={sub.id}>
-                      {sub.name}
-                    </option>
-                  ))}
-              </AppSelect>
-            </label>
             <TagEditor
               tags={browserCaptureTags}
               onTagsChange={setBrowserCaptureTags}
@@ -1542,99 +1233,4 @@ async function trashSelectedFromDetail(
   } catch (reason) {
     setError(reason instanceof Error ? reason.message : 'Could not move item to Trash.')
   }
-}
-
-type SortableRowProps = {
-  ref: (node: HTMLElement | null) => void
-  style: CSSProperties
-  attributes: ReturnType<typeof useSortable>['attributes']
-  listeners: ReturnType<typeof useSortable>['listeners']
-}
-
-function CategoryTaskGroup({
-  title,
-  color,
-  children
-}: {
-  title: string
-  color?: string
-  children: ReactNode
-}) {
-  const [collapsed, setCollapsed] = useState(false)
-  return (
-    <section className="backlog-group category-task-group" aria-label={title + ' tasks'}>
-      <div className="backlog-group-heading">
-        <button
-          type="button"
-          className="backlog-group-toggle"
-          aria-expanded={!collapsed}
-          onClick={() => setCollapsed((value) => !value)}
-        >
-          <FolderKanban size={16} color={color} />
-          <b>{title}</b>
-          <ChevronDown size={15} className={collapsed ? 'is-closed' : ''} />
-        </button>
-      </div>
-      {!collapsed && <div className="category-task-group-items">{children}</div>}
-    </section>
-  )
-}
-
-function PriorityTaskGroup({
-  categoryId,
-  title,
-  tasks,
-  renderRow,
-  onReorder
-}: {
-  categoryId: string | null
-  title: string
-  tasks: ItemDetail[]
-  renderRow: (item: ItemDetail, sortable?: SortableRowProps) => ReactNode
-  onReorder: (id: string, categoryId: string | null, beforeId: string | null) => void
-}) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  )
-  function handleDragEnd(event: DragEndEvent) {
-    if (!event.over || event.active.id === event.over.id) return
-    const oldIndex = tasks.findIndex((task) => task.id === event.active.id)
-    const newIndex = tasks.findIndex((task) => task.id === event.over!.id)
-    if (oldIndex < 0 || newIndex < 0) return
-    const reordered = arrayMove(tasks, oldIndex, newIndex)
-    onReorder(String(event.active.id), categoryId, reordered[newIndex + 1]?.id ?? null)
-  }
-  return (
-    <section className="priority-task-group">
-      <div className="date-label">{title}</div>
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={tasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
-          {tasks.map((task) => (
-            <SortablePriorityItem key={task.id} item={task} renderRow={renderRow} />
-          ))}
-        </SortableContext>
-      </DndContext>
-    </section>
-  )
-}
-
-function SortablePriorityItem({
-  item,
-  renderRow
-}: {
-  item: ItemDetail
-  renderRow: (item: ItemDetail, sortable?: SortableRowProps) => ReactNode
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: item.id })
-  return (
-    <>
-      {renderRow(item, {
-        ref: setNodeRef,
-        style: { transform: CSS.Transform.toString(transform), transition },
-        attributes,
-        listeners
-      })}
-    </>
-  )
 }

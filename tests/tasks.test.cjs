@@ -41,6 +41,15 @@ test('tag list order survives reopening and pagination without changing priority
     const next = list(f.store, { tags: ['Planning'], limit: 2, cursor: page.nextCursor })
     assert.deepEqual([...page.items, ...next.items].map(item => item.id), [third, first, second])
     assert.deepEqual(page.items[0].intention, original[2].intention)
+    const newlyTagged = make(f.store, 'Newly tagged')
+    f.store.setItemTags(newlyTagged.id, ['Planning'])
+    assert.deepEqual(list(f.store, { tags: ['Planning'] }).items.map(item => item.id), [newlyTagged.id, third, first, second])
+    f.store.setItemTags(first, ['planning', 'Work'])
+    assert.deepEqual(list(f.store, { tags: ['Planning'] }).items.map(item => item.id), [newlyTagged.id, third, first, second])
+    f.store.setItemTags(first, ['Work'])
+    f.store.setItemTags(first, ['Planning', 'Work'])
+    assert.deepEqual(list(f.store, { tags: ['Planning'] }).items.map(item => item.id), [first, newlyTagged.id, third, second])
+    assert.deepEqual(list(f.store, { tags: ['Work'] }).items.map(item => item.id), original.map(item => item.id))
   } finally { f.close() }
 })
 

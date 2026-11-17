@@ -10,7 +10,6 @@ export function LinkedText({ text, linksOnly = false }: { text: string; linksOnl
     const href = /^www\./i.test(label) ? `https://${label}` : label
     try { if (!new URL(href).hostname) continue } catch { continue }
     if (!linksOnly) parts.push(text.slice(cursor, match.index))
-    else if (parts.length) parts.push(' · ')
     parts.push(<a className="task-text-link" key={match.index} href={href} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>{label}</a>)
     cursor = match.index! + label.length
   }

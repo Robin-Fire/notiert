@@ -28,17 +28,17 @@ npm run dist:win
 
 ## Using the app
 
-**Capture** opens a small window with the global shortcut. Every saved capture is a task in **Unsorted**. Assign a category, subcategory, and independent tags while capturing. There is no separate note type or classification step.
+**Capture** opens a small window with the global shortcut. Every saved capture is a task in **Unsorted**. Add tags while capturing. There is no separate note type or classification step.
 
 **Tasks** opens by default and combines all captured and prioritized work in one page. By priority and Table layouts share five buckets: Unsorted for new captures, Now for current focus, Next for high priority, Soon for medium priority, and Later for very low priority. Buckets stay fixed until you move a task; they never become overdue. Drag grips to move or reorder tasks, or use the priority actions. Moving and completing offer Undo, which refuses to overwrite later edits. Bulk selection moves up to 100 loaded tasks together.
 
-Use **Add task** at the top right to create a task, and use the Tasks toolbar to search or show completed tasks. Select a category or subcategory to open its priority buckets, or select a tag to open its task list. Drag tasks within a tag to save their order for that tag. Drag a tag by its name to reorder the sidebar. Unsorted and Later can collapse into count rails on narrow windows.
+Use **Add task** at the top right to create a task, and use the Tasks toolbar to search or show completed tasks. Select a tag to open its task list. Adding a tag puts the task at the top of that tag's list. Drag tasks within the list to change their order. Drag a tag by its name to reorder the sidebar. Unsorted and Later can collapse into count rails on narrow windows.
 
-**Task details** saves text, images, tags, category, priority, and schedule with one **Save** action or Ctrl+S. All changes commit together. Closing with unsaved changes asks whether to discard them.
+**Task details** saves text, images, tags, priority, and schedule with one **Save** action or Ctrl+S. All changes commit together. Closing with unsaved changes asks whether to discard them.
 
 **Calendar** has Day, 3 days, and Monday–Friday Workweek views, configurable visible hours, a Ready panel, and drag/resize controls. Calendar placements are independent of priority. Changing a task's priority does not reschedule its time block. Scheduled times appear on task cards and Table rows. Meetings are entered locally; daily, weekly, and monthly recurrence supports an inclusive end date and up to 366 occurrences. Monthly recurrence skips missing days. Outlook sync is not configured.
 
-**Search** includes open and completed tasks across all priority buckets. Results show an Open or Completed label and can be opened and edited without reopening the task. Full text and tags are searchable; category/subcategory and tag filters apply before pagination. The Completed toggle explicitly limits results to completed tasks when selected. **Review subcategories** resolves ambiguous assignments retained from older taxonomy migrations.
+**Search** includes open and completed tasks across all priority buckets. Results show an Open or Completed label and can be opened and edited without reopening the task. Search matches task text and tags. Tag filters apply before pagination. The Completed toggle explicitly limits results to completed tasks when selected.
 
 Paste PNG, JPEG, WebP, or GIF images with Ctrl+V in capture or item editing. Each item supports up to five images, 5 MB each and 20 MB total. Images save with text and are discarded when edits are cancelled. Details provide thumbnails and a larger preview.
 
@@ -55,7 +55,7 @@ If another app owns the global shortcut, captured reports that state and retains
 ## Architecture
 
 - Electron main owns windows, tray, shortcuts, settings, clipboard, dialogs, and SQLite. Typed preload APIs keep renderers away from Node, SQL, and the filesystem.
-- React renders capture and the main workspace. The sidebar and Settings are separate components. Categories and tags share one subscription and ignore stale responses.
+- React renders capture and the main workspace. The sidebar and Settings are separate components. Tag controls share one subscription and ignore stale responses.
 - SQLite is authoritative, with WAL, foreign keys, full synchronous writes, migrations, and FTS5 search. Upgrades live in `src/main/storage/migrations.ts`; live operations live in `database.ts`.
 - Workspace loading returns first pages and shared counts in one IPC request and one read transaction. Later pages retain independent cursors.
 - Browser preview uses local sample data and mirrors task operations for UI development. The packaged app uses SQLite.
@@ -69,7 +69,7 @@ captured makes SQLite backups after the first successful write each day, before 
 
 Restore accepts a captured SQLite backup, checks integrity, makes a safety backup, and replaces current data. Text and Markdown exports are portable, but are not full-fidelity restore files. Images are embedded as data URLs and can make exports large. JSON export/restore is unavailable. Do not sync the live SQLite database through a shared folder.
 
-The current schema is 18. Older backups migrate on restore. Schema 12 separated subcategories from independent tags; ambiguous labels remain available for review. Schema 14 introduced task plans and capture types. Schema 15 deferred the removed This week bucket to Later without changing calendar placements. Schema 16 added category colors. Schema 17 converts former notes into completed tasks and old captures into open Backlog tasks, preserving text, tags, categories, images, and Trash. Schema 18 converts Today to Now, Tomorrow to Next, and other future plans to Soon, preserving task order and calendar placements. Priorities stay fixed after this one-time migration. Upgrades and restored older backups use the same conversion. Older executables may require their pre-migration backup, which excludes subsequent edits.
+The current schema is 18. Older backups migrate on restore. Schema 12 separated subcategories from independent tags; legacy assignments are retained in storage. Schema 14 introduced task plans and capture types. Schema 15 deferred the removed This week bucket to Later without changing calendar placements. Schema 16 added category colors. Schema 17 converts former notes into completed tasks and old captures into open Backlog tasks, preserving text, tags, categories, images, and Trash. Schema 18 converts Today to Now, Tomorrow to Next, and other future plans to Soon, preserving task order and calendar placements. Priorities stay fixed after this one-time migration. Upgrades and restored older backups use the same conversion. Older executables may require their pre-migration backup, which excludes subsequent edits.
 
 ## Privacy and release checks
 

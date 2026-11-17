@@ -96,7 +96,7 @@ export class Store {
       const ids = [...previous, ...rows.map(({ id }) => id).filter(id => !ranked.has(id))]
       const reordered = reorderTaggedTaskIds(ids, input.id, input.targetId, input.after)
       if (!reordered) throw new AppError('STALE_TARGET', 'The tagged tasks changed. Refresh before reordering.')
-      this.db.prepare('INSERT OR REPLACE INTO app_state VALUES(?,?)').run(key, JSON.stringify(reordered))
+      this.saveTaggedOrder(key, reordered)
     })()
     this.changeSequence++
   }
@@ -566,7 +566,7 @@ export class Store {
       this.validateSubcategory(categoryId,subcategoryId)
       const changed = this.db.prepare("UPDATE notes SET kind=?,processed_at=?,task_status=?,planned_date=?,planned_start_at=NULL,planned_end_at=NULL,due_date=?,task_position=0,before_event_id=NULL,completed_at=NULL,project_id=?,subcategory_id=?,task_ready=0,is_later=0,updated_at=?,revision=revision+1 WHERE id=? AND deleted_at IS NULL AND kind='inbox'").run(kind, now, kind === 'task' ? 'open' : null, null, null, categoryId, subcategoryId, now, id)
       if (!changed.changes) throw new AppError('ALREADY_FILED', 'This Inbox item has already been filed. Reload the Inbox to continue.')
-      this.replaceItemTags(id, cleanTags, categoryId)
+      this.replaceItemTags(id, cleanTags)
       const priorityPosition = kind === 'task' ? this.nextBacklogPosition(categoryId) : 0
       this.db.prepare('UPDATE notes SET backlog_position=? WHERE id=?').run(priorityPosition, id)
     })
@@ -588,20 +588,34 @@ export class Store {
     if (!current || current.deletedAt !== null) throw new AppError('NOT_FOUND', 'This item no longer exists.')
     const cleanTags = normalizeTags(tags)
     const transaction = this.db.transaction(() => {
-      const category = this.db.prepare('SELECT project_id AS categoryId FROM notes WHERE id=?').get(id) as { categoryId: string | null; subcategoryId: string | null } | undefined
-      this.replaceItemTags(id, cleanTags, category?.categoryId ?? null)
+      this.replaceItemTags(id, cleanTags)
       this.db.prepare('UPDATE notes SET revision=revision+1,updated_at=? WHERE id=?').run(Date.now(), id)
     })
     transaction(); this.changeSequence++
   }
 
-  private replaceItemTags(id: string, tags: string[], categoryId: string | null = null) {
+  private replaceItemTags(id: string, tags: string[]) {
+    const previous = this.db.prepare('SELECT tag_id FROM note_tags WHERE note_id=?').all(id) as { tag_id: string }[]
+    const removed = new Set(previous.map(({ tag_id }) => tag_id))
     this.db.prepare('DELETE FROM note_tags WHERE note_id=?').run(id)
     for (const name of tags) {
       this.db.prepare('INSERT INTO item_tags(id,name,position) VALUES(?,?,(SELECT coalesce(max(position),-1)+1 FROM item_tags)) ON CONFLICT(name) DO NOTHING').run(randomUUID(), name)
       const tag = this.db.prepare('SELECT id FROM item_tags WHERE name=? COLLATE NOCASE').get(name) as { id: string }
       this.db.prepare('INSERT INTO note_tags(note_id,tag_id) VALUES(?,?)').run(id, tag.id)
+      if (!removed.delete(tag.id)) {
+        const key = taggedTaskOrderKey([tag.id])
+        this.saveTaggedOrder(key, [id, ...this.taggedOrder(key).filter(taskId => taskId !== id)])
+      }
     }
+    for (const tagId of removed) {
+      const key = taggedTaskOrderKey([tagId])
+      const order = this.taggedOrder(key)
+      if (order.includes(id)) this.saveTaggedOrder(key, order.filter(taskId => taskId !== id))
+    }
+  }
+
+  private saveTaggedOrder(key: string, order: string[]) {
+    this.db.prepare('INSERT OR REPLACE INTO app_state VALUES(?,?)').run(key, JSON.stringify(order))
   }
 
   private nextBacklogPosition(categoryId: string | null) {
@@ -807,7 +821,7 @@ export class Store {
       const id = randomUUID(), now = Date.now()
       this.db.prepare("INSERT INTO notes(id,body,body_html,created_at,updated_at,kind,processed_at,task_status,project_id,subcategory_id,backlog_position) VALUES(?,?,?,?,?,'task',?,'open',?,?,?)").run(id, input.body, input.bodyHtml ?? null, now, now, now, input.categoryId, input.subcategoryId ?? null, this.nextBacklogPosition(input.categoryId))
       if (input.images?.length) this.replaceItemImages(id, input.images)
-      this.replaceItemTags(id, normalizeTags(input.tags), input.categoryId)
+      this.replaceItemTags(id, normalizeTags(input.tags))
       this.syncSearch(id)
       const scheduled = this.schedulePlannerTask({ id, expectedRevision: 1, placement: input.placement })
       this.db.prepare('UPDATE task_intentions SET kind=?,target_date=? WHERE note_id=?').run(input.placement.kind==='later'?'later':'unplanned',null,id)
@@ -1047,7 +1061,7 @@ export class Store {
       const changed = this.db.prepare('UPDATE notes SET body=?,body_html=?,project_id=?,subcategory_id=?,backlog_position=coalesce(?,backlog_position),updated_at=?,revision=revision+1 WHERE id=? AND revision=? AND deleted_at IS NULL').run(plainBody, formattedBody ?? null, categoryId, subcategoryId, priorityPosition, now, id, expectedRevision)
       if (!changed.changes) throw new AppError('REVISION_CONFLICT', 'This item changed elsewhere. Reload it before saving.')
       if (images !== undefined) this.replaceItemImages(id, images)
-      this.replaceItemTags(id, cleanTags, categoryId)
+      this.replaceItemTags(id, cleanTags)
       this.syncSearch(id)
     })
     transaction()

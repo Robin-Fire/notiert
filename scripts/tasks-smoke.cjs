@@ -50,7 +50,7 @@ app.whenReady().then(async () => {
     try { await preview.loadFile(file); await wait(400); fs.writeFileSync(path.join(output, name), (await preview.webContents.capturePage()).toPNG()) } finally { preview.destroy() }
   }
   if (process.argv.includes('--rich-editor-only')) {
-    const spotlight = '.tasks-heading [aria-label="Show app in screen shares"]'
+    const spotlight = '.sidebar-actions [aria-label="Show app in screen shares"]'
     await until(`document.querySelector('${spotlight}')?.getAttribute('aria-pressed') === 'true'`, 'Spotlight reflects the saved sharing setting')
     assert.equal(win.isContentProtected(), false)
     await evaluate(`document.querySelector('${spotlight}').click()`)
@@ -322,14 +322,18 @@ app.whenReady().then(async () => {
     app.exit(0);return
   }
   const completionTarget = (await evaluate(`window.captured.taskWorkspace.list({today:'${seeded.today}',query:'Scheduled review'})`)).value.items[0]
-  await evaluate(`document.querySelector('[data-task-id="${completionTarget.id}"] input[type="checkbox"]').click()`)
+  await evaluate(`document.querySelector('[data-task-id="${completionTarget.id}"] .tasks-done-action').click()`)
   await until(`document.querySelector('.tasks-notice')?.textContent.includes('Task completed')`,'completion notice')
   await evaluate(`(()=>{const input=document.querySelector('[aria-label="Search tasks"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Scheduled review');input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
   await until(`Boolean(document.querySelector('.tasks-empty-state'))`,'completed task hidden from ordinary search')
-  await click('Show completed')
+  await evaluate(`document.querySelector('[aria-label="Task view options"]').click()`)
+  await until(`Boolean(document.querySelector('[role="menuitem"]'))`, 'task view menu opens')
+  await evaluate(`[...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent.trim() === 'Show completed').click()`)
   await until(`document.querySelector('.tasks-search-results .task-search-status')?.textContent==='Completed'`,'completed task in completed search')
   await screenshot('tasks-completed-search-light.png')
-  await click('Hide completed')
+  await evaluate(`document.querySelector('[aria-label="Task view options"]').click()`)
+  await until(`Boolean(document.querySelector('[role="menuitem"]'))`, 'task view menu opens')
+  await evaluate(`[...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent.trim() === 'Hide completed').click()`)
   await click('Clear filters')
   await click('Undo')
   await until(`Boolean(document.querySelector('[data-task-id="${completionTarget.id}"]'))`,'completion Undo')

@@ -1,11 +1,9 @@
-import { CategoryPicker } from '../components/CategoryPicker'
-import { useTaxonomy } from '../components/useTaxonomy'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { EventDialog } from './EventDialog'
 import { collectTags, TagEditor } from '../components/TagEditor'
 import { TaskDescriptionField, type TaskDescription } from '../components/TaskDescriptionField'
 import { useImagePaste } from '../components/useImagePaste'
-import type { Category, TagRecord, PlannerEventInput, PlannerTaskCreate } from '../../shared/contracts'
+import type { TagRecord, PlannerEventInput, PlannerTaskCreate } from '../../shared/contracts'
 import { localDateTime } from '../../shared/calendarSchedule'
 import { toLocalISODate } from '../../shared/plannerDates'
 
@@ -13,13 +11,8 @@ export type CalendarDraft = { start: Date; end: Date; allDay: boolean; kind?: 'm
 export function CalendarCreateDialog({ draft, onClose, onMeeting, onTask }: { draft: CalendarDraft; onClose: () => void; onMeeting: (input: PlannerEventInput) => Promise<string | null>; onTask: (input: PlannerTaskCreate) => Promise<string | null> }) {
   const [kind, setKind] = useState<'meeting' | 'task'>(draft.kind ?? 'meeting')
   const [description, setDescription] = useState<TaskDescription>({ body: '' })
-  const taxonomy=useTaxonomy()
-  const [subcategoryId,setSubcategoryId]=useState<string|null>(null)
-  const [categoryId, setCategoryId] = useState<string | null>(null)
-  const [categories, setCategories] = useState<Category[]>([])
   const [tagOptions, setTagOptions] = useState<TagRecord[]>([])
   const [tags, setTags] = useState<string[]>([])
-  const [taxonomyLoading, setTaxonomyLoading] = useState(true)
   const [start, setStart] = useState(localDateTime(draft.start.getTime()))
   const [end, setEnd] = useState(localDateTime(draft.end.getTime()))
 
@@ -33,13 +26,11 @@ export function CalendarCreateDialog({ draft, onClose, onMeeting, onTask }: { dr
   useEffect(() => {
     if (kind !== 'task') return
     let active = true
-    setTaxonomyLoading(true)
     void window.captured.items.taxonomy().then((result) => {
       if (!active) return
       if (!result.ok) { setError(result.message); return }
-      setCategories(result.value.categories); setTagOptions(result.value.tags)
-    }).catch(() => { if (active) setError('Categories and tags could not be loaded.') })
-      .finally(() => { if (active) setTaxonomyLoading(false) })
+      setTagOptions(result.value.tags)
+    }).catch(() => { if (active) setError('Tags could not be loaded.') })
     return () => { active = false }
   }, [kind])
   const switcher = <div className="calendar-create-switch planner-view-switch" aria-label="Create item type"><button type="button" aria-pressed={kind === 'meeting'} onClick={() => setKind('meeting')} disabled={busy}>Meeting</button><button type="button" aria-pressed={kind === 'task'} onClick={() => setKind('task')} disabled={busy || draft.allDay}>Task</button></div>
@@ -60,9 +51,8 @@ export function CalendarCreateDialog({ draft, onClose, onMeeting, onTask }: { dr
     try {
       const message = await onTask({
         ...description,
-        categoryId,
-        subcategoryId,
         tags: collectTags(tags),
+        categoryId: null,
         images: imageEdit.images,
         placement: draft.ready ? { kind: 'ready' } : { kind: 'timed', startAt, endAt }
       })
@@ -71,7 +61,6 @@ export function CalendarCreateDialog({ draft, onClose, onMeeting, onTask }: { dr
   }}>
     {!draft.ready && switcher}<div className="event-dialog-kicker">{draft.ready ? 'READY TASK' : 'SCHEDULED TASK'}</div><h2 id="create-task-title">Add a task</h2>
     <TaskDescriptionField label="Task" accessibleName="Task" value={description} onChange={setDescription} images={imageEdit} disabled={busy} />
-    <CategoryPicker categories={categories} subcategories={taxonomy.subcategories} categoryId={categoryId} subcategoryId={subcategoryId} onChange={(category,subcategory)=>{setCategoryId(category);setSubcategoryId(subcategory)}} disabled={busy||taxonomyLoading}/>
     <div className="task-detail-tags"><span>Tags</span><TagEditor tags={tags} onTagsChange={setTags} suggestions={tagOptions.map((tag) => tag.name)} disabled={busy} /></div>
     {!draft.ready && <><div className="event-form-times"><label>Starts<input className="text-field" type="datetime-local" value={start} disabled={busy} required onChange={(event) => setStart(event.target.value)} /></label>{<label>Ends<input className="text-field" type="datetime-local" value={end} disabled={busy} required onChange={(event) => setEnd(event.target.value)} /></label>}</div>
 </>}

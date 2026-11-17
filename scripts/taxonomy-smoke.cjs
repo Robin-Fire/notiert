@@ -1,4 +1,3 @@
-const selectOption = require('./select-option.cjs')
 const { app, BrowserWindow } = require('electron')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
@@ -45,7 +44,7 @@ app.whenReady().then(async () => {
     const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl8n+QAAAAASUVORK5CYII=';
     const bytes=Uint8Array.from(atob(png),value=>value.charCodeAt(0));
     const transfer=new DataTransfer();transfer.items.add(new File([bytes],'snip.png',{type:'image/png'}));
-    document.querySelector('.task-detail-editor').dispatchEvent(new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true}));
+    document.querySelector('[aria-label="Full task text"]').dispatchEvent(new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true}));
   })()`)
   await wait(200)
   assert.equal(await evaluate(`document.querySelectorAll('.attachment-thumbnail').length`),1)
@@ -56,6 +55,7 @@ app.whenReady().then(async () => {
     const preview=new BrowserWindow({width,height,show:false,webPreferences:{offscreen:true,javascript:false}})
     try{await preview.loadFile(file);await wait(350);fs.writeFileSync(path.join(output,name),(await preview.webContents.capturePage()).toPNG())}finally{preview.destroy()}
   }
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Item category"]') === null`), true)
   await screenshot('taxonomy-editor-light.png')
   await evaluate(`[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='Save changes').click()`)
   await wait(200)
@@ -65,7 +65,6 @@ app.whenReady().then(async () => {
   await evaluate(`document.querySelector('.sidebar .brand').click()`)
   await wait(300)
   await expandUnplanned()
-  await until(`Boolean(document.querySelector('[aria-label="Filter tasks by category"]'))`)
   await until(`Boolean(document.querySelector('.tasks-card-body'))`)
   await screenshot('taxonomy-backlog-light.png')
   await wait(250)
@@ -74,19 +73,6 @@ app.whenReady().then(async () => {
   await wait(250)
   await screenshot('taxonomy-sidebar-tags-dark.png')
   await evaluate(`window.captured.settings.update({theme:'light'})`)
-  await wait(150)
-  await wait(150)
-  await evaluate(`[...document.querySelectorAll('.tasks-card-body')].find(button=>button.textContent.includes('Screenshot context')).click()`)
-  await wait(200)
-  assert.equal(await evaluate(`document.querySelector('[aria-label="Item subcategory"]').value`),seeded.sub.id)
-  await selectOption(evaluate, '[aria-label="Item category"]', seeded.other.id)
-  await wait(100)
-  assert.equal(await evaluate(`document.querySelector('[aria-label="Item subcategory"]').value`),'')
-  await evaluate(`[...document.querySelectorAll('.task-detail-actions button')].find(button=>button.textContent.trim()==='Save changes').click()`)
-  await wait(200)
-  saved=await evaluate(`window.captured.items.get(${JSON.stringify(seeded.task.id)})`)
-  assert.equal(saved.value.categoryId,seeded.other.id);assert.equal(saved.value.subcategoryId,null);assert.equal(saved.value.images.length,1);assert.deepEqual(new Set(saved.value.tags),new Set(['waiting','follow-up']))
-  await evaluate(`window.captured.items.setCategory({id:${JSON.stringify(seeded.task.id)},categoryId:${JSON.stringify(seeded.category.id)},subcategoryId:${JSON.stringify(seeded.sub.id)}})`)
   await evaluate(`window.captured.planner.createTask({body:'Later screenshot follow-up',categoryId:${JSON.stringify(seeded.category.id)},tags:['follow-up'],placement:{kind:'later'}})`)
   await wait(300)
   await evaluate(`document.querySelector('.sidebar .brand').click()`)
@@ -122,14 +108,6 @@ app.whenReady().then(async () => {
   await until(`Boolean([...document.querySelectorAll('.tasks-card-body')].find(button=>button.textContent.includes('Unassigned inbox review')))` )
   assert.equal(await evaluate(`Boolean([...document.querySelectorAll('.tasks-card-body')].find(button=>button.textContent.includes('Unassigned inbox review')))`),true)
   await screenshot('tasks-captures-light.png')
-  await evaluate(`[...document.querySelectorAll('.tasks-card-body')].find(button=>button.textContent.includes('Unassigned inbox review')).click()`)
-  await wait(150)
-  await selectOption(evaluate, '[aria-label="Item category"]', seeded.category.id)
-  await wait(150)
-  await screenshot('tasks-capture-category-light.png')
-  await evaluate(`[...document.querySelectorAll('.task-detail-actions button')].find(button=>button.textContent.trim()==='Save changes').click()`)
-  await wait(250)
-  assert.equal(await evaluate(`document.querySelector('.tasks-board').textContent.includes('Work')`),true)
   await evaluate(`window.captured.settings.update({theme:'dark'})`)
   await wait(150)
   await screenshot('inbox-compact-dark.png')
@@ -140,7 +118,7 @@ app.whenReady().then(async () => {
   await wait(150)
   await screenshot('inbox-compact-narrow-dark.png',760,800)
   assert.equal(errors.length,0,errors.join('\n'))
-  process.stdout.write('taxonomy_ipc=ok note_image_paste=ok task_category_move=ok independent_tags=ok capture_draft=ok restart=ok screenshots=tests/.visual\n')
+  process.stdout.write('taxonomy_ipc=ok note_image_paste=ok independent_tags=ok capture_draft=ok restart=ok screenshots=tests/.visual\n')
   app.exit(0)
 }).catch(error=>{process.stderr.write(`${error.stack??error}\n`);app.exit(1)})
 app.on('quit',()=>{const target=path.resolve(profile);if(path.dirname(target)!==tempRoot||!path.basename(target).startsWith('captured-taxonomy-smoke-'))return;try{fs.rmSync(target,{recursive:true,force:true})}catch{}})
