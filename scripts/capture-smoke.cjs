@@ -46,6 +46,17 @@ app.whenReady().then(async () => {
     if (gap > 2) throw Error(`Capture has unused space below footer: ${gap}`)
   }
   await checkFooter()
+  const footerLayout = await capture.webContents.executeJavaScript(`(() => {
+    const footer = document.querySelector('.capture-footer')
+    const picker = footer.querySelector('[aria-label="Edit tags for quick capture"]')
+    const hint = footer.querySelector('.capture-hint')
+    const save = footer.querySelector('.capture-submit')
+    return picker && hint && save &&
+      picker.getBoundingClientRect().right <= hint.getBoundingClientRect().left &&
+      Math.abs(save.getBoundingClientRect().left - hint.getBoundingClientRect().right - 8) <= 1 &&
+      !hint.textContent.includes('Esc')
+  })()`)
+  if (!footerLayout) throw Error('Expected tags on the left and the newline hint beside Save')
   async function checkUpwardPicker(trigger, popup) {
     capture.show(); capture.focus(); await wait(200)
     await capture.webContents.executeJavaScript(`document.querySelector('.capture-input').focus()`)

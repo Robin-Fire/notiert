@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.1.30 - 2026-11-19
+
+- Rename the sidebar destination to All Tasks and highlight only the current page with a neutral background.
+- Right-align sidebar tag counts and move tag editing beside the options menu on each tag page.
+- Move the icon-only tag picker to the Quick Capture footer, place the newline shortcut beside Save, and remove the close hint.
+
 ## 0.1.29 - 2026-11-17
 
 - Put newly tagged tasks at the top of their tag pages and keep drag-to-reorder available.

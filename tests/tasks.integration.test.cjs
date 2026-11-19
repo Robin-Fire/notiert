@@ -181,8 +181,8 @@ test('taxonomy refresh ignores old responses and does not trigger another notes 
     await act(async () => requests[1]({ ok: true, value: { tags: [{ id: noteId, name: 'Current label', color: '#85858e', count: 1 }] } }))
     await act(async () => requests[0]({ ok: true, value: { tags: [{ id: noteId, name: 'Old label', color: '#85858e', count: 1 }] } }))
     assert.equal(listCalls, 1)
-    assert.ok(screen.getByRole('button', { name: 'Edit tag Current label' }))
-    assert.equal(screen.queryByRole('button', { name: 'Edit tag Old label' }), null)
+    assert.ok(sidebar().getByRole('button', { name: /^Current label/ }))
+    assert.ok(!sidebar().queryByRole('button', { name: /^Old label/ }))
   } finally { app.unmount() }
 })
 
@@ -213,7 +213,12 @@ test('tag management requires confirmation before deletion', async () => {
   app.api.items.deleteTag = async (id) => { deletedTag = id; taxonomy = { ...taxonomy, tags: taxonomy.tags.filter((tag) => tag.id !== id) }; return { ok: true, value: undefined } }
   try {
     assert.equal(sidebar().queryByRole('button', { name: 'Categories' }), null)
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit tag Planning' }))
+    const planning = await sidebar().findByRole('button', { name: /^Planning/ })
+    assert.ok(!screen.queryByRole('button', { name: 'Edit tag Planning' }))
+    fireEvent.click(planning)
+    const edit = await screen.findByRole('button', { name: 'Edit tag Planning' })
+    assert.equal(edit.nextElementSibling, screen.getByRole('button', { name: 'Task view options' }))
+    fireEvent.click(edit)
     await screen.findByRole('dialog', { name: 'Edit tag' })
     fireEvent.click(screen.getByRole('button', { name: 'Delete', exact: true }))
     assert.equal(deletedTag, undefined)
@@ -628,6 +633,7 @@ const tasksNav = () => fireEvent.click(screen.getByRole('button', { name: 'captu
 
 test('selecting another sidebar tag replaces the active tag and its tasks', async () => {
   browserWorkspace()
+  await window.captured.settings.update({ showCalendar: false })
   for (const [body, tags] of [
     ['Planning only', ['Client planning']],
     ['Review only', ['Client review']],
@@ -639,13 +645,21 @@ test('selecting another sidebar tag replaces the active tag and its tasks', asyn
   try {
     const planning = await sidebar().findByRole('button', { name: /^Client planning/ })
     const review = sidebar().getByRole('button', { name: /^Client review/ })
+    const allTasks = sidebar().getByRole('button', { name: 'All Tasks' })
+    assert.equal(allTasks.getAttribute('aria-current'), 'page')
+    await waitFor(() => assert.ok(!sidebar().queryByRole('button', { name: 'Calendar' })))
     fireEvent.click(planning)
+    assert.equal(allTasks.getAttribute('aria-current'), null)
+    assert.equal(planning.getAttribute('aria-current'), 'page')
     const first = within(await screen.findByRole('table', { name: 'Tagged tasks list' }))
     assert.ok(first.getByRole('button', { name: 'Planning only', exact: true }))
     assert.ok(first.getByRole('button', { name: 'Both tags', exact: true }))
     assert.equal(first.queryByRole('button', { name: 'Review only', exact: true }), null)
 
     fireEvent.click(review)
+    assert.equal(allTasks.getAttribute('aria-current'), null)
+    assert.equal(planning.getAttribute('aria-current'), null)
+    assert.equal(review.getAttribute('aria-current'), 'page')
     assert.equal(planning.getAttribute('aria-pressed'), 'false')
     assert.equal(review.getAttribute('aria-pressed'), 'true')
     assert.equal(screen.queryByRole('button', { name: 'Planning only', exact: true }), null)
@@ -653,6 +667,10 @@ test('selecting another sidebar tag replaces the active tag and its tasks', asyn
     assert.ok(second.getByRole('button', { name: 'Review only', exact: true }))
     assert.ok(second.getByRole('button', { name: 'Both tags', exact: true }))
     assert.equal(second.queryByRole('button', { name: 'Planning only', exact: true }), null)
+
+    fireEvent.click(allTasks)
+    assert.equal(allTasks.getAttribute('aria-current'), 'page')
+    assert.equal(review.getAttribute('aria-current'), null)
   } finally { app.unmount() }
 })
 

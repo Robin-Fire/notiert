@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react'
 import { Check, Hash, Plus, Search } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from './ui/popover'
 
-export function TaskTagPicker({ tags, suggestions, label, disabled, onSave, onOpenChange, side = 'bottom' }: {
+export function TaskTagPicker({ tags, suggestions, label, disabled, onSave, onOpenChange, side = 'bottom', iconOnly = false }: {
   side?: 'top' | 'bottom'
+  iconOnly?: boolean
   tags: string[]
   suggestions: string[]
   label: string
@@ -27,8 +28,10 @@ export function TaskTagPicker({ tags, suggestions, label, disabled, onSave, onOp
   }
   return (
     <Popover open={open} onOpenChange={value => { setOpen(value); onOpenChange?.(value); if (!value) setQuery('') }}>
-      <PopoverTrigger disabled={disabled && !open} aria-label={`Edit tags for ${label}`}><Hash size={11} /> Tags</PopoverTrigger>
-      <PopoverContent side={side} onKeyDown={event => event.stopPropagation()} align="end" className="task-tag-popover" aria-label={`Tags for ${label}`}>
+      <PopoverTrigger disabled={disabled && !open} aria-label={`Edit tags for ${label}`} title={iconOnly ? 'Edit tags' : undefined}>
+        <Hash size={11} aria-hidden="true" />{iconOnly ? null : ' Tags'}
+      </PopoverTrigger>
+      <PopoverContent side={side} onKeyDown={event => event.stopPropagation()} align={iconOnly ? 'start' : 'end'} className="task-tag-popover" aria-label={`Tags for ${label}`}>
         <PopoverTitle className="task-tag-title">Tags</PopoverTitle>
         <label className="task-tag-search"><Search size={13} /><input autoFocus aria-label={`Find or create tags for ${label}`} placeholder="Find or create a tag..." value={query} maxLength={40} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && canCreate) { event.preventDefault(); void toggle(name) } }} /></label>
         <div className="task-tag-options" aria-label="Available tags">

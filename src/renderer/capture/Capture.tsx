@@ -8,7 +8,7 @@ import {
   type CompositionEvent,
   type KeyboardEvent
 } from 'react'
-import { AlertCircle, ArrowUpRight, Copy, CornerDownLeft, RotateCcw, Tag, X } from 'lucide-react'
+import { AlertCircle, ArrowUpRight, Copy, CornerDownLeft, RotateCcw, X } from 'lucide-react'
 import type { CaptureState } from '../../shared/contracts'
 
 export function Capture() {
@@ -341,18 +341,6 @@ export function Capture() {
             onCompositionEnd={(_event: CompositionEvent<HTMLTextAreaElement>) => setComposing(false)}
             onBlur={() => { void flushDraft() }}
           />
-          <div className="capture-category-control capture-tag-control">
-            <Tag size={13} />
-            <span>Tags</span>
-            <TaskTagPicker tags={state.tags ?? []} suggestions={tagSuggestions} label="quick capture" side="top"
-              disabled={saving || !state.available}
-              onSave={async (tags) => {
-                captureTags.current = tags
-                setState((current) => ({ ...current, tags }))
-                await persistDraft(bodyRef.current)
-                return true
-              }} />
-          </div>
           {!!state.tags?.length && (
             <div className="capture-context-tags" aria-label="Capture tags">
               {state.tags.map((tag) => (
@@ -419,29 +407,40 @@ export function Capture() {
               )}
             </div>
           )}
-          {state.available && !error && (
-            <footer className="capture-footer">
-              <span className="capture-hint" id="capture-instructions">
-                <kbd>Shift ↵</kbd> new line <span className="capture-hint-divider">·</span> <kbd>Esc</kbd>{' '}
-                close
-              </span>
-              {[...body].length > 47_500 && (
-                <span className="capture-count near-limit">{[...body].length.toLocaleString()} / 50,000</span>
-              )}
-              <button
-                className="capture-submit"
-                title="Save capture (Enter)"
-                onClick={() => void submit()}
-                disabled={
-                  (!body.trim() && !state.images.length) || saving || imagePending || !state.available
-                }
-                aria-label="Save task"
-              >
-                <span>{saving ? 'Saving…' : imagePending ? 'Pasting…' : 'Save'}</span>
-                <CornerDownLeft size={13} />
-              </button>
-            </footer>
-          )}
+          <footer className="capture-footer">
+            <div className="capture-tag-control">
+              <TaskTagPicker tags={state.tags ?? []} suggestions={tagSuggestions} label="quick capture" side="top" iconOnly
+                disabled={saving || !state.available}
+                onSave={async (tags) => {
+                  captureTags.current = tags
+                  setState((current) => ({ ...current, tags }))
+                  await persistDraft(bodyRef.current)
+                  return true
+                }} />
+            </div>
+            {state.available && !error && (
+              <>
+                {[...body].length > 47_500 && (
+                  <span className="capture-count near-limit">{[...body].length.toLocaleString()} / 50,000</span>
+                )}
+                <span className="capture-hint" id="capture-instructions">
+                  <kbd>Shift ↵</kbd> new line
+                </span>
+                <button
+                  className="capture-submit"
+                  title="Save capture (Enter)"
+                  onClick={() => void submit()}
+                  disabled={
+                    (!body.trim() && !state.images.length) || saving || imagePending || !state.available
+                  }
+                  aria-label="Save task"
+                >
+                  <span>{saving ? 'Saving…' : imagePending ? 'Pasting…' : 'Save'}</span>
+                  <CornerDownLeft size={13} />
+                </button>
+              </>
+            )}
+          </footer>
         </div>
       </div>
     </main>

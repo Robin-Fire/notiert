@@ -6,6 +6,7 @@ import { TagFilter } from '../components/TagFilter'
 import { ItemDetailDialog } from '../components/ItemDetailDialog'
 import { AppSidebar, type ViewName } from '../components/AppSidebar'
 import { TaxonomyNav } from '../components/TaxonomyNav'
+import { TagEditButton } from '../components/TagEditButton'
 import {
   lazy,
   Suspense,
@@ -107,6 +108,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
     refresh: loadTags
   } = useTaxonomy()
   const taskTag = tagRecords.find((tag) => tag.id === taskPage)
+  const activeTagId = view === 'tasks' ? taskTag?.id : undefined
 
   const availableTags = useMemo(() => tagRecords.map((tag) => tag.name), [tagRecords])
   const [selectedTagId, setSelectedTagId] = useState<string | null>(null)
@@ -701,6 +703,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
     <div className="items-window workspace-window">
       <AppSidebar
         view={view}
+        activeTagId={activeTagId}
         nav={(next) => {
           if (next === 'tasks' && !editItem) {
             setTaskPage(null)
@@ -714,7 +717,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
       >
         <TaxonomyNav
           tags={tagRecords}
-          activeTagId={view === 'tasks' ? taskTag?.id : undefined}
+          activeTagId={activeTagId}
           onTag={(id) => {
             if (editItem) return
             setTaskPage(view === 'tasks' && taskTag?.id === id ? null : id)
@@ -775,6 +778,7 @@ export function TaskApp({ initialView = 'tasks' }: { initialView?: ViewName } = 
               taxonomyReady={taxonomyLoaded}
               title={taskTag?.name ?? 'Tasks'}
               selectedTag={taskTag?.name}
+              tagAction={taskTag && <TagEditButton key={taskTag.id} tag={taskTag} onChanged={loadTags} />}
               query={taskQuery}
               setQuery={setTaskQuery}
               searchRef={searchRef}

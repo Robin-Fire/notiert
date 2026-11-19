@@ -13,8 +13,9 @@ export type ViewName =
   | 'settings'
   | 'tag'
 
-export function AppSidebar({ view, nav, showCalendar, captureProtection, onCaptureProtectionChange, children }: {
+export function AppSidebar({ view, activeTagId, nav, showCalendar, captureProtection, onCaptureProtectionChange, children }: {
   view: ViewName
+  activeTagId?: string
   nav: (view: ViewName) => void
   showCalendar: boolean
   captureProtection?: boolean
@@ -36,7 +37,7 @@ export function AppSidebar({ view, nav, showCalendar, captureProtection, onCaptu
     catch { /* The toggle still works for the current session. */ }
   }
 
-  const tasksActive = ['tasks', 'ready', 'later', 'backlog', 'inbox'].includes(view)
+  const tasksActive = activeTagId === undefined && ['tasks', 'ready', 'later', 'backlog', 'inbox'].includes(view)
 
   return (
     <aside className={collapsed ? 'sidebar is-collapsed' : 'sidebar'} aria-label="Workspace sidebar">
@@ -47,7 +48,7 @@ export function AppSidebar({ view, nav, showCalendar, captureProtection, onCaptu
         </button>
         <nav className="side-nav" aria-label="Main navigation">
           <button type="button" aria-current={tasksActive ? 'page' : undefined} onClick={() => nav('tasks')}>
-            <FolderKanban size={17} /><span>Tasks</span>
+            <FolderKanban size={17} /><span>All Tasks</span>
           </button>
           {showCalendar && (
             <button type="button" aria-current={view === 'calenban' ? 'page' : undefined} onClick={() => nav('calenban')}>

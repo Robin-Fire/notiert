@@ -201,12 +201,12 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .capture-image img { width: 100%; height: 100%; object-fit: cover; }
 .capture-image button { position: absolute; top: 2px; right: 2px; display: grid; width: 18px; height: 18px; place-items: center; border: 0; border-radius: 4px; background: rgb(0 0 0 / 72%); color: #fff; }
 .capture-footer { display: flex; min-height: 47px; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; border-top: 1px solid var(--border); background: var(--surface-hover); }
-.capture-hint { display: flex; flex: 1 0 auto; align-items: center; gap: 5px; color: var(--text-secondary); font-size: var(--type-caption); }
+.capture-tag-control { margin-inline-end: auto; }
+.capture-hint { display: flex; align-items: center; gap: 5px; color: var(--text-secondary); font-size: var(--type-caption); }
 .capture-hint kbd { height: 18px; min-width: 0; padding: 0 4px; font-family: var(--font-sans); font-size: var(--type-caption); }
-.capture-hint-divider { margin: 0 2px; color: var(--text-muted); }
 .capture-count { color: var(--text-secondary); font: var(--type-caption) var(--font-mono); }
 .capture-count.near-limit { color: var(--red); }
-.capture-submit { display: inline-flex; min-width: 68px; height: 30px; align-items: center; justify-content: center; gap: 8px; margin-left: auto; padding: 0 10px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: var(--accent-text); font-size: var(--type-secondary); transition: opacity 120ms ease, transform 120ms ease; }
+.capture-submit { display: inline-flex; min-width: 68px; height: 30px; align-items: center; justify-content: center; gap: 8px; padding: 0 10px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: var(--accent-text); font-size: var(--type-secondary); transition: opacity 120ms ease, transform 120ms ease; }
 .capture-submit:hover:not(:disabled) { opacity: .85; }
 .capture-submit:active:not(:disabled) { transform: translateY(1px); }
 .capture-submit:disabled { opacity: .38; }
@@ -1147,29 +1147,17 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .workspace-window .sidebar-utilities { flex-shrink: 0; border-top: 1px solid var(--border); padding-top: 7px; }
 .workspace-window .sidebar .taxonomy-navigation { display: block; margin: 0; }
 .sidebar .taxonomy-navigation > section { padding: 8px 0; }
-.sidebar .taxonomy-nav-row > :is(.taxonomy-disclosure, .taxonomy-row-action) {
-  display: grid;
-  flex: 0 0 23px;
-  height: 27px;
-  place-items: center;
-  padding: 0;
-  color: var(--text-secondary);
-}
 .sidebar .taxonomy-nav-row button:hover { background: var(--surface-hover); color: var(--text); }
 .sidebar .taxonomy-nav-row { min-height: 33px; gap: 1px; padding: 1px 0; }
 .sidebar .taxonomy-nav-row .taxonomy-filter {
   flex: 1 1 auto;
   min-height: 31px;
   gap: 7px;
-  padding: 4px 6px;
+  padding: 4px 9px 4px 6px;
   border-radius: 5px;
   font-size: 14px;
 }
 .sidebar .taxonomy-filter small { font: 11px var(--font-mono); }
-.sidebar .taxonomy-row-action { opacity: 0; }
-.sidebar .taxonomy-nav-row:hover .taxonomy-row-action,
-.sidebar .taxonomy-nav-row:focus-within .taxonomy-row-action { opacity: 1; }
-@media (hover: none) { .sidebar .taxonomy-row-action { opacity: 1; } }
 .sidebar .taxonomy-filter:is([data-reorderable], [draggable=true]) { cursor: pointer; }
 .sidebar .taxonomy-tag-row[data-dragging] {
   z-index: 2;
@@ -1180,8 +1168,8 @@ kbd { display: inline-grid; min-width: 19px; height: 19px; padding: 0 5px; place
 .sidebar .taxonomy-tag-row[data-dragging] .taxonomy-filter { cursor: grabbing; }
 .sidebar .category-children { margin-left: 30px; padding-left: 10px; border-left: 1px solid var(--border); }
 .workspace-window .side-nav button[aria-current=page],
-.sidebar .taxonomy-filter[aria-pressed=true] {
-  background: var(--blue-soft);
+.sidebar .taxonomy-nav-row .taxonomy-filter[aria-current=page] {
+  background: var(--surface-raised);
   color: var(--text);
   font-weight: 600;
 }

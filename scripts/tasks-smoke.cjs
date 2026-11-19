@@ -283,6 +283,7 @@ app.whenReady().then(async () => {
     })()`), 'Table fits at the minimum window width')
     await verifyTablePreview(true)
     await screenshot('tasks-table-narrow.png', 760, 700)
+    await togglePlanning()
     await until(`Boolean(document.querySelector('[aria-label="Edit tag Planning"]'))`, 'tag management')
     await click('Trash', '.sidebar .side-nav button')
     await until(`document.querySelector('main h1')?.textContent.startsWith('Trash')`, 'Trash navigation')

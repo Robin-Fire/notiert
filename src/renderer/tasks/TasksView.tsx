@@ -102,6 +102,7 @@ export function TasksView({
   taxonomyReady,
   title,
   selectedTag,
+  tagAction,
   query,
   setQuery,
   searchRef,
@@ -109,6 +110,7 @@ export function TasksView({
   tags: TagRecord[]
   title: string
   selectedTag?: string
+  tagAction?: React.ReactNode
   query: string
   setQuery: (query: string) => void
   searchRef: React.RefObject<HTMLInputElement | null>
@@ -544,6 +546,7 @@ export function TasksView({
               </button>
             </div>
           )}
+          {tagAction}
           <DropdownMenu>
             <DropdownMenuTrigger className="tasks-view-options" data-completed={completed || undefined}
               aria-label="Task view options" title="Task view options">

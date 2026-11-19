@@ -90,6 +90,8 @@ app.whenReady().then(async () => {
   await window.reload();await wait(500)
   const persisted=await window.webContents.executeJavaScript(`window.captured.items.get(${JSON.stringify(seeded.task.id)})`)
   assert.equal(persisted.value.subcategoryId,seeded.sub.id);assert.equal(persisted.value.images.length,1)
+  await until(`Boolean(document.querySelector('.taxonomy-filter[title="follow-up"]'))`)
+  await evaluate(`document.querySelector('.taxonomy-filter[title="follow-up"]').click()`)
   await until(`Boolean(document.querySelector('[aria-label="Edit tag follow-up"]'))`)
   await evaluate(`document.querySelector('[aria-label="Edit tag follow-up"]').click()`)
   await wait(200)
